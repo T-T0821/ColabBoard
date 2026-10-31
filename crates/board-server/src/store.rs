@@ -9,6 +9,8 @@
 //! | `user_boards` | (ログイン名, ボード ID) | [`UserBoard`](crate::boards::UserBoard)(JSON) |
 //! | `comments` | (ボード ID, コメント ID) | [`Comment`](board_core::api::Comment)(JSON) |
 //! | `notifications` | (ログイン名, 通知 ID) | [`Notification`](board_core::api::Notification)(JSON) |
+//! | `versions` | (ボード ID, バージョン ID) | その時点のボードの状態(yrs v1 更新) |
+//! | `version_info` | (ボード ID, バージョン ID) | [`VersionInfo`](board_core::api::VersionInfo)(JSON) |
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -27,6 +29,9 @@ pub(crate) const USER_BOARDS: TableDefinition<(&str, &str), &[u8]> =
 pub(crate) const COMMENTS: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("comments");
 pub(crate) const NOTIFICATIONS: TableDefinition<(&str, u64), &[u8]> =
     TableDefinition::new("notifications");
+pub(crate) const VERSIONS: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("versions");
+pub(crate) const VERSION_INFO: TableDefinition<(&str, u64), &[u8]> =
+    TableDefinition::new("version_info");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
 pub fn next_id() -> u64 {
@@ -76,6 +81,8 @@ impl Store {
         txn.open_table(USER_BOARDS)?;
         txn.open_table(COMMENTS)?;
         txn.open_table(NOTIFICATIONS)?;
+        txn.open_table(VERSIONS)?;
+        txn.open_table(VERSION_INFO)?;
         txn.commit()?;
         Ok(Self { db, persistent })
     }

@@ -11,15 +11,17 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use board_core::api::{
     ApiError, BoardInfo, Comment, EditComment, Login, MarkRead, Me, NewBoard, NewComment,
-    Notification, Posted, RenameBoard, Role, SetLink, SetMember, Sharing, Signup,
+    NewVersion, Notification, Posted, RenameBoard, Role, SetLink, SetMember, Sharing, Signup,
+    VersionInfo,
 };
-use board_core::protocol::TOPIC_COMMENTS;
+use board_core::protocol::{TOPIC_COMMENTS, TOPIC_VERSIONS};
 use serde::Deserialize;
 
 use crate::auth::{self, AuthError, SESSION_COOKIE, UserRecord};
 use crate::boards::{self, BoardMeta, Visitor};
 use crate::comments::{self, CommentError};
 use crate::store::StoreError;
+use crate::versions;
 use crate::{AppState, valid_room_name};
 
 pub fn routes() -> Router<Arc<AppState>> {
@@ -44,6 +46,15 @@ pub fn routes() -> Router<Arc<AppState>> {
             "/boards/{id}/comments/{cid}",
             axum::routing::patch(edit_comment).delete(delete_comment),
         )
+        .route(
+            "/boards/{id}/versions",
+            get(list_versions).post(create_version),
+        )
+        .route(
+            "/boards/{id}/versions/{vid}",
+            get(version_state).patch(rename_version),
+        )
+        .route("/boards/{id}/versions/{vid}/restore", post(restore_version))
         .route("/notifications", get(notifications))
         .route("/notifications/read", post(mark_read))
 }
@@ -322,6 +333,7 @@ async fn delete_board(
     boards::put(state.store(), &meta)?;
     boards::forget(state.store(), &user.login, &id)?;
     comments::delete_all(state.store(), &id)?;
+    versions::delete_all(state.store(), &id)?;
     state.hub.delete(&id)?;
     tracing::info!(board = %id, "ボード削除");
     Ok(StatusCode::NO_CONTENT)
@@ -480,4 +492,133 @@ async fn mark_read(
     let user = require_user(&state, &headers)?;
     comments::mark_read(state.store(), &user.login, req.ids.as_deref())?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+// ---- バージョン履歴 ----
+
+fn version_not_found() -> Error {
+    Error::new(StatusCode::NOT_FOUND, "バージョンが見つかりません")
+}
+
+/// 編集者以上か確かめる。
+fn require_editor(
+    state: &AppState,
+    id: &str,
+    user: Option<&UserRecord>,
+    key: Option<&str>,
+) -> ApiResult<()> {
+    let (_, role) = board_access(state, id, user.map(|u| u.login.as_str()), key)?;
+    if !role.can_edit() {
+        return Err(Error::forbidden());
+    }
+    Ok(())
+}
+
+async fn list_versions(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<KeyQuery>,
+) -> ApiResult<Json<Vec<VersionInfo>>> {
+    let user = current_user(&state, &headers)?;
+    board_access(
+        &state,
+        &id,
+        user.as_ref().map(|u| u.login.as_str()),
+        q.key.as_deref(),
+    )?;
+    Ok(Json(versions::list(state.store(), &id)?))
+}
+
+async fn create_version(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<KeyQuery>,
+    Json(req): Json<NewVersion>,
+) -> ApiResult<(StatusCode, Json<VersionInfo>)> {
+    let user = current_user(&state, &headers)?;
+    require_editor(&state, &id, user.as_ref(), q.key.as_deref())?;
+    let current = state
+        .hub
+        .current_state(&id)?
+        .ok_or_else(|| Error::bad_request("まだ中身のないボードです"))?;
+    let label = req.label.unwrap_or_else(|| "名前のないバージョン".into());
+    let info = versions::create(state.store(), &id, &current, Some(&label), user.as_ref())?;
+    state.hub.refresh(&id, TOPIC_VERSIONS);
+    Ok((StatusCode::CREATED, Json(info)))
+}
+
+async fn version_state(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, vid)): Path<(String, u64)>,
+    Query(q): Query<KeyQuery>,
+) -> ApiResult<Response> {
+    let user = current_user(&state, &headers)?;
+    board_access(
+        &state,
+        &id,
+        user.as_ref().map(|u| u.login.as_str()),
+        q.key.as_deref(),
+    )?;
+    let bytes = versions::state(state.store(), &id, vid)?.ok_or_else(version_not_found)?;
+    Ok((
+        [(axum::http::header::CONTENT_TYPE, "application/octet-stream")],
+        bytes,
+    )
+        .into_response())
+}
+
+async fn rename_version(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, vid)): Path<(String, u64)>,
+    Query(q): Query<KeyQuery>,
+    Json(req): Json<NewVersion>,
+) -> ApiResult<Json<VersionInfo>> {
+    let user = current_user(&state, &headers)?;
+    require_editor(&state, &id, user.as_ref(), q.key.as_deref())?;
+    let info = versions::rename(state.store(), &id, vid, req.label.as_deref())?
+        .ok_or_else(version_not_found)?;
+    state.hub.refresh(&id, TOPIC_VERSIONS);
+    Ok(Json(info))
+}
+
+async fn restore_version(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, vid)): Path<(String, u64)>,
+    Query(q): Query<KeyQuery>,
+) -> ApiResult<Json<VersionInfo>> {
+    let user = current_user(&state, &headers)?;
+    require_editor(&state, &id, user.as_ref(), q.key.as_deref())?;
+    let target = versions::get_info(state.store(), &id, vid)?.ok_or_else(version_not_found)?;
+    let old = versions::state(state.store(), &id, vid)?.ok_or_else(version_not_found)?;
+    // 戻す前の状態も残しておく(戻したことを取り消せるように)。
+    let backup = match state.hub.current_state(&id)? {
+        Some(current) => {
+            let label = format!(
+                "「{}」に戻す前",
+                target.label.as_deref().unwrap_or("自動保存")
+            );
+            Some(versions::create(
+                state.store(),
+                &id,
+                &current,
+                Some(&label),
+                user.as_ref(),
+            )?)
+        }
+        None => None,
+    };
+    let hub = state.hub.clone();
+    let room = id.clone();
+    tokio::task::spawn_blocking(move || hub.restore(&room, &old))
+        .await
+        .map_err(|e| Error::from(StoreError::from(e.to_string())))?
+        .map_err(|e| Error::bad_request(format!("戻せませんでした: {e}")))?;
+    tracing::info!(board = %id, version = vid, "バージョンを復元");
+    state.hub.refresh(&id, TOPIC_VERSIONS);
+    Ok(Json(backup.unwrap_or(target)))
 }

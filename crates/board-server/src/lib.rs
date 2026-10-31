@@ -16,6 +16,7 @@ pub mod boards;
 pub mod comments;
 pub mod room;
 pub mod store;
+pub mod versions;
 
 use std::path::PathBuf;
 use std::sync::Arc;

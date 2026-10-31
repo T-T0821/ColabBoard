@@ -20,6 +20,11 @@
 //! | `DELETE` | `/api/boards/{id}/comments/{cid}?key=` | 削除(本人かオーナー。スレッドの先頭なら返信ごと) |
 //! | `GET` | `/api/notifications` | 自分宛ての通知([`Notification`] の配列、新しい順) |
 //! | `POST` | `/api/notifications/read` | 既読にする([`MarkRead`]) |
+//! | `GET` | `/api/boards/{id}/versions?key=` | バージョン履歴([`VersionInfo`] の配列、新しい順、閲覧者以上) |
+//! | `POST` | `/api/boards/{id}/versions?key=` | 今の状態に名前を付けて保存([`NewVersion`] → [`VersionInfo`]、編集者以上) |
+//! | `GET` | `/api/boards/{id}/versions/{vid}?key=` | そのバージョンの状態(yrs v1 更新のバイナリ) |
+//! | `PATCH` | `/api/boards/{id}/versions/{vid}?key=` | 名前の変更([`NewVersion`]、編集者以上) |
+//! | `POST` | `/api/boards/{id}/versions/{vid}/restore?key=` | そのバージョンに戻す(編集者以上。戻す前の状態も保存する) |
 //!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
 
@@ -261,6 +266,32 @@ pub struct Notification {
 pub struct MarkRead {
     #[serde(default)]
     pub ids: Option<Vec<u64>>,
+}
+
+/// バージョン(ある時点のボードの状態)。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct VersionInfo {
+    pub id: u64,
+    /// 作った時刻(UNIX ミリ秒)。
+    pub created: u64,
+    /// 名前。自動保存なら `None`。
+    #[serde(default)]
+    pub label: Option<String>,
+    /// 保存した人(自動保存なら `None`)。
+    #[serde(default)]
+    pub author: Option<String>,
+    #[serde(default)]
+    pub author_name: Option<String>,
+    /// 要素の数。
+    pub elements: usize,
+    /// 状態のバイト数。
+    pub bytes: usize,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct NewVersion {
+    #[serde(default)]
+    pub label: Option<String>,
 }
 
 /// 本文から `@ログイン名` を拾う(重複なし、出てきた順)。
