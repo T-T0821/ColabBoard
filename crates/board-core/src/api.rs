@@ -37,6 +37,8 @@
 //! | `PATCH` | `/api/teams/{tid}` | 名前の変更([`NewTeam`] → [`Team`]、管理者以上) |
 //! | `DELETE` | `/api/teams/{tid}` | チームを消す(オーナーのみ。ボードは作った人の個人ボードに戻る) |
 //! | `PUT` | `/api/teams/{tid}/members` | メンバーの追加・変更・削除([`SetTeamMember`] → [`Team`]) |
+//! | `GET` | `/api/audit?team=&before=&limit=&action=` | 操作ログ([`AuditEvent`] の配列、新しい順。`team` 指定はチームの管理者、なしはサーバー管理者) |
+//! | `GET` | `/api/audit/export?team=&format=csv\|jsonl` | 操作ログの書き出し(CSV か JSON Lines) |
 //!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
 
@@ -102,6 +104,9 @@ pub struct Me {
     pub login: String,
     /// 表示名。
     pub name: String,
+    /// サーバー管理者(`ADMIN_LOGINS`)か。全体の操作ログを見られる。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub admin: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -280,6 +285,60 @@ pub struct SetBoardTeam {
     pub team: Option<String>,
     #[serde(default)]
     pub access: Option<Role>,
+}
+
+/// 操作ログの 1 件。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub id: u64,
+    /// 時刻(UNIX ミリ秒)。
+    pub at: u64,
+    /// 操作の種類(`board.create`・`team.member` など)。
+    pub action: String,
+    /// 操作した人のログイン名(ログイン前の操作なら `None`)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    /// 操作の対象(メンバーのログイン名など)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// 補足(変更後の権限・名前など)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// 接続元の IP アドレス。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip: Option<String>,
+}
+
+impl AuditEvent {
+    /// 画面に出す操作の名前。
+    pub fn label(&self) -> &str {
+        match self.action.as_str() {
+            "auth.signup" => "アカウント作成",
+            "auth.login" => "ログイン",
+            "auth.login_failed" => "ログイン失敗",
+            "auth.logout" => "ログアウト",
+            "auth.sso" => "SSO でログイン",
+            "board.create" => "ボード作成",
+            "board.rename" => "ボード名の変更",
+            "board.delete" => "ボード削除",
+            "board.member" => "ボードのメンバー変更",
+            "board.link" => "共有リンクの変更",
+            "board.team" => "ボードのチーム変更",
+            "board.restore" => "バージョンの復元",
+            "team.create" => "チーム作成",
+            "team.rename" => "チーム名の変更",
+            "team.delete" => "チーム削除",
+            "team.member" => "チームのメンバー変更",
+            "team.settings" => "チームの設定変更",
+            "token.create" => "API トークン作成",
+            "token.revoke" => "API トークン失効",
+            other => other,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

@@ -6,8 +6,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use board_core::api::{
-    BoardInfo, Login, Me, NewBoard, NewTeam, Role, SetBoardTeam, SetTeamMember, Signup, Team,
-    TeamInfo, TeamRole,
+    AuditEvent, BoardInfo, Login, Me, NewBoard, NewTeam, Role, SetBoardTeam, SetTeamMember, Signup,
+    Team, TeamInfo, TeamRole,
 };
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -51,6 +51,28 @@ struct Home {
     creating_team: bool,
     /// チームの削除の確認中か。
     confirm_delete_team: bool,
+    /// 開いている操作ログ。
+    audit: Option<AuditView>,
+}
+
+/// 操作ログの表示。
+struct AuditView {
+    /// チームのログならその ID。`None` は全体のログ(サーバー管理者)。
+    team: Option<String>,
+    events: Vec<AuditEvent>,
+    /// まだ古い記録がありそうか。
+    more: bool,
+}
+
+const AUDIT_PAGE: usize = 50;
+
+impl AuditView {
+    fn query(&self) -> String {
+        match &self.team {
+            Some(t) => format!("team={}&", http::encode(t)),
+            None => String::new(),
+        }
+    }
 }
 
 /// ボード一覧の絞り込み。
@@ -123,6 +145,7 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         team: None,
         creating_team: false,
         confirm_delete_team: false,
+        audit: None,
     }));
     install(&home)?;
     if home.borrow().me.is_some() {
@@ -162,6 +185,20 @@ pub fn ago(ms: u64) -> String {
             )
         }
     }
+}
+
+/// 「2026/10/31 21:05:09」の形(端末の時刻帯)。
+fn datetime(ms: u64) -> String {
+    let d = js_sys::Date::new(&JsValue::from_f64(ms as f64));
+    format!(
+        "{}/{:02}/{:02} {:02}:{:02}:{:02}",
+        d.get_full_year(),
+        d.get_month() + 1,
+        d.get_date(),
+        d.get_hours(),
+        d.get_minutes(),
+        d.get_seconds()
+    )
 }
 
 pub fn board_url(id: &str, key: Option<&str>) -> String {
@@ -290,6 +327,7 @@ impl Home {
   <header class="home-head">
     <h1>グラボード</h1>
     <span class="me">{name} <span class="muted">@{login}</span></span>
+    {admin}
     <button type="button" class="quiet" data-action="logout">ログアウト</button>
   </header>
   {tabs}
@@ -299,6 +337,7 @@ impl Home {
   </form>
   {err}
   {team_panel}
+  {audit}
   <ul class="boards">{rows}</ul>
 </div>"#,
             name = escape(&me.name),
@@ -311,6 +350,73 @@ impl Home {
                 None => "新しいボードの名前".into(),
             },
             team_panel = self.render_team_panel(me),
+            admin = if me.admin {
+                r#"<button type="button" class="quiet" data-action="audit" data-id="">全体の操作ログ</button>"#
+            } else {
+                ""
+            },
+            audit = self.render_audit(),
+        )
+    }
+
+    fn render_audit(&self) -> String {
+        let Some(view) = &self.audit else {
+            return String::new();
+        };
+        let mut rows = String::new();
+        for e in &view.events {
+            let what = [e.target.as_deref(), e.detail.as_deref()]
+                .into_iter()
+                .flatten()
+                .map(escape)
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let board = e
+                .board
+                .as_deref()
+                .map(|b| {
+                    format!(
+                        r#"<a href="{}">{}</a>"#,
+                        escape(&board_url(b, None)),
+                        escape(b)
+                    )
+                })
+                .unwrap_or_default();
+            rows.push_str(&format!(
+                r#"<tr data-action-kind="{kind}"><td class="nowrap">{when}</td><td>{label}</td><td>{actor}</td><td>{board}</td><td>{what}</td><td class="muted nowrap">{ip}</td></tr>"#,
+                kind = escape(e.action.split('.').next().unwrap_or("")),
+                when = escape(&datetime(e.at)),
+                label = escape(e.label()),
+                actor = e.actor.as_deref().map(|a| format!("@{}", escape(a))).unwrap_or_default(),
+                ip = escape(e.ip.as_deref().unwrap_or("")),
+            ));
+        }
+        if rows.is_empty() {
+            rows = r#"<tr><td colspan="6" class="muted">まだ記録がありません。</td></tr>"#.into();
+        }
+        let q = view.query();
+        let title = match &view.team {
+            Some(t) => match self.teams.iter().find(|x| &x.id == t) {
+                Some(team) => format!("「{}」の操作ログ", escape(&team.name)),
+                None => "チームの操作ログ".into(),
+            },
+            None => "全体の操作ログ".into(),
+        };
+        format!(
+            r#"<section class="audit-panel">
+  <header><h2>{title}</h2><span class="spacer"></span>
+    <a class="button" href="{base}/api/audit/export?{q}format=csv" download>CSV</a>
+    <a class="button" href="{base}/api/audit/export?{q}format=jsonl" download>JSON Lines</a>
+    <button type="button" class="quiet" data-action="close-audit">閉じる</button></header>
+  <div class="audit-scroll"><table class="audit"><thead><tr><th>日時</th><th>操作</th><th>実行者</th><th>ボード</th><th>対象・内容</th><th>接続元</th></tr></thead><tbody>{rows}</tbody></table></div>
+  {more}
+</section>"#,
+            base = escape(&http::base()),
+            more = if view.more {
+                r#"<button type="button" class="quiet" data-action="audit-more">さらに古い記録</button>"#
+            } else {
+                ""
+            },
         )
     }
 
@@ -439,7 +545,7 @@ impl Home {
         };
         format!(
             r#"<section class="team-panel">
-  <header><h2 translate="no">{name}</h2><span class="badge" data-role="{rs}">{rl}</span><span class="muted">{n} 人</span><span class="spacer"></span>{danger}</header>
+  <header><h2 translate="no">{name}</h2><span class="badge" data-role="{rs}">{rl}</span><span class="muted">{n} 人</span><span class="spacer"></span>{log}{danger}</header>
   <ul class="team-members">{members}</ul>
   {add}{mv}
   <p class="muted small">チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。</p>
@@ -448,6 +554,14 @@ impl Home {
             rs = if admin { "owner" } else { "editor" },
             rl = team.role.label(),
             n = team.members.len(),
+            log = if admin {
+                format!(
+                    r#"<button type="button" class="quiet" data-action="audit" data-id="{}">操作ログ</button>"#,
+                    escape(&team.id)
+                )
+            } else {
+                String::new()
+            },
         )
     }
 }
@@ -681,6 +795,9 @@ fn install(home: &Shared) -> Result<(), String> {
                     Some(t) => Filter::Team(t.to_string()),
                 };
                 hm.confirm_delete_team = false;
+                if hm.audit.as_ref().is_some_and(|a| a.team.is_some()) {
+                    hm.audit = None;
+                }
                 let load = hm.filter.team().is_some();
                 drop(hm);
                 if load {
@@ -688,6 +805,23 @@ fn install(home: &Shared) -> Result<(), String> {
                 } else {
                     h.borrow().render();
                 }
+            }
+            "audit" => {
+                let team = id.filter(|t| !t.is_empty());
+                h.borrow_mut().audit = Some(AuditView {
+                    team,
+                    events: Vec::new(),
+                    more: false,
+                });
+                wasm_bindgen_futures::spawn_local(load_audit(h.clone(), false));
+            }
+            "audit-more" => {
+                wasm_bindgen_futures::spawn_local(load_audit(h.clone(), true));
+            }
+            "close-audit" => {
+                let mut hm = h.borrow_mut();
+                hm.audit = None;
+                hm.render();
             }
             "new-team" | "cancel-team" => {
                 let mut hm = h.borrow_mut();
@@ -775,6 +909,41 @@ fn install(home: &Shared) -> Result<(), String> {
         .map_err(|_| "change を登録できません")?;
     on_change.forget();
     Ok(())
+}
+
+/// 操作ログを読む。`more` なら今ある分より古いものを足す。
+async fn load_audit(h: Shared, more: bool) {
+    let path = {
+        let hm = h.borrow();
+        let Some(view) = &hm.audit else { return };
+        let before = if more {
+            view.events
+                .last()
+                .map(|e| format!("&before={}", e.id))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        format!("/audit?{}limit={AUDIT_PAGE}{before}", view.query())
+    };
+    let res = http::get::<Vec<AuditEvent>>(&path).await;
+    let mut hm = h.borrow_mut();
+    match res {
+        Ok(list) => {
+            if let Some(view) = hm.audit.as_mut() {
+                view.more = list.len() >= AUDIT_PAGE;
+                if !more {
+                    view.events.clear();
+                }
+                view.events.extend(list);
+            }
+        }
+        Err(e) => {
+            hm.audit = None;
+            hm.error = Some(e.message());
+        }
+    }
+    hm.render();
 }
 
 async fn set_team_member(

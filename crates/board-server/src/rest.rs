@@ -134,7 +134,7 @@ fn require_user(actor: &Actor) -> ApiResult<&UserRecord> {
 }
 
 /// ボードを開けるか確かめ、使える権限を返す。
-fn access(
+pub fn access(
     state: &AppState,
     actor: &Actor,
     id: &str,
@@ -222,6 +222,14 @@ async fn create_token(
     let user = session_only(&state, &headers)?;
     let (token, rec) = tokens::create(state.store(), &user.login, &req)?;
     tracing::info!(login = %user.login, token = %rec.id, scope = ?rec.scope, "API トークン作成");
+    crate::audit::record(
+        &state,
+        &headers,
+        crate::audit::Entry::new("token.create")
+            .actor(&user.login)
+            .target(&rec.id)
+            .detail(format!("{:?}", rec.scope).to_lowercase()),
+    );
     Ok((
         StatusCode::CREATED,
         Json(CreatedToken {
@@ -238,6 +246,13 @@ async fn revoke_token(
 ) -> ApiResult<StatusCode> {
     let user = session_only(&state, &headers)?;
     if tokens::revoke(state.store(), &user.login, &tid)? {
+        crate::audit::record(
+            &state,
+            &headers,
+            crate::audit::Entry::new("token.revoke")
+                .actor(&user.login)
+                .target(&tid),
+        );
         Ok(StatusCode::NO_CONTENT)
     } else {
         Err(Error::new(
@@ -284,6 +299,15 @@ async fn create_board(
     }
     let meta = boards::create(state.store(), &user.login, &req.title, req.team.as_deref())?;
     tracing::info!(board = %meta.id, owner = %user.login, "ボード作成(API)");
+    crate::audit::record(
+        &state,
+        &headers,
+        crate::audit::Entry::new("board.create")
+            .actor(&user.login)
+            .board(&meta.id)
+            .team(meta.team.as_deref())
+            .detail(format!("{} (API)", meta.title)),
+    );
     let role = Role::Owner.min(actor.cap(&meta.id).unwrap_or(Role::Viewer));
     Ok((StatusCode::CREATED, Json(meta.info(role, None))))
 }

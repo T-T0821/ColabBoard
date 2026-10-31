@@ -12,10 +12,15 @@
 //! - `ANTHROPIC_MODEL`(既定 `claude-opus-5-5`): AI 機能で使うモデル。
 //! - `PUBLIC_URL`: 公開している URL(例 `https://board.example.com/`)。Slack 通知のリンクに使う。
 //! - `SLACK_WEBHOOK_PREFIXES`(既定 `https://hooks.slack.com/`): Slack 通知を送ってよい URL の先頭(カンマ区切り)。
+//! - `PLUGIN_DIR`: ここにある `*.wasm` をサーバーのプラグインとして読み込む(全員が使える)。
+//! - `USER_PLUGINS`(既定 `1`): `0` で各自がプラグインを入れるのを禁止する。
 //! - `GITHUB_TOKEN` / `GITHUB_API_URL`: 課題カードで GitHub を引くとき(トークンなしでも公開リポジトリは読める)。
 //! - `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN`: 課題カードで Jira を引くとき。
 //! - `ICE_SERVERS`: 音声通話で使う STUN / TURN サーバー(`RTCIceServer` の JSON 配列)。
 //!   既定は Google の公開 STUN。社内ネットワーク越しにつなぐなら TURN を足す。
+//! - `ADMIN_LOGINS`: サーバー管理者のログイン名(`,` 区切り)。全体の操作ログを見られる。
+//! - `TRUST_PROXY`(既定 `0`): `1` でリバースプロキシの `X-Forwarded-For` を接続元として記録する。
+//! - `AUDIT_RETENTION_DAYS`(既定 `365`): 操作ログを残す日数。
 //! - `EMBED_ALLOWED_ORIGINS`(既定 `*`): ボードを iframe で埋め込んでよいサイト(空白区切り。例 `https://wiki.example.com`)。
 //! - `RUST_LOG`(既定 `info`)
 //!
@@ -119,13 +124,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Arc::new(board_server::ai::Ai::new(c))
         }),
         slack: board_server::slack::SlackConfig::from_env(),
+        plugins: board_server::plugins::PluginConfig::from_env(),
         issues: board_server::issues::IssuesConfig::from_env(),
         embed_origins: std::env::var("EMBED_ALLOWED_ORIGINS")
             .ok()
             .map(|v| v.replace(',', " ").trim().to_string())
             .filter(|v| !v.is_empty() && !v.contains(';'))
             .unwrap_or_else(|| "*".into()),
+        admins: std::env::var("ADMIN_LOGINS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_ascii_lowercase())
+            .filter(|s| !s.is_empty())
+            .collect(),
+        trust_proxy: flag("TRUST_PROXY", false),
     };
+    let retention_days: u64 = std::env::var("AUDIT_RETENTION_DAYS")
+        .ok()
+        .and_then(|d| d.parse().ok())
+        .unwrap_or(365);
+    let pruner = board_server::audit::spawn_pruner(hub.store().clone(), retention_days);
     if let Some(j) = &config.issues.jira {
         tracing::info!("Jira 連携: {}", j.base_url);
     }
@@ -142,11 +160,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;
     tracing::info!("http://localhost:{port} で待ち受けています");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     flusher.abort();
+    pruner.abort();
     // 終了前に未保存の変更を書き出す。
     tokio::task::spawn_blocking(move || hub.flush()).await?;
     tracing::info!("停止しました");

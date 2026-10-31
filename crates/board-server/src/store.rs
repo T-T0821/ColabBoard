@@ -13,9 +13,12 @@
 //! | `version_info` | (ボード ID, バージョン ID) | [`VersionInfo`](board_core::api::VersionInfo)(JSON) |
 //! | `api_tokens` | トークン ID | [`TokenRecord`](crate::tokens::TokenRecord)(JSON) |
 //! | `user_tokens` | (ログイン名, トークン ID) | なし(一覧用の索引) |
+//! | `plugins` | (ログイン名, プラグイン ID) | [`PluginRecord`](crate::plugins::PluginRecord)(JSON) |
+//! | `plugin_wasm` | (ログイン名, プラグイン ID) | プラグインの WebAssembly モジュール |
 //! | `teams` | チーム ID | [`TeamRecord`](crate::teams::TeamRecord)(JSON) |
 //! | `user_teams` | (ログイン名, チーム ID) | 入った時刻(JSON) |
 //! | `team_boards` | (チーム ID, ボード ID) | 加わった時刻(JSON) |
+//! | `audit` | (`*` か `team:{id}`, 記録 ID) | [`AuditEvent`](board_core::api::AuditEvent)(JSON) |
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -40,11 +43,15 @@ pub(crate) const VERSION_INFO: TableDefinition<(&str, u64), &[u8]> =
 pub(crate) const API_TOKENS: TableDefinition<&str, &[u8]> = TableDefinition::new("api_tokens");
 pub(crate) const USER_TOKENS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("user_tokens");
+pub(crate) const PLUGINS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("plugins");
+pub(crate) const PLUGIN_WASM: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("plugin_wasm");
 pub(crate) const TEAMS: TableDefinition<&str, &[u8]> = TableDefinition::new("teams");
 pub(crate) const USER_TEAMS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("user_teams");
 pub(crate) const TEAM_BOARDS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("team_boards");
+pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
 pub fn next_id() -> u64 {
@@ -98,9 +105,12 @@ impl Store {
         txn.open_table(VERSION_INFO)?;
         txn.open_table(API_TOKENS)?;
         txn.open_table(USER_TOKENS)?;
+        txn.open_table(PLUGINS)?;
+        txn.open_table(PLUGIN_WASM)?;
         txn.open_table(TEAMS)?;
         txn.open_table(USER_TEAMS)?;
         txn.open_table(TEAM_BOARDS)?;
+        txn.open_table(AUDIT)?;
         txn.commit()?;
         Ok(Self { db, persistent })
     }
@@ -234,6 +244,34 @@ impl Store {
         Ok(())
     }
 
+    /// 2 つの文字列をキーにするテーブルへ、バイト列をそのまま書く。
+    pub(crate) fn put_pair_bytes(
+        &self,
+        table: TableDefinition<(&str, &str), &[u8]>,
+        a: &str,
+        b: &str,
+        bytes: &[u8],
+    ) -> Result<(), StoreError> {
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(table)?;
+            t.insert((a, b), bytes)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn get_pair_bytes(
+        &self,
+        table: TableDefinition<(&str, &str), &[u8]>,
+        a: &str,
+        b: &str,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(table)?;
+        Ok(t.get((a, b))?.map(|v| v.value().to_vec()))
+    }
+
     /// 1 つ目のキーが `a` のものを全部読む(2 つ目のキー順)。
     pub(crate) fn scan_pair<T: DeserializeOwned>(
         &self,
@@ -341,6 +379,49 @@ impl Store {
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// 1 つ目のキーが `a` で ID が `upper` 以下のものを、新しい順に `limit` 件まで読む(`keep` で絞る)。
+    pub(crate) fn scan_seq_rev<T: DeserializeOwned>(
+        &self,
+        table: SeqTable,
+        a: &str,
+        upper: u64,
+        limit: usize,
+        keep: impl Fn(&T) -> bool,
+    ) -> Result<Vec<T>, StoreError> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(table)?;
+        let mut out = Vec::new();
+        for entry in t.range((a, 0)..=(a, upper))?.rev() {
+            if out.len() >= limit {
+                break;
+            }
+            let (_, v) = entry?;
+            let item: T = serde_json::from_slice(v.value())?;
+            if keep(&item) {
+                out.push(item);
+            }
+        }
+        Ok(out)
+    }
+
+    /// ID が `min_id` より小さいものを(1 つ目のキーにかかわらず)全部消す。消した件数を返す。
+    pub(crate) fn retain_seq_newer(&self, table: SeqTable, min_id: u64) -> Result<u64, StoreError> {
+        let txn = self.db.begin_write()?;
+        let mut removed = 0;
+        {
+            let mut t = txn.open_table(table)?;
+            t.retain(|k, _| {
+                let keep = k.1 >= min_id;
+                if !keep {
+                    removed += 1;
+                }
+                keep
+            })?;
+        }
+        txn.commit()?;
+        Ok(removed)
     }
 
     /// 1 つ目のキーが `a` のものを全部消す。

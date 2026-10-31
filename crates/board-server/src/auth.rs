@@ -32,6 +32,7 @@ impl UserRecord {
         Me {
             login: self.login.clone(),
             name: self.name.clone(),
+            admin: false,
         }
     }
 }

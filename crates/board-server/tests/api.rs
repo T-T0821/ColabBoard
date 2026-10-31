@@ -700,3 +700,145 @@ async fn teams_share_boards_with_members() {
     assert_eq!(info["role"], "owner");
     assert!(info.get("team").is_none());
 }
+
+#[tokio::test]
+async fn audit_log_records_and_exports() {
+    let s = start(Config {
+        admins: vec!["root".into()],
+        trust_proxy: true,
+        ..Config::default()
+    })
+    .await;
+    let root = s.signup("root").await;
+    let alice = s.signup("alice").await;
+    let _bob = s.signup("bob").await;
+
+    // ログイン失敗も残る。接続元はプロキシのヘッダーから取る。
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/login")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-forwarded-for", "203.0.113.7, 10.0.0.1")
+        .header("x-graboard-client-ip", "6.6.6.6");
+    let res = s
+        .app
+        .clone()
+        .oneshot(
+            req.body(Body::from(
+                json!({"login": "alice", "password": "wrong-password"}).to_string(),
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    let (_, team, _) = s
+        .call(
+            "POST",
+            "/api/teams",
+            Some(&alice),
+            Some(json!({"name": "営業"})),
+        )
+        .await;
+    let tid = team["id"].as_str().unwrap().to_string();
+    s.call(
+        "PUT",
+        &format!("/api/teams/{tid}/members"),
+        Some(&alice),
+        Some(json!({"login": "bob", "role": "member"})),
+    )
+    .await;
+    s.call(
+        "POST",
+        "/api/boards",
+        Some(&alice),
+        Some(json!({"title": "見込み客", "team": tid})),
+    )
+    .await;
+
+    // チームのログはチームの管理者だけ。
+    let path = format!("/api/audit?team={tid}");
+    let (status, events, _) = s.call("GET", &path, Some(&alice), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let actions: Vec<&str> = events
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["action"].as_str().unwrap())
+        .collect();
+    assert_eq!(actions, vec!["board.create", "team.member", "team.create"]);
+    assert_eq!(events[1]["target"], "bob");
+    let (status, _, _) = s.call("GET", &path, Some(&root), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // 全体のログはサーバー管理者だけ。
+    let (status, _, _) = s.call("GET", "/api/audit", Some(&alice), None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, events, _) = s
+        .call("GET", "/api/audit?action=auth", Some(&root), None)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let failed = events
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["action"] == "auth.login_failed")
+        .unwrap();
+    assert_eq!(failed["target"], "alice");
+    assert_eq!(failed["ip"], "203.0.113.7");
+    let (_, me, _) = s.call("GET", "/api/me", Some(&root), None).await;
+    assert_eq!(me["admin"], true);
+
+    // 書き出し。
+    let req = Request::builder()
+        .uri(format!("/api/audit/export?team={tid}&format=csv"))
+        .header(header::COOKIE, &alice)
+        .body(Body::empty())
+        .unwrap();
+    let res = s.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(
+        res.headers()[header::CONTENT_DISPOSITION]
+            .to_str()
+            .unwrap()
+            .contains(".csv")
+    );
+    let body = res.into_body().collect().await.unwrap().to_bytes();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert_eq!(text.lines().count(), 4);
+    assert!(text.contains("チーム作成"));
+}
+
+#[tokio::test]
+async fn client_ip_header_cannot_be_spoofed() {
+    let s = start(Config {
+        admins: vec!["eve".into()],
+        ..Config::default()
+    })
+    .await;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/signup")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-graboard-client-ip", "6.6.6.6")
+        .header("x-forwarded-for", "7.7.7.7")
+        .body(Body::from(
+            json!({"login": "eve", "name": "", "password": "password123"}).to_string(),
+        ))
+        .unwrap();
+    let res = s.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let cookie = res.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    // 外から付けたヘッダーは消え、プロキシを信じない設定なので X-Forwarded-For も使わない。
+    let (status, events, _) = s.call("GET", "/api/audit", Some(&cookie), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(events[0]["action"], "auth.signup");
+    assert!(events[0].get("ip").is_none(), "{events}");
+}

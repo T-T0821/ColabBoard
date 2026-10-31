@@ -26,6 +26,7 @@ pub mod markdown;
 pub mod miro;
 pub mod navigation;
 pub mod ops;
+pub mod plugin;
 pub mod privacy;
 pub mod protocol;
 pub mod search;

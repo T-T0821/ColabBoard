@@ -15,12 +15,14 @@ pub mod ai_board;
 pub mod ai_diagram;
 pub mod ai_ink;
 pub mod api;
+pub mod audit;
 pub mod auth;
 pub mod boards;
 pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
 pub mod issues;
+pub mod plugins;
 pub mod rest;
 pub mod room;
 pub mod slack;
@@ -67,6 +69,8 @@ pub struct Config {
     pub ai: Option<Arc<ai::Ai>>,
     /// Slack 通知(送ってよい Webhook URL とメッセージのリンク)。
     pub slack: slack::SlackConfig,
+    /// WASM プラグイン。
+    pub plugins: plugins::PluginConfig,
     /// GitHub・Jira の課題カード。
     pub issues: issues::IssuesConfig,
     /// 音声通話の ICE サーバー(`RTCIceServer` の配列)。`GET /api/rtc` で配る。
@@ -74,6 +78,16 @@ pub struct Config {
     /// `?embed=1` のページを iframe で埋め込んでよいサイト(CSP の `frame-ancestors` の値)。
     /// それ以外のページは同じサイトからしか埋め込めない。
     pub embed_origins: String,
+    /// サーバー管理者のログイン名(全体の操作ログを見られる)。
+    pub admins: Vec<String>,
+    /// リバースプロキシの `X-Forwarded-For` を接続元として信じるか。
+    pub trust_proxy: bool,
+}
+
+impl Config {
+    pub fn is_admin(&self, login: &str) -> bool {
+        self.admins.iter().any(|a| a == login)
+    }
 }
 
 /// 既定の ICE サーバー(公開 STUN)。
@@ -105,9 +119,12 @@ impl Default for Config {
             secure_cookies: false,
             ai: None,
             slack: slack::SlackConfig::default(),
+            plugins: plugins::PluginConfig::default(),
             issues: issues::IssuesConfig::default(),
             ice_servers: default_ice_servers(),
             embed_origins: "*".into(),
+            admins: Vec::new(),
+            trust_proxy: false,
         }
     }
 }
@@ -141,13 +158,18 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/ai/status", get(ai_diagram::status))
         .route("/api/boards/{id}/issues", post(issues::lookup))
         .route("/api/rtc", get(rtc_config))
-        .nest("/api/v1", rest::routes())
+        .nest("/api/v1", rest::routes().merge(plugins::routes()))
         .nest(
             "/api",
             api::routes()
                 .merge(rest::token_routes())
-                .merge(teams::routes()),
+                .merge(teams::routes())
+                .merge(audit::routes()),
         )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            audit::client_ip,
+        ))
         .with_state(state);
     let app = match static_dir {
         Some(dir) => app.fallback_service(ServeDir::new(dir)),

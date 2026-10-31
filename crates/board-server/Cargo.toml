@@ -24,6 +24,7 @@ blake2 = "0.10"
 getrandom = "0.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rust-embed = { version = "8", optional = true, features = ["mime-guess", "include-exclude"] }
+wasmi = "2"
 
 [features]
 # ビルド済みの Web クライアント(crates/board-web/dist)をバイナリに埋め込み、1 ファイルで配れるようにする。
@@ -35,3 +36,4 @@ tokio-tungstenite = "0.28"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+wat = "1.263.0"

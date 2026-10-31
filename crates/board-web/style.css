@@ -690,6 +690,42 @@ body.anonymous #peer-list::after { content: "匿名モード中は表示しま�
 .diagram-panel button.primary:disabled { opacity: 0.6; cursor: progress; }
 .ai-status { margin: 0; color: var(--muted); font-size: 12px; min-height: 1.4em; }
 .ai-status[data-kind="error"] { color: var(--danger-text); }
+/* AI の結果のお知らせ(画面下の中央) */
+.ai-toast {
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  z-index: 30;
+}
+.ai-toast[hidden] { display: none; }
+.ai-toast[data-state="busy"] { color: var(--accent); border-color: var(--accent-ring); }
+.ai-toast[data-state="error"] { color: var(--danger-text); border-color: var(--danger-border); }
+.ai-toast[data-state="done"] { color: var(--success); }
+
+/* ボードへの質問 */
+.ai-ask { flex-wrap: nowrap; }
+.ai-ask input { flex: 1; min-width: 0; }
+.ai-answer {
+  margin: 4px 0 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.ai-answer[hidden] { display: none; }
+.ai-answer .q { color: var(--muted); font-size: 12px; margin: 0 0 4px; }
+.ai-answer .a { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ai-answer .a + .q { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
+.ai-answer .refs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.ai-answer .refs button { font-size: 12px; padding: 2px 8px; border-radius: 999px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ai-answer .tools { display: flex; justify-content: flex-end; margin-top: 6px; }
+.ai-answer .tools button { font-size: 12px; }
 @media (max-width: 1100px) { .diagram-toggle { top: 108px; } .diagram-panel { top: 156px; } }
 
 /* 図形ライブラリ(左のパネル) */
@@ -1653,41 +1689,19 @@ body.embed-mode .history-panel { display: none !important; }
 .home-card .team-members select { height: 28px; }
 .home-card .team-members button { height: 28px; padding: 0 10px; }
 
-
-
-/* AI の結果のお知らせ(画面下の中央) */
-.ai-toast {
-  bottom: 84px;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: min(560px, calc(100vw - 32px));
-  padding: 8px 14px;
-  border-radius: 999px;
-  font-size: 13px;
-  z-index: 30;
-}
-.ai-toast[hidden] { display: none; }
-.ai-toast[data-state="busy"] { color: var(--accent); border-color: var(--accent-ring); }
-.ai-toast[data-state="error"] { color: var(--danger-text); border-color: var(--danger-border); }
-.ai-toast[data-state="done"] { color: var(--success); }
-
-/* ボードへの質問 */
-.ai-ask { flex-wrap: nowrap; }
-.ai-ask input { flex: 1; min-width: 0; }
-.ai-answer {
-  margin: 4px 0 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  background: var(--surface-2);
-  font-size: 13px;
-  line-height: 1.55;
-}
-.ai-answer[hidden] { display: none; }
-.ai-answer .q { color: var(--muted); font-size: 12px; margin: 0 0 4px; }
-.ai-answer .a { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.ai-answer .a + .q { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--border); }
-.ai-answer .refs { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.ai-answer .refs button { font-size: 12px; padding: 2px 8px; border-radius: 999px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ai-answer .tools { display: flex; justify-content: flex-end; margin-top: 6px; }
-.ai-answer .tools button { font-size: 12px; }
+/* ---- 操作ログ ---- */
+.audit-panel { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin: 0 0 16px; display: flex; flex-direction: column; gap: 10px; }
+.audit-panel header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.audit-panel h2 { margin: 0; font-size: 15px; }
+.audit-panel .spacer { flex: 1; }
+.audit-panel a.button { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; color: inherit; text-decoration: none; font-size: 13px; }
+.audit-panel a.button:hover { border-color: var(--accent); color: var(--accent); }
+.home-card .audit-panel header button { height: 30px; }
+.audit-scroll { max-height: 360px; overflow: auto; }
+table.audit { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.audit th { position: sticky; top: 0; background: var(--panel-solid); text-align: left; font-weight: 600; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+table.audit td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.audit .nowrap { white-space: nowrap; }
+table.audit tr[data-action-kind="auth"] td:nth-child(2) { color: var(--muted); }
+table.audit td:nth-child(2) { white-space: nowrap; }
+table.audit a { color: var(--accent); }

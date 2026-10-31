@@ -2,11 +2,13 @@
 resolver = "3"
 members = [
     "crates/board-core",
+    "crates/board-types",
     "crates/board-render",
     "crates/board-web",
     "crates/board-server",
     "crates/board-bench",
     "crates/board-sdk",
+    "crates/board-plugin",
     "tools/cloud-icons",
 ]
 
@@ -17,6 +19,7 @@ rust-version = "1.88"
 
 [workspace.dependencies]
 board-core = { path = "crates/board-core" }
+board-types = { path = "crates/board-types" }
 board-render = { path = "crates/board-render" }
 glam = { version = "0.30", features = ["bytemuck"] }
 bytemuck = { version = "1", features = ["derive"] }
