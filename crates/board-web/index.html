@@ -28,13 +28,13 @@
     <h2 id="sr-board-summary">ボードの要素</h2>
     <ul id="sr-board-list"></ul>
   </section>
-  <div id="badges" aria-hidden="true"></div>
-  <div id="cursors" aria-hidden="true"></div>
+  <div id="badges" aria-hidden="true" translate="no"></div>
+  <div id="cursors" aria-hidden="true" translate="no"></div>
   <textarea id="text-editor" spellcheck="false" aria-label="文字を入力"></textarea>
 
   <header class="panel hud">
     <a class="brand" href="./" title="ボード一覧">グラボード</a>
-    <span id="board-title" data-editable="false"></span>
+    <span id="board-title" data-editable="false" translate="no"></span>
     <span id="board-role" class="badge" hidden></span>
     <span class="sep"></span>
     <span><span class="label">描画</span> <span id="hud-backend">初期化中…</span></span>
@@ -51,7 +51,7 @@
       <svg class="moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></svg>
       <svg class="sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
     </button>
-    <span id="account"></span>
+    <span id="account" translate="no"></span>
   </header>
 
   <div id="comment-pins" aria-label="コメント"></div>

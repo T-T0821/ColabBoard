@@ -229,7 +229,7 @@ impl Home {
                 String::new()
             };
             rows.push_str(&format!(
-                r#"<li class="board-row"><a href="{url}"><span class="title">{title}</span><span class="meta">{badge}<span>{owner}</span><span>{ago}</span></span></a><span class="actions">{actions}</span></li>"#,
+                r#"<li class="board-row"><a href="{url}"><span class="title" translate="no">{title}</span><span class="meta">{badge}<span>{owner}</span><span>{ago}</span></span></a><span class="actions">{actions}</span></li>"#,
                 url = escape(&url),
                 title = escape(&b.title),
                 badge = role_badge(b.role),
