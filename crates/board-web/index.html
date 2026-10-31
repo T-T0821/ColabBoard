@@ -51,6 +51,13 @@
       <svg viewBox="0 0 24 24"><path d="M4 20l1-4L16 5l3 3L8 19z M14 7l3 3"/></svg>
     </button>
     <span class="sep"></span>
+    <button id="undo" class="tool" title="元に戻す (Ctrl/⌘+Z)" disabled>
+      <svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 010 10h-2"/></svg>
+    </button>
+    <button id="redo" class="tool" title="やり直す (Ctrl/⌘+Shift+Z)" disabled>
+      <svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 000 10h2"/></svg>
+    </button>
+    <span class="sep"></span>
     <div class="swatches" aria-label="色">
       <button class="swatch" data-color="#fff3a3" style="--c:#fff3a3" title="黄"></button>
       <button class="swatch" data-color="#ffd2a8" style="--c:#ffd2a8" title="オレンジ"></button>
@@ -72,7 +79,7 @@
     <button id="zoom-fit">全体</button>
   </nav>
 
-  <p class="panel help">スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ ダブルクリック/Enter: 文字入力 ・ Delete: 削除</p>
+  <p class="panel help">スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ ダブルクリック/Enter: 文字入力 ・ Delete: 削除 ・ Ctrl/⌘+Z: 元に戻す</p>
 
   <div id="error" role="alert"></div>
 </body>

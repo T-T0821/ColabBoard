@@ -104,6 +104,7 @@ html, body {
   stroke-linejoin: round;
   stroke-linecap: round;
 }
+.tool:disabled { opacity: 0.35; cursor: default; color: var(--text); }
 .tool[aria-pressed="true"] { background: #e8f0fe; color: var(--accent); border-color: transparent; }
 .swatches { display: grid; grid-template-columns: repeat(5, 18px); gap: 4px; padding: 0 4px; }
 .swatch {
