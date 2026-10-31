@@ -82,6 +82,9 @@ pub fn encode(e: &Element, z: f64) -> Vec<(&'static str, Any)> {
                 ("al", Any::String(s.align.name().into())),
                 ("tc", color(s.text_color)),
             ]);
+            if let Some(img) = &s.image {
+                f.push(("img", Any::Buffer(img.0.clone())));
+            }
         }
         Element::Connector(c) => {
             f.extend([
@@ -188,6 +191,10 @@ pub fn decode<T: ReadTxn>(id: ElementId, m: &MapRef, txn: &T) -> Option<(Element
             },
             text_color: rgba_or(m, txn, "tc", Rgba8::BLACK),
             meta: meta(m, txn),
+            image: match m.get(txn, "img") {
+                Some(Out::Any(Any::Buffer(b))) => Some(crate::shape::ImageData(b)),
+                _ => None,
+            },
         };
         return Some((Element::Shape(shape), z));
     }

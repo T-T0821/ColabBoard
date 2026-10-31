@@ -63,7 +63,11 @@ fn merge<T: PartialEq + Clone>(acc: &mut Option<Option<T>>, v: T) {
 fn convertible(kind: ShapeKind) -> bool {
     !matches!(
         kind,
-        ShapeKind::Sticky | ShapeKind::Text | ShapeKind::Frame | ShapeKind::Stamp
+        ShapeKind::Sticky
+            | ShapeKind::Text
+            | ShapeKind::Frame
+            | ShapeKind::Stamp
+            | ShapeKind::Image
     )
 }
 
@@ -81,7 +85,7 @@ pub fn summarize(board: &Board, ids: &[ElementId]) -> Summary {
         out.locked |= e.is_locked();
         merge(&mut link, e.meta().link.clone());
         match e {
-            Element::Shape(s) if s.kind == ShapeKind::Stamp => {}
+            Element::Shape(s) if matches!(s.kind, ShapeKind::Stamp | ShapeKind::Image) => {}
             Element::Shape(s) => {
                 out.has_text = true;
                 let st = s.text_style();

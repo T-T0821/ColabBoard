@@ -8,6 +8,7 @@
 //! 「毎フレーム 96 バイトのカメラ情報を送る」ことだけ。
 
 mod gpu;
+pub mod images;
 mod text;
 
 pub use gpu::{FrameStats, RenderError, Renderer};
@@ -72,7 +73,9 @@ impl From<&Shape> for ShapeInstance {
             stroke_width: s.stroke_width,
             radius: s.corner_radius,
             kind: match s.kind {
-                ShapeKind::Rect | ShapeKind::Frame | ShapeKind::Text => KIND_RECT,
+                ShapeKind::Rect | ShapeKind::Frame | ShapeKind::Text | ShapeKind::Image => {
+                    KIND_RECT
+                }
                 ShapeKind::Ellipse => KIND_ELLIPSE,
                 ShapeKind::Sticky => KIND_STICKY,
                 ShapeKind::Triangle => KIND_TRIANGLE,
@@ -122,7 +125,8 @@ impl ShapeInstance {
 pub fn push_instances(e: &Element, out: &mut Vec<ShapeInstance>) {
     match e {
         // 文字だけの要素は図形を描かない(文字は文字描画で出す)。
-        Element::Shape(s) if s.kind == ShapeKind::Text => {}
+        // 画像は画像描画で出す。
+        Element::Shape(s) if matches!(s.kind, ShapeKind::Text | ShapeKind::Image) => {}
         Element::Shape(s) => out.push(s.into()),
         Element::Connector(c) => {
             let line = |a: board_core::Vec2, b: board_core::Vec2| {
@@ -232,6 +236,10 @@ impl TextRegions {
     }
 }
 
+pub fn is_image(e: &Element) -> bool {
+    matches!(e, Element::Shape(s) if s.kind == ShapeKind::Image)
+}
+
 /// インスタンス列を作りながら段を決める。
 pub fn build_layers(elements: &[Element], out: &mut Vec<ShapeInstance>) -> Vec<Layer> {
     out.clear();
@@ -252,7 +260,8 @@ pub fn build_layers(elements: &[Element], out: &mut Vec<ShapeInstance>) -> Vec<L
             regions.clear();
         }
         push_instances(e, out);
-        if !e.text().is_empty() {
+        // 段の最後に描くもの(文字・画像)の上に後ろの要素が重なったら段を分ける。
+        if !e.text().is_empty() || is_image(e) {
             regions.insert(bounds);
         }
     }
@@ -393,7 +402,11 @@ mod tests {
     /// WGSL を naga で検証する(GPU なしで CI でも走る)。
     #[test]
     fn shaders_validate() {
-        for (name, src) in [("grid", GRID_WGSL), ("shapes", SHAPES_WGSL)] {
+        for (name, src) in [
+            ("grid", GRID_WGSL),
+            ("shapes", SHAPES_WGSL),
+            ("images", crate::images::IMAGES_WGSL),
+        ] {
             let module = naga::front::wgsl::parse_str(src)
                 .unwrap_or_else(|e| panic!("{name}: {}", e.emit_to_string(src)));
             naga::valid::Validator::new(

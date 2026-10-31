@@ -22,6 +22,8 @@ pub enum ShapeKind {
     Frame,
     /// スタンプ(色付きの丸に白い記号)。`text` が記号。
     Stamp,
+    /// 画像。中身は `Shape::image`(PNG / JPEG のバイト列)。
+    Image,
 }
 
 impl ShapeKind {
@@ -50,6 +52,7 @@ impl ShapeKind {
             ShapeKind::Text => "text",
             ShapeKind::Frame => "frame",
             ShapeKind::Stamp => "stamp",
+            ShapeKind::Image => "image",
         }
     }
 
@@ -66,6 +69,7 @@ impl ShapeKind {
             "text" => ShapeKind::Text,
             "frame" => ShapeKind::Frame,
             "stamp" => ShapeKind::Stamp,
+            "image" => ShapeKind::Image,
             _ => return None,
         })
     }
@@ -117,6 +121,33 @@ pub struct Shape {
     pub align: TextAlign,
     pub text_color: Rgba8,
     pub meta: Meta,
+    /// 画像のバイト列(`ShapeKind::Image` のときだけ)。
+    pub image: Option<ImageData>,
+}
+
+/// 画像のバイト列(PNG / JPEG)。複製しても中身は共有する。
+#[derive(Clone, PartialEq, Eq)]
+pub struct ImageData(pub std::sync::Arc<[u8]>);
+
+impl ImageData {
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self(bytes.into())
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// 同じ中身かを素早く見分けるための値(描画のキャッシュ用)。
+    pub fn key(&self) -> (usize, usize) {
+        (self.0.as_ptr() as usize, self.0.len())
+    }
+}
+
+impl std::fmt::Debug for ImageData {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ImageData({} bytes)", self.0.len())
+    }
 }
 
 /// 図形内の文字の書式(ワールド単位)。描画と編集用テキスト欄の両方がこれに従う。
@@ -163,6 +194,18 @@ pub fn estimate_text_height(text: &str, width: f32, style: &TextStyle) -> f32 {
 pub const FRAME_TITLE_HEIGHT: f32 = 32.0;
 
 impl Shape {
+    /// 画像の図形を作る。
+    pub fn image(id: ElementId, pos: Vec2, size: Vec2, data: ImageData) -> Self {
+        Self {
+            kind: ShapeKind::Image,
+            stroke: Rgba8::TRANSPARENT,
+            stroke_width: 0.0,
+            corner_radius: 0.0,
+            image: Some(data),
+            ..Self::rect(id, pos, size, Rgba8::TRANSPARENT)
+        }
+    }
+
     /// 種類に合わせた既定の見た目で作る。
     pub fn new(id: ElementId, kind: ShapeKind, pos: Vec2, size: Vec2, fill: Rgba8) -> Self {
         let base = Self::rect(id, pos, size, fill);
@@ -198,6 +241,7 @@ impl Shape {
             align: TextAlign::Center,
             text_color: Rgba8::BLACK,
             meta: Meta::default(),
+            image: None,
         }
     }
 
@@ -250,6 +294,7 @@ impl Shape {
             align: TextAlign::Center,
             text_color: Rgba8::BLACK,
             meta: Meta::default(),
+            image: None,
         }
     }
 

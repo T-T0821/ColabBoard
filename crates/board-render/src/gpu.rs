@@ -69,6 +69,7 @@ pub struct Renderer {
     overlay_count: u32,
 
     text: TextLayer,
+    images: crate::images::ImageLayer,
 }
 
 impl Renderer {
@@ -178,6 +179,7 @@ impl Renderer {
         let instance_buf = make_instance_buffer(&device, instance_cap);
         let overlay_buf = make_instance_buffer(&device, 64);
         let text = TextLayer::new(&device, &queue, format);
+        let images = crate::images::ImageLayer::new(&device, &globals_layout, format);
 
         Ok(Self {
             device,
@@ -203,6 +205,7 @@ impl Renderer {
             overlay_cap: 64,
             overlay_count: 0,
             text,
+            images,
         })
     }
 
@@ -300,6 +303,8 @@ impl Renderer {
     ) -> Result<FrameStats, RenderError> {
         let uploaded = self.sync_instances(board);
         self.sync_overlay(overlay);
+        self.images
+            .prepare(&self.device, &self.queue, board, camera, &self.layers);
         self.text.prepare(
             &self.device,
             &self.queue,
@@ -379,6 +384,7 @@ impl Renderer {
                     pass.set_vertex_buffer(0, self.instance_buf.slice(..));
                     pass.draw(0..6, layer.instances.clone());
                 }
+                self.images.render(i, &self.globals_bind, &mut pass);
                 self.text.render(i, &mut pass);
             }
             if self.overlay_count > 0 {
@@ -411,7 +417,7 @@ fn make_instance_buffer(device: &wgpu::Device, cap: u64) -> wgpu::Buffer {
     })
 }
 
-fn make_pipeline(
+pub(crate) fn make_pipeline(
     device: &wgpu::Device,
     layout: &wgpu::PipelineLayout,
     format: wgpu::TextureFormat,
