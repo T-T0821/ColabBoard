@@ -21,6 +21,7 @@ pub mod geom;
 pub mod markdown;
 pub mod navigation;
 pub mod ops;
+pub mod plugin;
 pub mod protocol;
 pub mod search;
 pub mod session;

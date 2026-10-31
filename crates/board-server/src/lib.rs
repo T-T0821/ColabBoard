@@ -17,6 +17,7 @@ pub mod boards;
 pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
+pub mod plugins;
 pub mod rest;
 pub mod room;
 pub mod slack;
@@ -62,6 +63,8 @@ pub struct Config {
     pub ai: Option<Arc<ai::Ai>>,
     /// Slack 通知(送ってよい Webhook URL とメッセージのリンク)。
     pub slack: slack::SlackConfig,
+    /// WASM プラグイン。
+    pub plugins: plugins::PluginConfig,
 }
 
 impl Default for Config {
@@ -73,6 +76,7 @@ impl Default for Config {
             secure_cookies: false,
             ai: None,
             slack: slack::SlackConfig::default(),
+            plugins: plugins::PluginConfig::default(),
         }
     }
 }
@@ -99,7 +103,7 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/boards/{id}/ai/cluster", post(ai::cluster))
         .route("/api/boards/{id}/ai/diagram", post(ai_diagram::generate))
         .route("/api/ai/status", get(ai_diagram::status))
-        .nest("/api/v1", rest::routes())
+        .nest("/api/v1", rest::routes().merge(plugins::routes()))
         .nest("/api", api::routes().merge(rest::token_routes()))
         .with_state(state);
     match static_dir {

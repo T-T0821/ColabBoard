@@ -12,6 +12,8 @@
 //! - `ANTHROPIC_MODEL`(既定 `claude-opus-5-5`): AI 機能で使うモデル。
 //! - `PUBLIC_URL`: 公開している URL(例 `https://board.example.com/`)。Slack 通知のリンクに使う。
 //! - `SLACK_WEBHOOK_PREFIXES`(既定 `https://hooks.slack.com/`): Slack 通知を送ってよい URL の先頭(カンマ区切り)。
+//! - `PLUGIN_DIR`: ここにある `*.wasm` をサーバーのプラグインとして読み込む(全員が使える)。
+//! - `USER_PLUGINS`(既定 `1`): `0` で各自がプラグインを入れるのを禁止する。
 //! - `RUST_LOG`(既定 `info`)
 //!
 //! `board-server healthcheck` は自分の `/healthz` を確かめて終了コードで返す(コンテナの死活監視用)。
@@ -113,6 +115,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Arc::new(board_server::ai::Ai::new(c))
         }),
         slack: board_server::slack::SlackConfig::from_env(),
+        plugins: board_server::plugins::PluginConfig::from_env(),
     };
     if config.ai.is_none() {
         tracing::info!(

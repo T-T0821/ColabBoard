@@ -198,6 +198,8 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | AI 機能で使う Claude のモデル |
 | `PUBLIC_URL` | なし | 公開している URL(例 `https://board.example.com/`)。Slack 通知にボードへのリンクを付ける |
 | `SLACK_WEBHOOK_PREFIXES` | `https://hooks.slack.com/` | Slack 通知を送ってよい Webhook URL の先頭(カンマ区切り)。これ以外の URL は登録できない |
+| `PLUGIN_DIR` | なし | ここにある `*.wasm` をサーバーのプラグインとして読み込む(全員が使える) |
+| `USER_PLUGINS` | `1` | `0` にすると各自がプラグインを入れるのを禁止(サーバーのプラグインだけになる) |
 
 ### アカウントと権限
 
@@ -216,6 +218,13 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 - Rust からは SDK クレート `graboard-sdk`(`crates/board-sdk`)で使える。
 - 詳しくは [docs/api.md](docs/api.md)。
 
+### プラグイン(WASM)
+
+- WebAssembly のプラグインで機能を足せる。サーバーがサンドボックス(命令数とメモリの上限、ファイルやネットワークなし)で実行し、プラグインはボードの要素の読み書きだけができる。
+- 書き込みはプラグインが `board:write` を求め、実行した人が編集者以上のときだけ。失敗したら何も変わらない。
+- Rust ならクレート `graboard-plugin`(`crates/board-plugin`)で書ける。例: 付箋を色ごとに並べる・ボードの統計。
+- 書き方と API は [docs/plugins.md](docs/plugins.md)。
+
 ## 構成
 
 | crate | 役割 |
@@ -223,6 +232,8 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `board-core` | データモデル(図形・手書き線・ボード、yrs による CRDT と Undo)、タイマーと投票の共有状態(`session`)、付箋の自動整理(`tidy`)、カメラ座標変換、パン/ズームと編集操作(`Editor`)。描画にも通信にも依存しない |
 | `board-render` | wgpu の描画エンジン。WGSL シェーダ(`grid.wgsl`, `shapes.wgsl`)と文字描画(glyphon / cosmic-text) |
 | `board-web` | ブラウザ用クライアント(WASM)。canvas、入力イベント、HUD、WebSocket 接続とカーソル表示 |
+| `board-types` | REST API とプラグインでやり取りする JSON の型(serde だけに依存) |
+| `board-plugin` | WASM プラグインを書くためのクレート(クレート名 `graboard-plugin`)と例 |
 | `board-sdk` | REST API(`/api/v1`)の Rust クライアント(クレート名 `graboard-sdk`) |
 | `board-server` | 同期サーバー(axum + tokio)。ルームごとに yrs ドキュメントを持って更新を中継し、redb に保存する |
 | `board-bench` | 再現可能なベンチマーク(CPU 側の処理時間、初回同期の速さ) |

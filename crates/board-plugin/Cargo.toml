@@ -1,0 +1,26 @@
+[package]
+name = "graboard-plugin"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "グラボード の WASM プラグインを Rust で書くためのクレート"
+
+[dependencies]
+board-types.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# 擬似ホスト(WASM 以外でのテスト)だけが使う。
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+board-core.workspace = true
+
+# プラグインの例(`cargo build -p graboard-plugin --example tidy_by_color --target wasm32-unknown-unknown --release`)
+[[example]]
+name = "tidy_by_color"
+crate-type = ["cdylib"]
+test = true
+
+[[example]]
+name = "board_stats"
+crate-type = ["cdylib"]
+test = true

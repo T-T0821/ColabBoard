@@ -13,6 +13,8 @@
 //! | `version_info` | (ボード ID, バージョン ID) | [`VersionInfo`](board_core::api::VersionInfo)(JSON) |
 //! | `api_tokens` | トークン ID | [`TokenRecord`](crate::tokens::TokenRecord)(JSON) |
 //! | `user_tokens` | (ログイン名, トークン ID) | なし(一覧用の索引) |
+//! | `plugins` | (ログイン名, プラグイン ID) | [`PluginRecord`](crate::plugins::PluginRecord)(JSON) |
+//! | `plugin_wasm` | (ログイン名, プラグイン ID) | プラグインの WebAssembly モジュール |
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -37,6 +39,9 @@ pub(crate) const VERSION_INFO: TableDefinition<(&str, u64), &[u8]> =
 pub(crate) const API_TOKENS: TableDefinition<&str, &[u8]> = TableDefinition::new("api_tokens");
 pub(crate) const USER_TOKENS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("user_tokens");
+pub(crate) const PLUGINS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("plugins");
+pub(crate) const PLUGIN_WASM: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("plugin_wasm");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
 pub fn next_id() -> u64 {
@@ -90,6 +95,8 @@ impl Store {
         txn.open_table(VERSION_INFO)?;
         txn.open_table(API_TOKENS)?;
         txn.open_table(USER_TOKENS)?;
+        txn.open_table(PLUGINS)?;
+        txn.open_table(PLUGIN_WASM)?;
         txn.commit()?;
         Ok(Self { db, persistent })
     }
@@ -221,6 +228,34 @@ impl Store {
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// 2 つの文字列をキーにするテーブルへ、バイト列をそのまま書く。
+    pub(crate) fn put_pair_bytes(
+        &self,
+        table: TableDefinition<(&str, &str), &[u8]>,
+        a: &str,
+        b: &str,
+        bytes: &[u8],
+    ) -> Result<(), StoreError> {
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(table)?;
+            t.insert((a, b), bytes)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn get_pair_bytes(
+        &self,
+        table: TableDefinition<(&str, &str), &[u8]>,
+        a: &str,
+        b: &str,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(table)?;
+        Ok(t.get((a, b))?.map(|v| v.value().to_vec()))
     }
 
     /// 1 つ目のキーが `a` のものを全部読む(2 つ目のキー順)。
