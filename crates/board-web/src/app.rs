@@ -16,6 +16,8 @@ use web_sys::{
 
 mod actions;
 mod collab;
+mod follow;
+mod toolbar;
 
 use crate::net::{Net, NetEvent, Status};
 use crate::presence::{Cursors, Identity};
@@ -64,6 +66,7 @@ struct App {
     presence_sent_at: f64,
     last_status: Option<(Status, usize)>,
     collab: collab::Collab,
+    follow: follow::Follow,
 }
 
 struct Hud {
@@ -236,6 +239,7 @@ pub async fn run() -> Result<(), String> {
         presence_sent_at: 0.0,
         last_status: None,
         collab: collab::Collab::new(&document)?,
+        follow: follow::Follow::new(&document)?,
     }));
     {
         let mut a = app.borrow_mut();
@@ -258,6 +262,7 @@ pub async fn run() -> Result<(), String> {
     install_controls(&app, &document)?;
     actions::install_clipboard(&app)?;
     actions::install_context_menu(&app)?;
+    toolbar::install(&app)?;
     start_loop(app);
     Ok(())
 }
@@ -379,9 +384,14 @@ impl App {
                     self.cursors.upsert(p);
                     self.cursors_dirty = true;
                 }
-                NetEvent::Message(Message::Leave(peer)) => self.cursors.remove(peer),
+                NetEvent::Message(Message::Leave(peer)) => {
+                    self.cursors.remove(peer);
+                    self.on_peer_leave(peer);
+                }
+                NetEvent::Message(Message::View(v)) => self.on_view(v),
                 NetEvent::Closed => {
                     self.cursors.clear();
+                    self.follow_reset();
                     let offline = self.net.as_ref().map(|n| n.status) == Some(Status::Offline);
                     if offline && self.board.is_empty() && !self.view_initialized {
                         log::warn!("サーバーにつながらないので、このタブだけで動かします");
@@ -570,6 +580,7 @@ impl App {
     fn frame(&mut self, now: f64) {
         self.pump_net(now);
         self.collab_frame();
+        self.follow_frame(now);
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
         if (w, h) != self.renderer.size() {
@@ -750,13 +761,13 @@ impl App {
         let Some(id) = self.editor.editing() else {
             return;
         };
-        let Some(shape) = self.board.get(id).and_then(BoardElement::as_shape) else {
+        let Some(tb) = self.board.get(id).and_then(BoardElement::text_box) else {
             return;
         };
         let dpr = self.window.device_pixel_ratio() as f32;
         let zoom = self.camera.zoom;
-        let rect = shape.text_rect();
-        let style = shape.text_style();
+        let rect = tb.rect;
+        let style = tb.style;
         let min = self.camera.world_to_screen(rect.min) / dpr;
         let size = rect.size() * zoom / dpr;
         let canvas_rect = self.canvas.get_bounding_client_rect();
@@ -777,7 +788,11 @@ impl App {
         let _ = css.set_property("height", "0px");
         let content = self.text_editor.scroll_height() as f32;
         let _ = css.set_property("height", &px(size.y));
-        let pad = ((size.y - content) * 0.5).max(0.0);
+        let pad = if tb.center_vertically {
+            ((size.y - content) * 0.5).max(0.0)
+        } else {
+            0.0
+        };
         let _ = css.set_property("padding-top", &px(pad));
         let _ = css.set_property("box-sizing", "border-box");
     }
@@ -838,8 +853,14 @@ impl App {
                 self.zoom_center(1.0 / z);
             }
             "1" if e.shift_key() || !ctrl => self.fit(),
-            k if !ctrl => match Tool::from_key(k) {
-                Some(t) => self.set_tool(t),
+            k if !ctrl && !e.alt_key() => match Tool::from_key(k) {
+                Some((t, kind)) => {
+                    match kind {
+                        Some(kind) => self.editor.set_shape_kind(kind),
+                        None => self.editor.set_tool(t),
+                    }
+                    self.dirty = true;
+                }
                 None => return false,
             },
             _ => return false,
@@ -1110,6 +1131,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     })?;
     on_click(doc, "share", app, |a| a.copy_link())?;
     collab::install(app, doc)?;
+    follow::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;

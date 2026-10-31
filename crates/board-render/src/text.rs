@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use board_core::{Board, Camera, ElementId, Rect, Shape};
+use board_core::{Board, Camera, ElementId, Rect, TextBox};
 
 use crate::Layer;
 use glyphon::{
@@ -27,6 +27,13 @@ struct Cached {
     height: f32,
     /// 前回の prepare で使ったか(使われなくなったものを捨てる)。
     used: bool,
+}
+
+/// 文字を描く 1 要素分。
+struct Item<'a> {
+    id: ElementId,
+    text: &'a str,
+    tb: TextBox,
 }
 
 pub struct TextLayer {
@@ -100,14 +107,23 @@ impl TextLayer {
         let view = Rect::new(view_min, view_max);
 
         // 見えていて、文字があり、十分な大きさで表示される図形を集める(要素の並び順)。
-        let visible: Vec<(usize, &Shape)> = board
+        let visible: Vec<(usize, Item<'_>)> = board
             .elements()
             .iter()
             .enumerate()
-            .filter_map(|(i, e)| Some((i, e.as_shape()?)))
-            .filter(|(_, s)| !s.text.is_empty() && Some(s.id) != skip)
-            .filter(|(_, s)| s.text_style().font_size * camera.zoom >= MIN_SCREEN_FONT_PX)
-            .filter(|(_, s)| s.text_clip().intersects(&view))
+            .filter(|(_, e)| !e.text().is_empty() && Some(e.id()) != skip)
+            .filter_map(|(i, e)| {
+                Some((
+                    i,
+                    Item {
+                        id: e.id(),
+                        text: e.text(),
+                        tb: e.text_box()?,
+                    },
+                ))
+            })
+            .filter(|(_, s)| s.tb.style.font_size * camera.zoom >= MIN_SCREEN_FONT_PX)
+            .filter(|(_, s)| s.tb.clip.intersects(&view))
             .take(MAX_TEXT_AREAS + 1)
             .collect();
         if visible.is_empty() || visible.len() > MAX_TEXT_AREAS {
@@ -130,8 +146,8 @@ impl TextLayer {
         } = self;
 
         for (_, s) in &visible {
-            let style = s.text_style();
-            let width = s.text_rect().size().x.max(1.0);
+            let style = s.tb.style;
+            let width = s.tb.rect.size().x.max(1.0);
             let entry = buffers.entry(s.id).or_insert_with(|| Cached {
                 text: String::new(),
                 width: -1.0,
@@ -155,7 +171,7 @@ impl TextLayer {
                 b.set_wrap(Wrap::WordOrGlyph);
                 b.set_size(Some(width), None);
                 b.set_text(
-                    &s.text,
+                    s.text,
                     &Attrs::new().family(Family::SansSerif),
                     Shaping::Advanced,
                     Some(match style.align {
@@ -170,7 +186,7 @@ impl TextLayer {
                     .last()
                     .map(|r| r.line_top + r.line_height)
                     .unwrap_or(0.0);
-                entry.text.clone_from(&s.text);
+                entry.text = s.text.to_string();
                 entry.width = width;
                 entry.font_size = style.font_size;
                 entry.align = style.align;
@@ -186,16 +202,20 @@ impl TextLayer {
             },
         );
 
-        let area = |s: &Shape| {
+        let area = |s: &Item<'_>| {
             let c = buffers.get(&s.id)?;
-            let rect = s.text_rect();
+            let rect = s.tb.rect;
             // 縦方向も中央に寄せる(はみ出す場合は上詰め)。
-            let top = rect.min.y + ((rect.size().y - c.height) * 0.5).max(0.0);
+            let top = if s.tb.center_vertically {
+                rect.min.y + ((rect.size().y - c.height) * 0.5).max(0.0)
+            } else {
+                rect.min.y
+            };
             let origin = camera.world_to_screen(glam::Vec2::new(rect.min.x, top));
-            let clip = s.text_clip();
+            let clip = s.tb.clip;
             let clip_min = camera.world_to_screen(clip.min);
             let clip_max = camera.world_to_screen(clip.max);
-            let [r, g, b, a] = s.text_style().color.0;
+            let [r, g, b, a] = s.tb.style.color.0;
             Some(TextArea {
                 buffer: &c.buffer,
                 left: origin.x,

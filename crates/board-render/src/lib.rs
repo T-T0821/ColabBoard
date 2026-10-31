@@ -126,6 +126,14 @@ pub fn push_instances(e: &Element, out: &mut Vec<ShapeInstance>) {
                 ShapeInstance::line(a.to_array(), b.to_array(), c.color, c.width)
             };
             out.extend(c.path.windows(2).map(|w| line(w[0], w[1])));
+            // ラベルの下は線を隠す。
+            if let Some(tb) = c.label_box() {
+                let r = tb.rect.expand(2.0);
+                let mut bg = Shape::rect(c.id, r.min, r.size(), board_core::Rgba8::WHITE);
+                bg.stroke_width = 0.0;
+                bg.corner_radius = 4.0;
+                out.push((&bg).into());
+            }
             for (cap, at_end) in [(c.start_cap, false), (c.end_cap, true)] {
                 if cap == board_core::Cap::Arrow
                     && let Some(lines) = c.arrow_lines(at_end)
