@@ -121,6 +121,7 @@ fn category_name(c: catalog::Category) -> &'static str {
 }
 
 pub(super) fn install(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String> {
+    load_cloud_icons(app.clone());
     let panel: HtmlElement = by_id(doc, "diagram-panel")?;
     {
         let toggle: HtmlElement = by_id(doc, "diagram-toggle")?;
@@ -205,4 +206,78 @@ pub(super) fn install(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), Stri
         )?;
     }
     Ok(())
+}
+
+/// 取り込み済みのクラウドの公式アイコン(`tools/fetch-cloud-icons.sh`)を読み込む。
+/// 取り込んでいなければ何もしない(部品は色付きの図形のまま)。
+fn load_cloud_icons(app: Rc<RefCell<App>>) {
+    #[derive(serde::Deserialize)]
+    struct Index {
+        #[serde(default)]
+        nodes: Vec<String>,
+        #[serde(default)]
+        groups: Vec<String>,
+    }
+    wasm_bindgen_futures::spawn_local(async move {
+        let window = app.borrow().window.clone();
+        let index = match fetch_bytes(&window, &format!("{ICON_DIR}/index.json")).await {
+            Ok(b) => b,
+            Err(e) => {
+                log::info!("クラウドの公式アイコンは取り込まれていません({e})");
+                return;
+            }
+        };
+        let index: Index = match serde_json::from_slice(&index) {
+            Ok(i) => i,
+            Err(e) => {
+                log::warn!("{ICON_DIR}/index.json を読めません: {e}");
+                return;
+            }
+        };
+        let files = index
+            .nodes
+            .into_iter()
+            .map(|k| (format!("{k}.png"), k))
+            .chain(
+                index
+                    .groups
+                    .into_iter()
+                    .map(|k| (format!("group_{k}.png"), format!("group:{k}"))),
+            );
+        // まとめて取りに行き、届いたものから描く。
+        for (file, name) in files {
+            let app = app.clone();
+            let window = window.clone();
+            wasm_bindgen_futures::spawn_local(async move {
+                match fetch_bytes(&window, &format!("{ICON_DIR}/{file}")).await {
+                    Ok(bytes) => {
+                        let mut a = app.borrow_mut();
+                        if a.renderer.register_icon(&name, &bytes) {
+                            a.dirty = true;
+                        }
+                    }
+                    Err(e) => log::warn!("{file} を読めません: {e}"),
+                }
+            });
+        }
+    });
+}
+
+/// 取り込んだアイコンの置き場所(ページからの相対パス)。
+const ICON_DIR: &str = "cloud-icons";
+
+async fn fetch_bytes(window: &web_sys::Window, url: &str) -> Result<Vec<u8>, String> {
+    use wasm_bindgen::JsCast;
+    let resp = wasm_bindgen_futures::JsFuture::from(window.fetch_with_str(url))
+        .await
+        .map_err(js_err)?
+        .dyn_into::<web_sys::Response>()
+        .map_err(|_| "fetch の結果が Response ではありません".to_string())?;
+    if !resp.ok() {
+        return Err(format!("HTTP {}", resp.status()));
+    }
+    let buf = wasm_bindgen_futures::JsFuture::from(resp.array_buffer().map_err(js_err)?)
+        .await
+        .map_err(js_err)?;
+    Ok(js_sys::Uint8Array::new(&buf).to_vec())
 }

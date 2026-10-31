@@ -763,6 +763,12 @@ impl App {
             self.dirty = true;
         }
 
+        let dark = crate::theme::is_dark();
+        if dark != self.renderer.dark() {
+            self.renderer.set_dark(dark);
+            self.dirty = true;
+        }
+
         self.sync_toolbar();
         self.sync_history_buttons();
         if self.last_count != Some(self.board.len()) {
@@ -978,7 +984,13 @@ impl App {
         let _ = css.set_property("font-size", &px(style.font_size * zoom / dpr));
         let _ = css.set_property("line-height", &px(style.line_height * zoom / dpr));
         let _ = css.set_property("text-align", style.align.name());
-        let [r, g, b, _] = style.color.0;
+        let on_canvas = self
+            .board
+            .get(id)
+            .and_then(BoardElement::as_shape)
+            .is_none_or(|s| s.fill.0[3] < 128 || s.kind == board_core::ShapeKind::Frame);
+        let [r, g, b, _] =
+            board_render::dark_ink(style.color.0, crate::theme::is_dark() && on_canvas);
         let _ = css.set_property("color", &format!("rgb({r},{g},{b})"));
         // 縦方向の中央寄せ: 中身の高さを測って上の余白を決める。
         let _ = css.set_property("padding-top", "0px");

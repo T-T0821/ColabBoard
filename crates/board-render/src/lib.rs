@@ -17,6 +17,17 @@ pub use wgpu;
 use board_core::{Element, Shape, ShapeKind, Stroke};
 use bytemuck::{Pod, Zeroable};
 
+/// ダークモードでキャンバスに直接載る文字・線は、黒に近ければ明るくする
+/// (shapes.wgsl の `ink` と同じ基準)。`flip` が偽ならそのまま返す。
+pub fn dark_ink([r, g, b, a]: [u8; 4], flip: bool) -> [u8; 4] {
+    let lum = (0.2126 * r as f32 + 0.7152 * g as f32 + 0.0722 * b as f32) / 255.0;
+    if flip && lum < 0.25 {
+        [230, 232, 240, a]
+    } else {
+        [r, g, b, a]
+    }
+}
+
 /// シェーダの `Globals` と同じ並び(96 バイト)。
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
@@ -26,7 +37,9 @@ pub struct Globals {
     pub viewport: [f32; 2],
     pub zoom: f32,
     pub srgb_output: u32,
-    pub _pad: [u32; 2],
+    /// 1 ならダークモード(背景を暗くし、黒に近い線・文字を明るく描く)。
+    pub dark: u32,
+    pub _pad: u32,
 }
 
 /// シェーダの `Instance` と同じ並び(40 バイト)。
@@ -40,11 +53,12 @@ pub struct ShapeInstance {
     pub stroke_width: f32,
     pub radius: f32,
     pub kind: u32,
-    pub _pad: u32,
+    /// `FLAG_*` の組み合わせ。
+    pub flags: u32,
 }
 
 impl ShapeInstance {
-    pub const ATTRIBS: [wgpu::VertexAttribute; 7] = wgpu::vertex_attr_array![
+    pub const ATTRIBS: [wgpu::VertexAttribute; 8] = wgpu::vertex_attr_array![
         0 => Float32x2,
         1 => Float32x2,
         2 => Uint32,
@@ -52,6 +66,7 @@ impl ShapeInstance {
         4 => Float32,
         5 => Float32,
         6 => Uint32,
+        7 => Uint32,
     ];
 
     pub fn layout() -> wgpu::VertexBufferLayout<'static> {
@@ -85,10 +100,17 @@ impl From<&Shape> for ShapeInstance {
                 ShapeKind::Parallelogram => KIND_PARALLELOGRAM,
                 ShapeKind::Stamp => KIND_STAMP,
             },
-            _pad: 0,
+            flags: if s.kind == ShapeKind::Frame {
+                FLAG_SURFACE
+            } else {
+                0
+            },
         }
     }
 }
+
+/// 下地になる面(フレーム・コネクタのラベル下)。ダークモードでは白い塗りを暗い面の色にする。
+pub const FLAG_SURFACE: u32 = 1;
 
 pub const KIND_RECT: u32 = 0;
 pub const KIND_ELLIPSE: u32 = 1;
@@ -116,7 +138,7 @@ impl ShapeInstance {
             stroke_width: 0.0,
             radius: width * 0.5,
             kind: KIND_SEGMENT,
-            _pad: 0,
+            flags: 0,
         }
     }
 }
@@ -139,7 +161,9 @@ pub fn push_instances(e: &Element, out: &mut Vec<ShapeInstance>) {
                 let mut bg = Shape::rect(c.id, r.min, r.size(), board_core::Rgba8::WHITE);
                 bg.stroke_width = 0.0;
                 bg.corner_radius = 4.0;
-                out.push((&bg).into());
+                let mut inst = ShapeInstance::from(&bg);
+                inst.flags = FLAG_SURFACE;
+                out.push(inst);
             }
             for (cap, at_end) in [(c.start_cap, false), (c.end_cap, true)] {
                 if cap == board_core::Cap::Arrow
@@ -236,8 +260,9 @@ impl TextRegions {
     }
 }
 
+/// 画像の描画(画像要素かアイコン)があるか。
 pub fn is_image(e: &Element) -> bool {
-    matches!(e, Element::Shape(s) if s.kind == ShapeKind::Image)
+    matches!(e, Element::Shape(s) if s.kind == ShapeKind::Image || !s.icon.is_empty())
 }
 
 /// インスタンス列を作りながら段を決める。
@@ -396,6 +421,9 @@ mod tests {
     #[test]
     fn struct_sizes_match_shaders() {
         assert_eq!(std::mem::size_of::<Globals>(), 96);
+        assert_eq!(dark_ink([31, 31, 31, 255], true), [230, 232, 240, 255]);
+        assert_eq!(dark_ink([31, 31, 31, 255], false), [31, 31, 31, 255]);
+        assert_eq!(dark_ink([255, 243, 163, 255], true), [255, 243, 163, 255]);
         assert_eq!(std::mem::size_of::<ShapeInstance>(), 40);
     }
 

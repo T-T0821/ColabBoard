@@ -2,6 +2,9 @@
 //!
 //! 画像要素のバイト列(PNG / JPEG)を初めて見えたときにデコードしてテクスチャにし、
 //! 要素ごとにキャッシュする。描画は段(`Layer`)ごとに、図形の後・文字の前に行う。
+//!
+//! 構成図のアイコン(`Shape::icon`)も同じ仕組みで描く。アイコンの画像は名前ごとに
+//! [`ImageLayer::register_icon`] で登録しておき、登録のない名前は描かない。
 
 use std::collections::HashMap;
 
@@ -22,6 +25,15 @@ struct ImageInstance {
     size: [f32; 2],
 }
 
+/// 描くテクスチャ。
+#[derive(Clone, Copy)]
+enum Source {
+    /// 画像要素(キャッシュの要素 ID)。
+    Element(ElementId),
+    /// 登録したアイコン(`icons` の添字)。
+    Icon(usize),
+}
+
 struct Entry {
     key: (usize, usize),
     /// デコードに失敗した画像は `None`(何度も試さない)。
@@ -36,8 +48,10 @@ pub struct ImageLayer {
     cache: HashMap<ElementId, Entry>,
     buf: wgpu::Buffer,
     cap: u64,
-    /// 段ごとの描画(インスタンス番号と要素 ID)。
-    draws: Vec<Vec<(u32, ElementId)>>,
+    /// 段ごとの描画(インスタンス番号と描くもの)。
+    draws: Vec<Vec<(u32, Source)>>,
+    icons: Vec<wgpu::BindGroup>,
+    icon_index: HashMap<String, usize>,
 }
 
 /// RGBA 画像を、一辺が `MAX_TEXTURE_SIZE` 以下になるよう縮める。
@@ -134,7 +148,35 @@ impl ImageLayer {
             buf: make_buffer(device, cap),
             cap,
             draws: Vec::new(),
+            icons: Vec::new(),
+            icon_index: HashMap::new(),
         }
+    }
+
+    /// アイコンの画像(PNG など)を名前で登録する。同じ名前は置き換える。読めなければ `false`。
+    pub fn register_icon(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        name: &str,
+        bytes: &[u8],
+    ) -> bool {
+        let Some(bind) = self.upload(device, queue, bytes) else {
+            return false;
+        };
+        match self.icon_index.get(name) {
+            Some(&i) => self.icons[i] = bind,
+            None => {
+                self.icon_index.insert(name.to_string(), self.icons.len());
+                self.icons.push(bind);
+            }
+        }
+        true
+    }
+
+    /// 登録済みのアイコンの数。
+    pub fn icon_count(&self) -> usize {
+        self.icons.len()
     }
 
     fn upload(
@@ -225,13 +267,26 @@ impl ImageLayer {
         let mut instances = Vec::new();
         for (li, layer) in layers.iter().enumerate() {
             for e in &elements[layer.elements.clone()] {
-                let Some(s) = e.as_shape().filter(|s| s.kind == ShapeKind::Image) else {
+                let Some(s) = e.as_shape() else { continue };
+                if s.kind != ShapeKind::Image && s.icon.is_empty() {
                     continue;
-                };
-                let Some(data) = &s.image else { continue };
+                }
                 if !s.bounds().intersects(&view) {
                     continue;
                 }
+                if let Some(rect) = s.icon_rect()
+                    && let Some(&icon) = self.icon_index.get(s.icon.as_str())
+                {
+                    self.draws[li].push((instances.len() as u32, Source::Icon(icon)));
+                    instances.push(ImageInstance {
+                        pos: rect.min.to_array(),
+                        size: rect.size().to_array(),
+                    });
+                }
+                if s.kind != ShapeKind::Image {
+                    continue;
+                }
+                let Some(data) = &s.image else { continue };
                 let key = data.key();
                 let stale = self.cache.get(&s.id).is_none_or(|c| c.key != key);
                 if stale {
@@ -250,7 +305,7 @@ impl ImageLayer {
                 if entry.bind.is_none() {
                     continue;
                 }
-                self.draws[li].push((instances.len() as u32, s.id));
+                self.draws[li].push((instances.len() as u32, Source::Element(s.id)));
                 instances.push(ImageInstance {
                     pos: s.pos.to_array(),
                     size: s.size.to_array(),
@@ -279,8 +334,12 @@ impl ImageLayer {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, globals, &[]);
         pass.set_vertex_buffer(0, self.buf.slice(..));
-        for (i, id) in draws {
-            if let Some(bind) = self.cache.get(id).and_then(|e| e.bind.as_ref()) {
+        for (i, src) in draws {
+            let bind = match *src {
+                Source::Element(id) => self.cache.get(&id).and_then(|e| e.bind.as_ref()),
+                Source::Icon(icon) => self.icons.get(icon),
+            };
+            if let Some(bind) = bind {
                 pass.set_bind_group(1, bind, &[]);
                 pass.draw(0..6, *i..*i + 1);
             }

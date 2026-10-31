@@ -46,8 +46,80 @@
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --t-fast: 120ms;
   --t-med: 200ms;
+  --icon: #3a3f4d;
+  --card: rgba(255, 255, 255, 0.86);
+  --card-border: rgba(255, 255, 255, 0.8);
+  --danger-border: #f6c5c7;
+  --danger-text: #b42318;
+  --success-text: #217a4b;
+  --warning-soft: #fff8eb;
+  --home-glow: 1;
   --font: "Inter", system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
   color-scheme: light;
+}
+
+/* ダークモード: 明示的に選んだとき、または OS がダークで未選択のとき */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1c1d22;
+  --panel: rgba(36, 38, 46, 0.9);
+  --panel-solid: #24262e;
+  --surface-2: #2e313a;
+  --surface-hover: #353844;
+  --surface-active: #3d414e;
+  --text: #e9eaf0;
+  --muted: #9a9fb0;
+  --faint: #686d7e;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --accent: #7380ff;
+  --accent-hover: #8b96ff;
+  --accent-soft: rgba(115, 128, 255, 0.16);
+  --accent-ring: rgba(115, 128, 255, 0.4);
+  --danger-soft: rgba(229, 72, 77, 0.14);
+  --danger-border: rgba(229, 72, 77, 0.4);
+  --danger-text: #ff8a8d;
+  --success-soft: rgba(48, 164, 108, 0.16);
+  --success-text: #5fd39a;
+  --warning-soft: rgba(245, 165, 36, 0.14);
+  --icon: #c5c8d4;
+  --card: rgba(36, 38, 46, 0.82);
+  --card-border: rgba(255, 255, 255, 0.08);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 0 0 1px rgba(0, 0, 0, 0.2), 0 2px 4px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 6px 12px rgba(0, 0, 0, 0.2), 0 16px 36px rgba(0, 0, 0, 0.32);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #1c1d22;
+    --panel: rgba(36, 38, 46, 0.9);
+    --panel-solid: #24262e;
+    --surface-2: #2e313a;
+    --surface-hover: #353844;
+    --surface-active: #3d414e;
+    --text: #e9eaf0;
+    --muted: #9a9fb0;
+    --faint: #686d7e;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --accent: #7380ff;
+    --accent-hover: #8b96ff;
+    --accent-soft: rgba(115, 128, 255, 0.16);
+    --accent-ring: rgba(115, 128, 255, 0.4);
+    --danger-soft: rgba(229, 72, 77, 0.14);
+    --danger-border: rgba(229, 72, 77, 0.4);
+    --danger-text: #ff8a8d;
+    --success-soft: rgba(48, 164, 108, 0.16);
+    --success-text: #5fd39a;
+    --warning-soft: rgba(245, 165, 36, 0.14);
+    --icon: #c5c8d4;
+    --card: rgba(36, 38, 46, 0.82);
+    --card-border: rgba(255, 255, 255, 0.08);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 0 0 1px rgba(0, 0, 0, 0.2), 0 2px 4px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.35);
+    --shadow-lg: 0 0 0 1px rgba(0, 0, 0, 0.25), 0 6px 12px rgba(0, 0, 0, 0.2), 0 16px 36px rgba(0, 0, 0, 0.32);
+  }
 }
 
 * { box-sizing: border-box; }
@@ -177,7 +249,7 @@ html, body {
   border: none;
   border-radius: var(--r-sm);
   background: transparent;
-  color: #3a3f4d;
+  color: var(--icon);
   display: grid;
   place-items: center;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--ease);
@@ -252,10 +324,10 @@ input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px;
   max-width: min(520px, calc(100vw - 32px));
   padding: 16px 20px;
   background: var(--danger-soft);
-  border: 1px solid #f6c5c7;
+  border: 1px solid var(--danger-border);
   border-radius: var(--r-md);
   box-shadow: var(--shadow-lg);
-  color: #8a1c1c;
+  color: var(--danger-text);
 }
 #error[data-visible] { display: block; }
 
@@ -426,7 +498,7 @@ input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px;
   font-weight: 700;
   line-height: 24px;
   text-align: center;
-  box-shadow: 0 0 0 2px #fff, 0 2px 6px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 0 0 2px var(--panel-solid), 0 2px 6px rgba(0, 0, 0, 0.25);
   will-change: transform;
 }
 .vote-badge.mine { background: var(--accent); }
@@ -500,7 +572,7 @@ input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px;
 .diagram-panel hr { width: 100%; border: none; border-top: 1px solid var(--border); margin: 4px 0; }
 .diagram-panel button.primary:disabled { opacity: 0.6; cursor: progress; }
 .ai-status { margin: 0; color: var(--muted); font-size: 12px; min-height: 1.4em; }
-.ai-status[data-kind="error"] { color: #b42318; }
+.ai-status[data-kind="error"] { color: var(--danger-text); }
 @media (max-width: 1100px) { .diagram-toggle { top: 108px; } .diagram-panel { top: 156px; } }
 
 /* 図形ライブラリ */
@@ -584,7 +656,7 @@ input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px;
   white-space: nowrap;
 }
 .badge[data-role="owner"] { background: var(--accent-soft); color: var(--accent); }
-.badge[data-role="editor"] { background: var(--success-soft); color: #217a4b; }
+.badge[data-role="editor"] { background: var(--success-soft); color: var(--success-text); }
 
 /* 見るだけの人には編集の道具を出さない */
 body[data-role="viewer"] .toolbar,
@@ -660,7 +732,7 @@ a.button {
 }
 .small { font-size: 12px; }
 .muted { color: var(--muted); }
-.form-error { margin: 0; color: #b42318; }
+.form-error { margin: 0; color: var(--danger-text); }
 
 /* ---- ホーム(ボード一覧・ログイン) ---- */
 body.home-mode {
@@ -683,10 +755,10 @@ body.home-mode > :not(#home):not(#error) { display: none !important; }
 #home[hidden] { display: none; }
 .home-card {
   width: min(680px, 100%);
-  background: rgba(255, 255, 255, 0.86);
+  background: var(--card);
   -webkit-backdrop-filter: blur(20px) saturate(1.6);
   backdrop-filter: blur(20px) saturate(1.6);
-  border: 1px solid rgba(255, 255, 255, 0.8);
+  border: 1px solid var(--card-border);
   border-radius: var(--r-xl);
   box-shadow: var(--shadow-lg);
   padding: 32px 36px;
@@ -887,7 +959,7 @@ body:not([data-comments="on"]) #comment-pins { display: none; }
   margin: -28px 0 0 0;
   padding: 0;
   border-radius: 14px 14px 14px 3px;
-  border: 2px solid #fff;
+  border: 2px solid var(--panel-solid);
   background: var(--accent);
   color: #fff;
   font-size: 12px;
@@ -1022,7 +1094,7 @@ body:not([data-comments="on"]) #comment-pins { display: none; }
   padding: 5px 5px 5px 14px;
   border-color: rgba(245, 165, 36, 0.5);
   border-radius: 999px;
-  background: #fff8eb;
+  background: var(--warning-soft);
   z-index: 14;
   white-space: nowrap;
 }
@@ -1049,12 +1121,26 @@ body[data-preview="on"] #board { box-shadow: inset 0 0 0 3px var(--warning); }
 .template-picker span { font-size: 11px; color: var(--muted); }
 
 /* ---- 検索 ---- */
-.search-box { top: 60px; left: 50%; transform: translateX(-50%); z-index: 25; gap: 6px; }
+.search-box { top: 64px; left: 50%; transform: translateX(-50%); z-index: 25; gap: 4px; padding: 5px; animation: pop-in var(--t-med) var(--ease); }
 .search-box[hidden] { display: none; }
-.search-box input { width: 240px; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; font: inherit; }
-.search-box input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-.search-box button { height: 28px; min-width: 28px; padding: 0 6px; }
+.search-box input { width: 240px; height: 30px; padding: 0 10px; }
+.search-box button { height: 30px; min-width: 30px; padding: 0 8px; background: transparent; }
+.search-box button:hover { background: var(--surface-hover); }
 #search-count { min-width: 64px; font-size: 12px; text-align: center; }
+
+/* ---- テーマ切り替え ---- */
+#theme-toggle { padding: 5px 7px; display: inline-flex; align-items: center; background: transparent; }
+#theme-toggle:hover { background: var(--surface-hover); }
+#theme-toggle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+#theme-toggle .sun, :root[data-theme="dark"] #theme-toggle .moon { display: none; }
+:root[data-theme="dark"] #theme-toggle .sun { display: block; }
+:root[data-theme="dark"] .preview-banner { color: var(--text); }
+:root[data-theme="dark"] body.home-mode {
+  background:
+    radial-gradient(900px 600px at 10% -10%, rgba(106, 92, 255, 0.22), transparent 60%),
+    radial-gradient(800px 500px at 100% 0%, rgba(58, 139, 255, 0.16), transparent 60%),
+    var(--bg);
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }

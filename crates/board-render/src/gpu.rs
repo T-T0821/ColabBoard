@@ -44,6 +44,7 @@ pub struct Renderer {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     srgb_output: bool,
+    dark: bool,
     backend: wgpu::Backend,
     adapter_name: String,
 
@@ -186,6 +187,7 @@ impl Renderer {
             queue,
             surface,
             srgb_output: format.is_srgb(),
+            dark: false,
             config,
             backend: info.backend,
             adapter_name: info.name,
@@ -224,8 +226,24 @@ impl Renderer {
     }
 
     /// 文字描画用のフォント(TTF/OTF)を読み込む。
+    /// ダークモードの切り替え。次の `render` から反映される。
+    pub fn set_dark(&mut self, dark: bool) {
+        self.dark = dark;
+        self.text.set_dark(dark);
+    }
+
+    pub fn dark(&self) -> bool {
+        self.dark
+    }
+
     pub fn load_font(&mut self, data: Vec<u8>) {
         self.text.load_font(data);
+    }
+
+    /// 構成図のアイコン(`Shape::icon` の名前)の画像を登録する。読めなければ `false`。
+    pub fn register_icon(&mut self, name: &str, bytes: &[u8]) -> bool {
+        self.images
+            .register_icon(&self.device, &self.queue, name, bytes)
     }
 
     pub fn has_font(&self) -> bool {
@@ -314,7 +332,7 @@ impl Renderer {
             text_skip,
         );
 
-        self.write_globals(camera);
+        self.write_globals(camera, self.dark);
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t)
@@ -394,14 +412,15 @@ impl Renderer {
         let _ = self.device.poll(wgpu::PollType::Poll);
     }
 
-    fn write_globals(&self, camera: &Camera) {
+    fn write_globals(&self, camera: &Camera, dark: bool) {
         let globals = Globals {
             view_proj: camera.view_proj().to_cols_array_2d(),
             origin: camera.origin.to_array(),
             viewport: camera.viewport.to_array(),
             zoom: camera.zoom,
             srgb_output: self.srgb_output as u32,
-            _pad: [0; 2],
+            dark: dark as u32,
+            _pad: 0,
         };
         self.queue
             .write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
@@ -439,6 +458,7 @@ impl Renderer {
         self.sync_instances(board);
         self.images
             .prepare(&self.device, &self.queue, board, &camera, &self.layers);
+        self.text.set_dark(false);
         self.text.prepare(
             &self.device,
             &self.queue,
@@ -447,7 +467,9 @@ impl Renderer {
             &self.layers,
             None,
         );
-        self.write_globals(&camera);
+        self.text.set_dark(self.dark);
+        // 書き出しはダークモードでも白背景の見た目にする。
+        self.write_globals(&camera, false);
 
         let format = self.config.format;
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {

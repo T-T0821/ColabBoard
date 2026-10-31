@@ -85,6 +85,9 @@ pub fn encode(e: &Element, z: f64) -> Vec<(&'static str, Any)> {
             if let Some(img) = &s.image {
                 f.push(("img", Any::Buffer(img.0.clone())));
             }
+            if !s.icon.is_empty() {
+                f.push(("icon", Any::String(s.icon.as_str().into())));
+            }
         }
         Element::Connector(c) => {
             f.extend([
@@ -195,6 +198,7 @@ pub fn decode<T: ReadTxn>(id: ElementId, m: &MapRef, txn: &T) -> Option<(Element
                 Some(Out::Any(Any::Buffer(b))) => Some(crate::shape::ImageData(b)),
                 _ => None,
             },
+            icon: string(m, txn, "icon"),
         };
         return Some((Element::Shape(shape), z));
     }
