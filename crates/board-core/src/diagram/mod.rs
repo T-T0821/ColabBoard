@@ -19,6 +19,7 @@ use crate::shape::{Shape, ShapeKind};
 
 pub use catalog::{Category, GROUP_KINDS, GroupKind, NODE_KINDS, NodeKind, NodeStyle};
 pub use layout::Layout;
+pub(crate) use layout::ranks;
 
 /// 図全体の定義。
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
