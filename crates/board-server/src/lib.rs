@@ -19,6 +19,7 @@ pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
 pub mod issues;
+pub mod plugins;
 pub mod rest;
 pub mod room;
 pub mod slack;
@@ -65,6 +66,8 @@ pub struct Config {
     pub ai: Option<Arc<ai::Ai>>,
     /// Slack 通知(送ってよい Webhook URL とメッセージのリンク)。
     pub slack: slack::SlackConfig,
+    /// WASM プラグイン。
+    pub plugins: plugins::PluginConfig,
     /// GitHub・Jira の課題カード。
     pub issues: issues::IssuesConfig,
     /// 音声通話の ICE サーバー(`RTCIceServer` の配列)。`GET /api/rtc` で配る。
@@ -103,6 +106,7 @@ impl Default for Config {
             secure_cookies: false,
             ai: None,
             slack: slack::SlackConfig::default(),
+            plugins: plugins::PluginConfig::default(),
             issues: issues::IssuesConfig::default(),
             ice_servers: default_ice_servers(),
             embed_origins: "*".into(),
@@ -135,7 +139,7 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/ai/status", get(ai_diagram::status))
         .route("/api/boards/{id}/issues", post(issues::lookup))
         .route("/api/rtc", get(rtc_config))
-        .nest("/api/v1", rest::routes())
+        .nest("/api/v1", rest::routes().merge(plugins::routes()))
         .nest(
             "/api",
             api::routes()

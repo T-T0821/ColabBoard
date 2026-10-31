@@ -1,0 +1,10 @@
+[package]
+name = "board-types"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "グラボード の REST API・プラグインでやり取りする JSON の型(依存の少ないクレート)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

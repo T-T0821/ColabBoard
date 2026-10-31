@@ -134,7 +134,7 @@ fn require_user(actor: &Actor) -> ApiResult<&UserRecord> {
 }
 
 /// ボードを開けるか確かめ、使える権限を返す。
-fn access(
+pub fn access(
     state: &AppState,
     actor: &Actor,
     id: &str,
