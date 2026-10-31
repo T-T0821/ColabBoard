@@ -14,8 +14,10 @@ use web_sys::{
     HtmlTextAreaElement, KeyboardEvent, PointerEvent, WheelEvent, Window,
 };
 
+mod a11y;
 mod actions;
 mod ai;
+mod call_ui;
 mod collab;
 mod comments;
 mod export;
@@ -23,14 +25,17 @@ mod follow;
 mod format_bar;
 mod history;
 mod imports;
+mod issues;
 mod media;
 mod offline;
 mod prefs;
 mod reactions;
 mod search_ui;
+mod slides;
 mod templates_ui;
 mod toolbar;
 mod touch;
+mod workshop;
 
 use crate::bench::Bench;
 use crate::net::{Net, NetEvent, Status};
@@ -89,10 +94,16 @@ struct App {
     collab: collab::Collab,
     ai: ai::AiUi,
     follow: follow::Follow,
+    workshop: workshop::Workshop,
+    slides: slides::Slides,
     format_bar: format_bar::FormatBar,
     search: search_ui::Search,
+    a11y: a11y::A11y,
     comments: comments::Comments,
     history: history::History,
+    /// 音声通話(サーバーにつながるボードだけ)。
+    voice: Option<crate::voice::VoiceCall>,
+    call_ui: call_ui::CallUi,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
     live_board: Option<Board>,
     /// 付箋の作者名を出すか。
@@ -248,6 +259,10 @@ pub async fn run() -> Result<(), String> {
     }
     // 共有リンクの鍵(`&key=`)。
     let key = params.get("key").filter(|k| valid_room(k));
+    // 他のサイトに埋め込まれた表示(`&embed=1`)。ボード以外の飾りを隠し、別タブで開くリンクを出す。
+    if params.get("embed").as_deref() == Some("1") {
+        enter_embed_mode(&window, &document, &params);
+    }
     let mut me = None;
     let mut info = None;
     if collaborative {
@@ -277,12 +292,17 @@ pub async fn run() -> Result<(), String> {
     let (w, h) = renderer.size();
     let camera = Camera::new(Vec2::new(w as f32, h as f32));
     let mut local_store = None;
+    let mut voice = None;
     let (board, room, net) = match demo_count {
         Some(n) => (Board::demo(n), None, None),
         None if offline => (Board::welcome(), None, None),
         None => {
             let room = ensure_room(&window, &params);
             let mut net = Net::new(server_url(&window, &params, &room, key.as_deref())?);
+            // 通話のメッセージは最初の同期から受け取る(参加者番号を知るため)ので、つなぐ前に付ける。
+            let call = crate::voice::VoiceCall::new(net.sender());
+            net.set_tap(call.tap());
+            voice = Some(call);
             net.connect();
             // 前回この端末に保存した内容があれば、サーバーを待たずに表示する。
             let mut board = Board::new();
@@ -375,10 +395,15 @@ pub async fn run() -> Result<(), String> {
         collab: collab::Collab::new(&document)?,
         ai: ai::AiUi::new(&document)?,
         follow: follow::Follow::new(&document)?,
+        workshop: workshop::Workshop::new(&document)?,
+        slides: slides::Slides::new(&document)?,
         format_bar: format_bar::FormatBar::default(),
         search: search_ui::Search::default(),
+        a11y: a11y::A11y::default(),
         comments: comments::Comments::new(&document)?,
         history: history::History::new(&document)?,
+        voice,
+        call_ui: call_ui::CallUi::new(&document)?,
         live_board: None,
         show_authors: true,
         local_store,
@@ -430,8 +455,34 @@ pub async fn run() -> Result<(), String> {
     media::install(&app)?;
     templates_ui::install(&app)?;
     search_ui::install(&app)?;
+    a11y::install(&app)?;
+    issues::install(&app)?;
     start_loop(app);
     Ok(())
+}
+
+/// 埋め込み表示にする。
+fn enter_embed_mode(window: &Window, document: &Document, params: &web_sys::UrlSearchParams) {
+    if let Some(body) = document.body() {
+        let _ = body.class_list().add_1("embed-mode");
+    }
+    let Some(link) = document.get_element_by_id("embed-open") else {
+        return;
+    };
+    let full =
+        web_sys::UrlSearchParams::new_with_str(&params.to_string().as_string().unwrap_or_default());
+    if let Ok(full) = full {
+        full.delete("embed");
+        let loc = window.location();
+        let href = format!(
+            "{}{}?{}",
+            loc.origin().unwrap_or_default(),
+            loc.pathname().unwrap_or_default(),
+            full.to_string().as_string().unwrap_or_default()
+        );
+        let _ = link.set_attribute("href", &href);
+        let _ = link.remove_attribute("hidden");
+    }
 }
 
 /// `?room=` がなければ新しいルーム名を作って URL に載せる(そのまま共有できるように)。
@@ -503,7 +554,9 @@ fn show_authors_setting(window: &Window) -> bool {
 impl App {
     fn set_show_authors(&mut self, on: bool) {
         self.show_authors = on;
-        self.renderer.set_show_authors(on);
+        // 匿名モード中は作者名を出さない。
+        self.renderer
+            .set_show_authors(on && !self.board.anonymous());
         if let Some(el) = self.document.get_element_by_id("toggle-authors") {
             let _ = el.set_attribute("aria-pressed", if on { "true" } else { "false" });
         }
@@ -665,6 +718,8 @@ impl App {
                 NetEvent::Message(Message::Refresh(TOPIC_COMMENTS)) => self.fetch_comments(),
                 NetEvent::Message(Message::Refresh(TOPIC_VERSIONS)) => self.versions_changed(),
                 NetEvent::Message(Message::Refresh(_)) => {}
+                // 通話のメッセージは voice が先に受け取っている。
+                NetEvent::Message(Message::Voice(_) | Message::Signal(_)) => {}
                 NetEvent::Closed => {
                     self.cursors.clear();
                     self.follow_reset();
@@ -876,10 +931,14 @@ impl App {
         self.pump_net(now);
         self.save_local(now, false);
         self.collab_frame();
+        self.workshop_frame();
+        self.slides_frame(now);
         self.follow_frame(now);
         self.comments_frame(now);
         self.history_frame();
+        self.a11y_frame(now);
         self.touch_frame(now);
+        self.call_frame();
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
         if (w, h) != self.renderer.size() {
@@ -1054,6 +1113,9 @@ impl App {
     fn on_pointer_down(&mut self, e: &PointerEvent) {
         let p = self.css_to_physical(e.client_x() as f64, e.client_y() as f64);
         let id = e.pointer_id();
+        if self.slides_pointer_down(p, e.button()) {
+            return;
+        }
         if !self.touch_pointer_down(e, p) {
             return;
         }
@@ -1178,6 +1240,7 @@ impl App {
         }
         let text = self.board.get(id).map(BoardElement::text).unwrap_or("");
         self.text_editor.set_value(text);
+        self.label_text_editor(id);
         let _ = self.text_editor.set_attribute("data-visible", "true");
         self.layout_text_editor();
         let _ = self.text_editor.focus();
@@ -1258,6 +1321,9 @@ impl App {
     // ---- キーボード ----
 
     fn on_key_down(&mut self, e: &KeyboardEvent) -> bool {
+        if self.slides_active() {
+            return self.slides_key(e);
+        }
         if (e.ctrl_key() || e.meta_key()) && e.code() == "KeyF" {
             self.open_search();
             return true;
@@ -1268,6 +1334,12 @@ impl App {
         }
         let key = e.key();
         let ctrl = e.ctrl_key() || e.meta_key();
+        if key == "Escape" && self.close_shortcuts() {
+            return true;
+        }
+        if self.a11y_key(e) {
+            return true;
+        }
         if key == "Escape" && (self.comments_escape() || self.history_escape()) {
             return true;
         }
@@ -1446,6 +1518,10 @@ fn install_pointer(app: &Rc<RefCell<App>>, canvas: &HtmlCanvasElement) -> Result
         listen(target, "wheel", false, move |e: WheelEvent| {
             e.prevent_default();
             let mut a = app.borrow_mut();
+            // スライド中はカメラを動かさない。
+            if a.slides_active() {
+                return;
+            }
             let dpr = a.window.device_pixel_ratio() as f32;
             // deltaMode: 0=ピクセル, 1=行, 2=ページ
             let unit = match e.delta_mode() {
@@ -1505,6 +1581,8 @@ fn install_text_editor(app: &Rc<RefCell<App>>) -> Result<(), String> {
             if e.key() == "Escape" || (e.key() == "Enter" && (e.ctrl_key() || e.meta_key())) {
                 e.prevent_default();
                 let _ = el2.blur();
+                // キーボードで続けて操作できるようにキャンバスへ戻す。
+                let _ = app.borrow().canvas.focus();
             }
         })?;
     }
@@ -1655,8 +1733,11 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     collab::install(app, doc)?;
     ai::install(app, doc)?;
     follow::install(app, doc)?;
+    workshop::install(app, doc)?;
+    slides::install(app, doc)?;
     comments::install(app, doc)?;
     history::install(app)?;
+    call_ui::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;

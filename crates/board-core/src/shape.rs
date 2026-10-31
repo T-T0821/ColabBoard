@@ -785,6 +785,21 @@ impl Shape {
         self.size = r.size();
     }
 
+    /// ハンコ(塗りのないスタンプ)か。
+    pub fn is_hanko(&self) -> bool {
+        self.kind == ShapeKind::Stamp && self.fill.0[3] == 0
+    }
+
+    /// 日付印(中段に数字のある 3 段のハンコ)か。段の間に線を引く。
+    pub fn is_date_hanko(&self) -> bool {
+        let mut lines = self.text.lines();
+        self.is_hanko()
+            && self.text.lines().count() == 3
+            && lines
+                .nth(1)
+                .is_some_and(|l| l.chars().any(|c| c.is_ascii_digit()))
+    }
+
     /// 種類ごとの既定の文字の大きさ。
     pub fn default_font_size(kind: ShapeKind) -> f32 {
         match kind {
@@ -796,10 +811,26 @@ impl Shape {
     }
 
     pub fn text_style(&self) -> TextStyle {
-        let font_size = if self.kind == ShapeKind::Stamp {
-            // スタンプの記号は丸の大きさに合わせる。
-            (self.size.y * 0.46).max(1.0)
-        } else if self.font_size > 0.0 {
+        if self.kind == ShapeKind::Stamp {
+            // スタンプの文字は丸の大きさと文字数に合わせる。
+            let lh = if self.is_date_hanko() {
+                crate::stamp::DATE_LINE_HEIGHT
+            } else {
+                crate::stamp::STAMP_LINE_HEIGHT
+            };
+            let mut font_size = crate::stamp::stamp_font_size_with(&self.text, self.size.y, lh);
+            if self.is_hanko() && !self.is_date_hanko() {
+                // ハンコは枠が太いので、文字を少し内側に収める。
+                font_size *= 0.88;
+            }
+            return TextStyle {
+                font_size,
+                line_height: font_size * lh,
+                color: self.text_color,
+                align: TextAlign::Center,
+            };
+        }
+        let font_size = if self.font_size > 0.0 {
             self.font_size
         } else {
             Self::default_font_size(self.kind)

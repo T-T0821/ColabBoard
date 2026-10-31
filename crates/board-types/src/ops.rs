@@ -73,6 +73,9 @@ pub enum ElementBody {
         style: String,
         start_cap: String,
         end_cap: String,
+        /// 破線。
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        dashed: bool,
     },
     Stroke {
         points: Vec<[f32; 2]>,
@@ -261,11 +264,15 @@ pub struct ConnectorStyle {
     /// `straight` / `elbow` / `curved`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
-    /// `none` / `arrow`。
+    /// `none` / `arrow` / `triangle` / `triangle-filled` / `diamond` / `diamond-filled` /
+    /// `circle` / `one` / `many` / `zero-or-one` / `one-or-many` / `zero-or-many`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_cap: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_cap: Option<String>,
+    /// 破線にするか。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dashed: Option<bool>,
 }
 
 /// どの要素にもある属性。
@@ -314,6 +321,8 @@ pub struct ElementPatch {
     pub start_cap: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_cap: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dashed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub points: Option<Vec<[f32; 2]>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -249,17 +249,20 @@ pub struct Note {
 }
 
 /// ボードから文字のある付箋を集める。`ids` が空でなければその中だけ。
+/// 個人作業エリアの中の付箋(持ち主以外には伏せているもの)は渡さない。
 pub fn collect_notes(board: &Board, ids: &[String]) -> Result<Vec<Note>, AiError> {
     let wanted: HashSet<u64> = ids
         .iter()
         .filter_map(|h| u64::from_str_radix(h, 16).ok())
         .collect();
+    let private = board_core::privacy::hidden_ids(board, "");
     let notes: Vec<Note> = board
         .elements()
         .iter()
         .filter_map(|e| e.as_shape())
         .filter(|s| s.kind == ShapeKind::Sticky)
         .filter(|s| wanted.is_empty() || wanted.contains(&s.id.0))
+        .filter(|s| !private.contains(&s.id))
         .filter(|s| !s.text.trim().is_empty())
         .map(|s| Note {
             id: format!("{:x}", s.id.0),
@@ -534,6 +537,21 @@ mod tests {
             "<note id=\"{}\">速くしたい</note>",
             id_hex(ids[0])
         )));
+    }
+
+    #[test]
+    fn skips_notes_in_personal_areas() {
+        let mut b = Board::new();
+        b.add_personal_area("alice", "Alice", Vec2::new(5000.0, 0.0));
+        for (x, text) in [(0.0, "公開"), (5100.0, "書きかけ")] {
+            let id = b.alloc_id();
+            let mut s = Shape::sticky(id, Vec2::new(x, 100.0), Rgba8::WHITE);
+            s.text = text.into();
+            b.push(s);
+        }
+        let notes = collect_notes(&b, &[]).unwrap();
+        assert_eq!(notes.len(), 1);
+        assert_eq!(notes[0].text, "公開");
     }
 
     #[test]

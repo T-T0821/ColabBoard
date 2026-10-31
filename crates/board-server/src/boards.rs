@@ -26,6 +26,9 @@ pub struct BoardMeta {
     pub members: BTreeMap<String, Role>,
     #[serde(default)]
     pub link: Option<LinkShare>,
+    /// 埋め込み用の鍵(共有リンクとは別)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embed: Option<LinkShare>,
     /// Slack 通知の送り先。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slack: Option<crate::slack::SlackHook>,
@@ -40,6 +43,7 @@ impl BoardMeta {
             owner: self.owner.clone(),
             members: self.members.clone(),
             link: self.link.clone(),
+            embed: self.embed.clone(),
         }
     }
 
@@ -96,6 +100,11 @@ pub fn role_of(meta: Option<&BoardMeta>, who: Visitor<'_>, anonymous_boards: boo
     {
         best = best.max(Some(link.role));
     }
+    if let (Some(embed), Some(key)) = (&meta.embed, who.key)
+        && constant_time_eq(embed.key.as_bytes(), key.as_bytes())
+    {
+        best = best.max(Some(embed.role));
+    }
     best
 }
 
@@ -137,6 +146,7 @@ pub fn create(store: &Store, owner: &str, title: &str) -> Result<BoardMeta, Stor
             updated: now,
             members: BTreeMap::new(),
             link: None,
+            embed: None,
             slack: None,
             deleted: false,
         };
@@ -222,7 +232,16 @@ pub fn list_for(
 
 /// 共有リンクを設定する。
 pub fn set_link(meta: &mut BoardMeta, role: Option<Role>, regenerate: bool) {
-    meta.link = match (role, meta.link.take()) {
+    meta.link = next_share(meta.link.take(), role, regenerate);
+}
+
+/// 埋め込み用の鍵を設定する。
+pub fn set_embed(meta: &mut BoardMeta, role: Option<Role>, regenerate: bool) {
+    meta.embed = next_share(meta.embed.take(), role, regenerate);
+}
+
+fn next_share(old: Option<LinkShare>, role: Option<Role>, regenerate: bool) -> Option<LinkShare> {
+    match (role, old) {
         (None, _) => None,
         // オーナー権限はリンクでは渡さない。
         (Some(r), old) => Some(LinkShare {
@@ -232,7 +251,7 @@ pub fn set_link(meta: &mut BoardMeta, role: Option<Role>, regenerate: bool) {
             },
             role: r.min(Role::Editor),
         }),
-    };
+    }
 }
 
 #[cfg(test)]
@@ -251,6 +270,7 @@ mod tests {
                 key: "secret".into(),
                 role: Role::Commenter,
             }),
+            embed: None,
             slack: None,
             deleted: false,
         }
@@ -287,6 +307,26 @@ mod tests {
         assert_eq!(role_of(None, who(None, None), false), None);
         let gone = BoardMeta { deleted: true, ..m };
         assert_eq!(role_of(Some(&gone), who(Some("alice"), None), true), None);
+    }
+
+    #[test]
+    fn embed_key_is_separate() {
+        let mut m = meta();
+        set_embed(&mut m, Some(Role::Viewer), false);
+        let ek = m.embed.clone().unwrap().key;
+        assert_ne!(ek, "secret");
+        assert_eq!(
+            role_of(Some(&m), who(None, Some(&ek)), true),
+            Some(Role::Viewer)
+        );
+        // 共有リンクを止めても埋め込みは使える。
+        set_link(&mut m, None, false);
+        assert_eq!(
+            role_of(Some(&m), who(None, Some(&ek)), true),
+            Some(Role::Viewer)
+        );
+        set_embed(&mut m, None, false);
+        assert_eq!(role_of(Some(&m), who(None, Some(&ek)), true), None);
     }
 
     #[test]

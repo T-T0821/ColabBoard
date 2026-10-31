@@ -16,7 +16,9 @@ pub use cull::VisibleBlocks;
 pub use gpu::{Capture, FrameStats, RenderError, Renderer};
 pub use wgpu;
 
-use board_core::{Element, Shape, ShapeKind, Stroke};
+use std::collections::HashSet;
+
+use board_core::{Element, ElementId, Shape, ShapeKind, Stroke};
 use bytemuck::{Pod, Zeroable};
 
 /// ダークモードでキャンバスに直接載る文字・線は、黒に近ければ明るくする
@@ -92,6 +94,9 @@ impl From<&Shape> for ShapeInstance {
                 // 角の丸みは大きさに合わせる(シェーダーが半分の大きさで頭打ちにする)。
                 ShapeKind::RoundRect => s.corner_radius.max(s.size.min_element() * 0.18),
                 ShapeKind::Pill => f32::MAX,
+                // 日付印: 段の間の線の位置(中心からの距離)。
+                ShapeKind::Stamp if s.is_date_hanko() => s.text_style().line_height * 0.5,
+                ShapeKind::Stamp => 0.0,
                 _ => s.corner_radius,
             },
             kind: match s.kind {
@@ -105,6 +110,7 @@ impl From<&Shape> for ShapeInstance {
                 ShapeKind::Star => KIND_STAR,
                 ShapeKind::Hexagon => KIND_HEXAGON,
                 ShapeKind::Parallelogram => KIND_PARALLELOGRAM,
+                ShapeKind::Stamp if s.is_hanko() => KIND_HANKO,
                 ShapeKind::Stamp => KIND_STAMP,
                 ShapeKind::RoundRect | ShapeKind::Pill => KIND_RECT,
                 ShapeKind::Heart => KIND_HEART,
@@ -151,6 +157,8 @@ pub const KIND_DOCUMENT: u32 = 14;
 pub const KIND_DELAY: u32 = 15;
 pub const KIND_PREDEFINED: u32 = 16;
 pub const KIND_STORAGE: u32 = 17;
+/// ハンコ: 朱色の丸枠(影なし、かすれあり)。`radius` > 0 なら日付印の段の線。
+pub const KIND_HANKO: u32 = 18;
 /// 多角形の図形: `KIND_POLYGON + board_core::shape::POLYGONS での番号`。
 pub const KIND_POLYGON: u32 = 32;
 
@@ -184,7 +192,18 @@ pub fn push_instances(e: &Element, out: &mut Vec<ShapeInstance>) {
             let line = |a: board_core::Vec2, b: board_core::Vec2| {
                 ShapeInstance::line(a.to_array(), b.to_array(), c.color, c.width)
             };
-            out.extend(c.path.windows(2).map(|w| line(w[0], w[1])));
+            let start = c.cap_shape(false);
+            let end = c.cap_shape(true);
+            // 白抜きの記号の中に線を通さないよう、端を少し手前で止める。
+            let mut pts = c.path.clone();
+            trim_end(&mut pts, start.as_ref().map_or(0.0, |s| s.inset), false);
+            trim_end(&mut pts, end.as_ref().map_or(0.0, |s| s.inset), true);
+            if c.dashed {
+                let (dash, gap) = (c.width * 3.0 + 6.0, c.width * 2.0 + 5.0);
+                dashes(&pts, dash, gap, |a, b| out.push(line(a, b)));
+            } else {
+                out.extend(pts.windows(2).map(|w| line(w[0], w[1])));
+            }
             // ラベルの下は線を隠す。
             if let Some(tb) = c.label_box() {
                 let r = tb.rect.expand(2.0);
@@ -195,11 +214,23 @@ pub fn push_instances(e: &Element, out: &mut Vec<ShapeInstance>) {
                 inst.flags = FLAG_SURFACE;
                 out.push(inst);
             }
-            for (cap, at_end) in [(c.start_cap, false), (c.end_cap, true)] {
-                if cap == board_core::Cap::Arrow
-                    && let Some(lines) = c.arrow_lines(at_end)
-                {
-                    out.extend(lines.iter().map(|(a, b)| line(*a, *b)));
+            for cap in [start, end].into_iter().flatten() {
+                fill_convex(&cap.fill, c.width.max(1.0), |a, b, w| {
+                    out.push(ShapeInstance::line(a.to_array(), b.to_array(), c.color, w));
+                });
+                out.extend(cap.lines.iter().map(|(a, b)| line(*a, *b)));
+                for (center, r) in cap.circles {
+                    let mut dot = Shape::ellipse(
+                        c.id,
+                        center - board_core::Vec2::splat(r),
+                        board_core::Vec2::splat(2.0 * r),
+                        board_core::Rgba8::WHITE,
+                    );
+                    dot.stroke = c.color;
+                    dot.stroke_width = c.width;
+                    let mut inst = ShapeInstance::from(&dot);
+                    inst.flags = FLAG_SURFACE;
+                    out.push(inst);
                 }
             }
         }
@@ -211,6 +242,95 @@ pub fn push_instances(e: &Element, out: &mut Vec<ShapeInstance>) {
                     .map(|w| ShapeInstance::segment(w[0].to_array(), w[1].to_array(), s)),
             ),
         },
+    }
+}
+
+/// 折れ線の端を `inset` だけ縮める(`at_end` なら終点側)。縮めると消える線分はそのまま。
+fn trim_end(pts: &mut [board_core::Vec2], inset: f32, at_end: bool) {
+    if inset <= 0.0 || pts.len() < 2 {
+        return;
+    }
+    let n = pts.len();
+    let (tip, prev) = if at_end { (n - 1, n - 2) } else { (0, 1) };
+    let len = pts[tip].distance(pts[prev]);
+    if len > inset {
+        pts[tip] = pts[tip].lerp(pts[prev], inset / len);
+    }
+}
+
+/// 折れ線を破線に分ける。模様は線分をまたいで続く。
+fn dashes(
+    pts: &[board_core::Vec2],
+    dash: f32,
+    gap: f32,
+    mut f: impl FnMut(board_core::Vec2, board_core::Vec2),
+) {
+    let period = dash + gap;
+    let mut phase = 0.0f32;
+    for w in pts.windows(2) {
+        let len = w[0].distance(w[1]);
+        if len <= 0.0 {
+            continue;
+        }
+        let mut t = 0.0;
+        while t < len {
+            let in_period = (phase + t) % period;
+            if in_period < dash {
+                let e = (t + dash - in_period).min(len);
+                f(w[0].lerp(w[1], t / len), w[0].lerp(w[1], e / len));
+                t = e;
+            } else {
+                t += period - in_period;
+            }
+        }
+        phase = (phase + len) % period;
+    }
+}
+
+/// 凸多角形を、主軸に平行な太い線を並べて塗る(回転した塗り図形の代わり)。
+fn fill_convex(
+    poly: &[board_core::Vec2],
+    step: f32,
+    mut f: impl FnMut(board_core::Vec2, board_core::Vec2, f32),
+) {
+    if poly.len() < 3 {
+        return;
+    }
+    // 最初の頂点から多角形の重心へ向かう向きを主軸にする。
+    let c = poly.iter().copied().sum::<board_core::Vec2>() / poly.len() as f32;
+    let u = (poly[0] - c).normalize_or_zero();
+    if u == board_core::Vec2::ZERO {
+        return;
+    }
+    let v = board_core::Vec2::new(-u.y, u.x);
+    let local: Vec<(f32, f32)> = poly
+        .iter()
+        .map(|p| ((*p - c).dot(u), (*p - c).dot(v)))
+        .collect();
+    let (lo, hi) = local
+        .iter()
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), (_, y)| {
+            (a.min(*y), b.max(*y))
+        });
+    let step = step.max(0.5);
+    let mut y = lo + step * 0.5;
+    while y < hi {
+        // この高さで多角形を横切る区間。
+        let mut xs = Vec::with_capacity(2);
+        for i in 0..local.len() {
+            let (x0, y0) = local[i];
+            let (x1, y1) = local[(i + 1) % local.len()];
+            if (y0 <= y && y < y1) || (y1 <= y && y < y0) {
+                xs.push(x0 + (y - y0) / (y1 - y0) * (x1 - x0));
+            }
+        }
+        if let (Some(a), Some(b)) = (
+            xs.iter().copied().reduce(f32::min),
+            xs.iter().copied().reduce(f32::max),
+        ) {
+            f(c + u * a + v * y, c + u * b + v * y, step * 1.2);
+        }
+        y += step;
     }
 }
 
@@ -297,6 +417,15 @@ pub fn is_image(e: &Element) -> bool {
 
 /// インスタンス列を作りながら段を決める。
 pub fn build_layers(elements: &[Element], out: &mut Vec<ShapeInstance>) -> Vec<Layer> {
+    build_layers_masked(elements, &HashSet::new(), out)
+}
+
+/// `hidden`(個人作業エリアで隠れている要素)は中身のない伏せたカードとして描く。
+pub fn build_layers_masked(
+    elements: &[Element],
+    hidden: &HashSet<ElementId>,
+    out: &mut Vec<ShapeInstance>,
+) -> Vec<Layer> {
     out.clear();
     let mut layers = Vec::new();
     let mut regions = TextRegions::default();
@@ -314,9 +443,16 @@ pub fn build_layers(elements: &[Element], out: &mut Vec<ShapeInstance>) -> Vec<L
             start_elem = i;
             regions.clear();
         }
-        push_instances(e, out);
+        let masked = hidden.contains(&e.id());
+        if masked {
+            if let Some(f) = board_core::privacy::face_down(e) {
+                push_instances(&f, out);
+            }
+        } else {
+            push_instances(e, out);
+        }
         // 段の最後に描くもの(文字・画像)の上に後ろの要素が重なったら段を分ける。
-        if !e.text().is_empty() || is_image(e) {
+        if masked || !e.text().is_empty() || is_image(e) {
             regions.insert(bounds);
         }
     }
@@ -403,6 +539,47 @@ const MAX_POLYGON: usize = 12;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn connector_dashes_and_caps() {
+        use board_core::{Cap, Connector, ElementId, Endpoint, Vec2};
+        let mut c = Connector::new(
+            ElementId(1),
+            Endpoint::Free(Vec2::ZERO),
+            Endpoint::Free(Vec2::new(200.0, 0.0)),
+        );
+        c.style = board_core::PathStyle::Straight;
+        c.route(|_| None);
+        c.end_cap = Cap::None;
+        let mut out = Vec::new();
+        push_instances(&Element::Connector(c.clone()), &mut out);
+        assert_eq!(out.len(), 1);
+        // 破線は何本にも分かれ、どれも線の上にある。
+        c.dashed = true;
+        out.clear();
+        push_instances(&Element::Connector(c.clone()), &mut out);
+        assert!(out.len() > 5);
+        assert!(out.iter().all(|i| i.pos[1] == 0.0 && i.size[0] <= 200.0));
+        // 白抜きの三角: 線は三角の根元で止まり、三角は 3 辺。
+        c.dashed = false;
+        c.end_cap = Cap::Triangle;
+        out.clear();
+        push_instances(&Element::Connector(c.clone()), &mut out);
+        assert_eq!(out.len(), 4);
+        assert!((out[0].size[0] - (200.0 - c.arrow_size())).abs() < 1e-3);
+        // 塗りのひし形は塗りの線が増える。丸は背景色の楕円。
+        c.end_cap = Cap::DiamondFilled;
+        out.clear();
+        push_instances(&Element::Connector(c.clone()), &mut out);
+        assert!(out.len() > 5);
+        c.end_cap = Cap::ZeroOrMany;
+        out.clear();
+        push_instances(&Element::Connector(c), &mut out);
+        assert!(
+            out.iter()
+                .any(|i| i.kind == KIND_ELLIPSE && i.flags == FLAG_SURFACE)
+        );
+    }
 
     #[test]
     fn stroke_becomes_segments() {

@@ -1,8 +1,9 @@
 //! グラボード の同期サーバー。
 //!
 //! - `GET /ws/{room}?key=`: WebSocket。メッセージ形式は [`board_core::protocol`]。
+//! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])と図の生成([`ai_diagram`])、Slack 通知([`slack`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])と図の生成([`ai_diagram`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -17,6 +18,7 @@ pub mod boards;
 pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
+pub mod issues;
 pub mod plugins;
 pub mod rest;
 pub mod room;
@@ -65,6 +67,33 @@ pub struct Config {
     pub slack: slack::SlackConfig,
     /// WASM プラグイン。
     pub plugins: plugins::PluginConfig,
+    /// GitHub・Jira の課題カード。
+    pub issues: issues::IssuesConfig,
+    /// 音声通話の ICE サーバー(`RTCIceServer` の配列)。`GET /api/rtc` で配る。
+    pub ice_servers: serde_json::Value,
+    /// `?embed=1` のページを iframe で埋め込んでよいサイト(CSP の `frame-ancestors` の値)。
+    /// それ以外のページは同じサイトからしか埋め込めない。
+    pub embed_origins: String,
+}
+
+/// 既定の ICE サーバー(公開 STUN)。
+pub fn default_ice_servers() -> serde_json::Value {
+    serde_json::json!([{ "urls": "stun:stun.l.google.com:19302" }])
+}
+
+/// 環境変数 `ICE_SERVERS` の JSON 配列を読む。読めなければ既定値。
+pub fn ice_servers_from_env(raw: Option<String>) -> serde_json::Value {
+    match raw
+        .as_deref()
+        .map(serde_json::from_str::<serde_json::Value>)
+    {
+        Some(Ok(v)) if v.is_array() => v,
+        Some(_) => {
+            tracing::warn!("ICE_SERVERS は JSON の配列で指定してください。既定値を使います");
+            default_ice_servers()
+        }
+        None => default_ice_servers(),
+    }
 }
 
 impl Default for Config {
@@ -77,6 +106,9 @@ impl Default for Config {
             ai: None,
             slack: slack::SlackConfig::default(),
             plugins: plugins::PluginConfig::default(),
+            issues: issues::IssuesConfig::default(),
+            ice_servers: default_ice_servers(),
+            embed_origins: "*".into(),
         }
     }
 }
@@ -95,6 +127,7 @@ impl AppState {
 
 pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
     let static_dir = config.static_dir.take();
+    let frame_policy: Arc<str> = format!("frame-ancestors {}", config.embed_origins).into();
     let state = Arc::new(AppState { hub, config });
     let app = Router::new()
         .route("/ws/{room}", get(ws_handler))
@@ -103,14 +136,54 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/boards/{id}/ai/cluster", post(ai::cluster))
         .route("/api/boards/{id}/ai/diagram", post(ai_diagram::generate))
         .route("/api/ai/status", get(ai_diagram::status))
+        .route("/api/boards/{id}/issues", post(issues::lookup))
+        .route("/api/rtc", get(rtc_config))
         .nest("/api/v1", rest::routes().merge(plugins::routes()))
         .nest("/api", api::routes().merge(rest::token_routes()))
         .with_state(state);
-    match static_dir {
+    let app = match static_dir {
         Some(dir) => app.fallback_service(ServeDir::new(dir)),
         #[cfg(feature = "embed")]
         None if embedded::available() => app.fallback(embedded::serve),
         None => app,
+    };
+    app.layer(axum::middleware::from_fn(
+        move |req: axum::extract::Request, next: axum::middleware::Next| {
+            let policy = frame_policy.clone();
+            async move {
+                let embed = is_embed_request(req.uri().query());
+                let mut res = next.run(req).await;
+                set_frame_policy(&mut res, embed, &policy);
+                res
+            }
+        },
+    ))
+}
+
+/// `?embed=1` が付いているか。
+fn is_embed_request(query: Option<&str>) -> bool {
+    query.is_some_and(|q| q.split('&').any(|p| p == "embed=1"))
+}
+
+/// HTML のページに、iframe で埋め込んでよい相手を付ける。埋め込み用(`?embed=1`)のページは
+/// `EMBED_ALLOWED_ORIGINS` のサイトから、それ以外は同じサイトからだけ(クリックジャッキング対策)。
+fn set_frame_policy(res: &mut Response, embed: bool, embed_policy: &str) {
+    let is_html = res
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("text/html"));
+    if !is_html {
+        return;
+    }
+    let value = if embed {
+        embed_policy
+    } else {
+        "frame-ancestors 'self'"
+    };
+    if let Ok(v) = axum::http::HeaderValue::from_str(value) {
+        res.headers_mut()
+            .insert(axum::http::header::CONTENT_SECURITY_POLICY, v);
     }
 }
 
@@ -145,6 +218,11 @@ pub fn valid_room_name(name: &str) -> bool {
         && name
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// 音声通話の設定(ICE サーバー)。
+async fn rtc_config(State(state): State<Arc<AppState>>) -> axum::Json<serde_json::Value> {
+    axum::Json(serde_json::json!({ "iceServers": state.config.ice_servers }))
 }
 
 async fn ws_handler(
@@ -232,13 +310,24 @@ async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String, role: Role
                         r.peer = me;
                         room.broadcast(me, Message::Reaction(r).encode().into());
                     }
+                    Ok(Message::Voice(mut v)) => {
+                        v.peer = me;
+                        let encoded: Arc<[u8]> = Message::Voice(v).encode().into();
+                        room.set_voice(me, v.in_call, encoded.clone());
+                        room.broadcast(me, encoded);
+                    }
+                    // 通話の接続手順は宛先の 1 人にだけ中継する(音声はサーバーを通らない)。
+                    Ok(Message::Signal(mut s)) if s.to != me => {
+                        s.from = me;
+                        room.send_to(me, s.to, Message::Signal(s).encode().into());
+                    }
                     Ok(other) => tracing::warn!(peer = me, "想定外のメッセージ: {other:?}"),
                     Err(e) => tracing::warn!(peer = me, "読めないメッセージ: {e}"),
                 }
             }
             out = rx.recv() => match out {
                 Ok(o) if o.is_kick() => break,
-                Ok(o) if o.from == me => {}
+                Ok(o) if !o.is_for(me) => {}
                 Ok(o) => {
                     if sink.send(binary(o.bytes.to_vec())).await.is_err() {
                         break;
@@ -279,5 +368,24 @@ mod tests {
         assert!(!valid_room_name("a/b"));
         assert!(!valid_room_name("../etc"));
         assert!(!valid_room_name(&"a".repeat(65)));
+    }
+
+    #[test]
+    fn ice_servers_config() {
+        assert_eq!(ice_servers_from_env(None), default_ice_servers());
+        assert_eq!(
+            ice_servers_from_env(Some("{}".into())),
+            default_ice_servers()
+        );
+        let turn = r#"[{"urls":"turn:example.com","username":"u","credential":"p"}]"#;
+        assert_eq!(ice_servers_from_env(Some(turn.into()))[0]["username"], "u");
+    }
+
+    #[test]
+    fn embed_query() {
+        assert!(is_embed_request(Some("room=a&key=b&embed=1")));
+        assert!(!is_embed_request(Some("room=a&embed=0")));
+        assert!(!is_embed_request(Some("room=a&notembed=1")));
+        assert!(!is_embed_request(None));
     }
 }

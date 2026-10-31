@@ -14,6 +14,7 @@
 //! | `GET` | `/api/boards/{id}/sharing` | 共有設定([`Sharing`]、オーナーのみ) |
 //! | `PUT` | `/api/boards/{id}/members` | メンバーの追加・変更・削除([`SetMember`]、オーナーのみ) |
 //! | `PUT` | `/api/boards/{id}/link` | 共有リンクの設定([`SetLink`] → [`Sharing`]、オーナーのみ) |
+//! | `PUT` | `/api/boards/{id}/embed` | 埋め込み(iframe)の設定([`SetLink`] → [`Sharing`]、オーナーのみ) |
 //! | `GET` | `/api/boards/{id}/comments?key=` | コメント一覧([`Comment`] の配列、閲覧者以上) |
 //! | `POST` | `/api/boards/{id}/comments?key=` | コメント・返信([`NewComment`] → [`Posted`]、コメント可以上・要ログイン) |
 //! | `PATCH` | `/api/boards/{id}/comments/{cid}?key=` | 本文の編集(本人)・解決/再開(コメント可以上)([`EditComment`]) |
@@ -28,6 +29,7 @@
 //! | `GET` | `/api/boards/{id}/slack` | Slack 通知の設定([`SlackSettings`]、オーナーのみ) |
 //! | `PUT` | `/api/boards/{id}/slack` | Slack 通知の設定を変える([`SetSlack`] → [`SlackSettings`]、オーナーのみ) |
 //! | `POST` | `/api/boards/{id}/slack/test` | Slack にテストのメッセージを送る(オーナーのみ) |
+//! | `POST` | `/api/boards/{id}/issues?key=` | GitHub・Jira の課題の状態を引く([`IssueQuery`] → [`IssueLookup`] の配列、編集者以上) |
 //!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
 
@@ -148,6 +150,9 @@ pub struct Sharing {
     /// ログイン名 → 権限。
     pub members: BTreeMap<String, Role>,
     pub link: Option<LinkShare>,
+    /// 他のサイトに埋め込む(iframe)ときの鍵と権限。共有リンクとは別に作り直せる。
+    #[serde(default)]
+    pub embed: Option<LinkShare>,
 }
 
 /// `role` が `None` ならメンバーから外す。
@@ -339,6 +344,78 @@ pub struct SetSlack {
     pub webhook: Option<String>,
     #[serde(default)]
     pub events: SlackEvents,
+}
+
+/// 課題の置き場所。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IssueProvider {
+    Github,
+    Jira,
+}
+
+impl IssueProvider {
+    pub fn label(self) -> &'static str {
+        match self {
+            IssueProvider::Github => "GitHub",
+            IssueProvider::Jira => "Jira",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IssueProvider::Github => "github",
+            IssueProvider::Jira => "jira",
+        }
+    }
+}
+
+/// 課題の状態を大まかに分けたもの(カードの色に使う)。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IssueState {
+    /// 未着手・オープン。
+    Open,
+    /// 進行中(Jira の「進行中」カテゴリ、GitHub の下書き PR)。
+    InProgress,
+    /// 完了(クローズ・マージ・Jira の完了カテゴリ)。
+    Done,
+    /// 対応しないで閉じた。
+    Closed,
+}
+
+/// 課題 1 件の情報。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct IssueInfo {
+    pub provider: IssueProvider,
+    /// 表示用の番号(`owner/repo#12`、`PROJ-34`)。
+    pub key: String,
+    pub title: String,
+    pub state: IssueState,
+    /// サービス上の状態の名前(`Open`、`Merged`、`進行中` など)。
+    pub status: String,
+    /// 担当者(いなければ `None`)。
+    #[serde(default)]
+    pub assignee: Option<String>,
+    /// プルリクエストか。
+    #[serde(default)]
+    pub pull: bool,
+    pub url: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IssueQuery {
+    pub urls: Vec<String>,
+}
+
+/// 1 件分の結果。取れなければ `error`。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct IssueLookup {
+    pub url: String,
+    #[serde(default)]
+    pub issue: Option<IssueInfo>,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 /// 本文から `@ログイン名` を拾う(重複なし、出てきた順)。
