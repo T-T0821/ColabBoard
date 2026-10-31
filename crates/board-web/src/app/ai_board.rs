@@ -2,6 +2,8 @@
 //!
 //! - 議事録: サーバー(`/ai/minutes`)が作ったマークダウンを、マークダウンの取り込みと同じ方法で
 //!   ボードの右側に並べる(見出し → フレーム、箇条書き → 付箋、アクション → 表)。1 回の Undo で戻せる
+//! - マインドマップ: `/ai/mindmap` が返した木を、マインドマップモードと同じ部品(`board_core::mindmap`)で
+//!   ボードの右側に置く。置いた後は Tab / Enter で枝を足せる
 //! - 質問: `/ai/ask` に質問を送り、答えと根拠の要素をパネルに出す。根拠を押すとその要素へ移動する。
 //!   続けて質問すると、前のやり取りも踏まえて答える
 //!
@@ -21,6 +23,8 @@ use super::{App, by_id, listen};
 
 /// 議事録を既存の内容から離す距離。
 const GAP: f32 = 240.0;
+/// マインドマップの片側の広がりの見込み(置く場所と表示の範囲に使う)。
+const MINDMAP_HALF_WIDTH: f32 = 700.0;
 /// パネルに残すやり取りの数。
 const KEEP_TURNS: usize = 6;
 
@@ -33,6 +37,7 @@ struct Turn {
 
 thread_local! {
     static MINUTES_BUSY: Cell<bool> = const { Cell::new(false) };
+    static MINDMAP_BUSY: Cell<bool> = const { Cell::new(false) };
     static ASK_BUSY: Cell<bool> = const { Cell::new(false) };
     static TURNS: RefCell<Vec<Turn>> = const { RefCell::new(Vec::new()) };
     /// 会話を続けているボード(ボードを移ったら会話を捨てる)。
@@ -134,6 +139,28 @@ impl App {
         let n = r.ids.len();
         self.focus_refs(&r.ids);
         n
+    }
+
+    /// マインドマップの木をボードの右側に置き、中心を選ぶ。
+    fn place_mindmap(&mut self, tree: &board_core::mindmap::MindTree) {
+        let center = match self.board.bounds() {
+            // 枝の広がりを見込んで、既存の内容の右に離して置く。
+            Some(all) => Vec2::new(all.max.x + GAP + MINDMAP_HALF_WIDTH, all.center().y),
+            None => self.camera.screen_to_world(self.camera.viewport * 0.5),
+        };
+        self.board.end_gesture();
+        let root = board_core::mindmap::insert_tree(
+            &mut self.board,
+            tree,
+            center,
+            board_core::mindmap::MindLayout::default(),
+        );
+        self.board.end_gesture();
+        // 自動レイアウトは次のフレームで走るので、広がりを見込んで中心の周りを映す。
+        let half = Vec2::new(MINDMAP_HALF_WIDTH, MINDMAP_HALF_WIDTH * 0.6);
+        self.camera.fit(center - half, center + half, 48.0);
+        self.editor.set_selection(vec![root]);
+        self.dirty = true;
     }
 
     /// パネルの答えの欄を作り直す。
@@ -243,6 +270,56 @@ fn start_minutes(app: &Rc<RefCell<App>>) {
     });
 }
 
+fn start_mindmap(app: &Rc<RefCell<App>>) {
+    if MINDMAP_BUSY.with(Cell::get) {
+        return;
+    }
+    let (window, doc, url, body) = {
+        let a = app.borrow();
+        if !a.can_edit() {
+            return;
+        }
+        let Some(room) = a.room.clone() else {
+            toast(
+                &a.document,
+                "AI 機能は共同編集のボードでだけ使えます",
+                "error",
+            );
+            return;
+        };
+        let Some(url) = api_url(&a.window, &room, "mindmap") else {
+            return;
+        };
+        let body = json!({ "ids": ids_json(a.editor.selection()) }).to_string();
+        (a.window.clone(), a.document.clone(), url, body)
+    };
+    MINDMAP_BUSY.with(|b| b.set(true));
+    toast(&doc, "AI がマインドマップを作っています…", "busy");
+    let app = app.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        let result = post_json(&window, &url, &body).await;
+        MINDMAP_BUSY.with(|b| b.set(false));
+        let tree: Option<board_core::mindmap::MindTree> = match result {
+            Ok(v) => serde_json::from_str(&to_text(&v)).ok(),
+            Err(e) => {
+                toast(&doc, &e, "error");
+                return;
+            }
+        };
+        match tree {
+            Some(t) if !t.children.is_empty() => {
+                app.borrow_mut().place_mindmap(&t);
+                toast(
+                    &doc,
+                    "マインドマップをボードの右に置きました。Ctrl/⌘+Z で戻せます",
+                    "done",
+                );
+            }
+            _ => toast(&doc, "マインドマップを作れませんでした", "error"),
+        }
+    });
+}
+
 fn start_ask(app: &Rc<RefCell<App>>, input: &HtmlInputElement) {
     if ASK_BUSY.with(Cell::get) {
         return;
@@ -335,6 +412,19 @@ pub(super) fn install(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), Stri
             false,
             move |_: web_sys::MouseEvent| {
                 start_minutes(&app);
+            },
+        )?;
+    }
+
+    let mindmap: HtmlElement = by_id(doc, "ai-mindmap")?;
+    {
+        let app = app.clone();
+        listen(
+            mindmap.as_ref(),
+            "click",
+            false,
+            move |_: web_sys::MouseEvent| {
+                start_mindmap(&app);
             },
         )?;
     }

@@ -96,6 +96,10 @@ AI が {n} 本の線を読んでいます…	AI is reading {n} lines…
 AI にも図形として読めませんでした	AI could not read these lines as shapes either
 AI が {n} 個の図形と文字に整えました。Ctrl/⌘+Z で戻せます	AI turned them into {n} shapes and text. Press Ctrl/⌘+Z to undo
 議事録	Minutes
+選択中の要素、なければボード全体をマインドマップに整理して横に置きます(Tab で枝を足せます)	Organizes the selected elements, or the whole board, into a mind map placed alongside (press Tab to add branches)
+AI がマインドマップを作っています…	AI is building a mind map…
+マインドマップをボードの右に置きました。Ctrl/⌘+Z で戻せます	Placed the mind map to the right of the board. Press Ctrl/⌘+Z to undo
+マインドマップを作れませんでした	Could not create the mind map
 選択中の要素、なければボード全体から議事録(概要・決定事項・アクション)を作って横に置きます	Writes minutes (summary, decisions, action items) from the selected elements, or the whole board, and places them alongside
 選択中の要素、なければボード全体の内容をもとに答えます	Answers based on the selected elements, or the whole board
 ボードについて質問(例: 決まったことは?)	Ask about the board (e.g. What did we decide?)
