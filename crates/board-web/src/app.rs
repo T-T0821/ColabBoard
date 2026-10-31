@@ -14,6 +14,8 @@ use web_sys::{
     HtmlTextAreaElement, KeyboardEvent, PointerEvent, WheelEvent, Window,
 };
 
+mod actions;
+
 use crate::net::{Net, NetEvent, Status};
 use crate::presence::{Cursors, Identity};
 use crate::{format_count, format_zoom, parse_hex};
@@ -249,6 +251,8 @@ pub async fn run() -> Result<(), String> {
     load_font(app.clone());
     install_keyboard(&app, &window)?;
     install_controls(&app, &document)?;
+    actions::install_clipboard(&app)?;
+    actions::install_context_menu(&app)?;
     start_loop(app);
     Ok(())
 }
@@ -770,6 +774,10 @@ impl App {
     // ---- キーボード ----
 
     fn on_key_down(&mut self, e: &KeyboardEvent) -> bool {
+        if let Some(a) = actions::action_for_key(e) {
+            self.run_action(a);
+            return true;
+        }
         let key = e.key();
         let ctrl = e.ctrl_key() || e.meta_key();
         match key.as_str() {
