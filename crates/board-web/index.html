@@ -10,6 +10,7 @@
 </head>
 <body>
   <canvas id="board" tabindex="0" aria-label="ホワイトボード"></canvas>
+  <div id="badges" aria-hidden="true"></div>
   <div id="cursors" aria-hidden="true"></div>
   <textarea id="text-editor" spellcheck="false" aria-label="文字を入力"></textarea>
 
@@ -99,6 +100,38 @@
       <button class="swatch" data-color="#2f6fed" style="--c:#2f6fed" title="青(濃)"></button>
     </div>
   </nav>
+
+  <div id="timer" class="panel timer" role="timer" hidden>
+    <span id="timer-text">00:00</span>
+    <button id="timer-toggle">一時停止</button>
+    <button id="timer-add" title="1 分延長">+1分</button>
+    <button id="timer-stop" title="タイマーを消す" aria-label="タイマーを消す">×</button>
+  </div>
+
+  <details id="collab" class="panel collab">
+    <summary>ファシリテーション</summary>
+    <div class="collab-row">
+      <span class="label">タイマー</span>
+      <button data-timer-min="1">1分</button>
+      <button data-timer-min="3">3分</button>
+      <button data-timer-min="5">5分</button>
+      <button data-timer-min="10">10分</button>
+    </div>
+    <div class="collab-row">
+      <span class="label">投票</span>
+      <label>1人 <input id="vote-limit" type="number" min="1" max="99" value="3" /> 票</label>
+      <button id="vote-start" title="新しい投票を始める(前の結果は消えます)">開始</button>
+      <button id="vote-close">締め切る</button>
+      <button id="vote-clear" title="投票と結果を片付ける">片付ける</button>
+    </div>
+    <p id="vote-status" class="collab-status" data-state="none"></p>
+    <ol id="vote-results"></ol>
+    <div class="collab-row" title="選択中の付箋(2 枚以上)、なければボード上の全付箋を並べ直します">
+      <span class="label">整理</span>
+      <button id="arrange-grid">格子に整列</button>
+      <button id="arrange-color">色でまとめる</button>
+    </div>
+  </details>
 
   <nav class="panel zoom" aria-label="ズーム">
     <button id="zoom-out" aria-label="縮小">−</button>

@@ -15,6 +15,7 @@ use web_sys::{
 };
 
 mod actions;
+mod collab;
 mod toolbar;
 
 use crate::net::{Net, NetEvent, Status};
@@ -61,6 +62,7 @@ struct App {
     presence_sent: Option<Option<Vec2>>,
     presence_sent_at: f64,
     last_status: Option<(Status, usize)>,
+    collab: collab::Collab,
 }
 
 struct Hud {
@@ -232,6 +234,7 @@ pub async fn run() -> Result<(), String> {
         presence_sent: None,
         presence_sent_at: 0.0,
         last_status: None,
+        collab: collab::Collab::new(&document)?,
     }));
     {
         let mut a = app.borrow_mut();
@@ -566,6 +569,7 @@ impl App {
 
     fn frame(&mut self, now: f64) {
         self.pump_net(now);
+        self.collab_frame();
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
         if (w, h) != self.renderer.size() {
@@ -587,6 +591,9 @@ impl App {
 
         if self.cursors_dirty || self.dirty {
             self.layout_cursors();
+        }
+        if self.dirty {
+            self.layout_collab();
         }
         if !(self.dirty || self.continuous) {
             self.last_frame = None;
@@ -651,6 +658,8 @@ impl App {
             }
         } else if self.navigating {
             self.nav.pointer_down(id, p);
+        } else if e.button() == 0 && self.collab_pointer_down(p, e.shift_key()) {
+            // 投票として扱った。
         } else if e.button() == 0 {
             let mods = Modifiers {
                 shift: e.shift_key(),
@@ -1110,6 +1119,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
         }
     })?;
     on_click(doc, "share", app, |a| a.copy_link())?;
+    collab::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;

@@ -147,6 +147,7 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 @media (max-width: 1100px) {
   .help { display: none; }
   .demo { top: 56px; }
+  .collab { top: 100px; }
 }
 
 @media (max-width: 720px) {
@@ -155,6 +156,8 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   .zoom { bottom: 76px; }
   .toolbar { left: 12px; right: 12px; transform: none; overflow-x: auto; }
   .swatches { grid-template-columns: repeat(10, 18px); }
+  .timer { bottom: 128px; }
+  .collab { width: auto; left: 12px; }
 }
 
 /* 接続状態 */
@@ -205,6 +208,75 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   white-space: nowrap;
 }
 
+/* ファシリテーション(タイマー・投票) */
+.collab {
+  top: 96px;
+  right: 12px;
+  display: block;
+  width: 300px;
+  max-height: calc(100vh - 180px);
+  overflow-y: auto;
+}
+.collab summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
+.collab[open] summary { margin-bottom: 6px; }
+.collab-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
+.collab-row .label { min-width: 52px; }
+.collab-row input[type="number"] { width: 44px; font: inherit; padding: 2px 4px; border: 1px solid var(--border); border-radius: 6px; }
+.collab-status { margin: 4px 0; color: var(--muted); font-size: 12px; }
+.collab-status[data-state="none"] { display: none; }
+.collab-status[data-state="open"] { color: var(--accent); }
+#vote-results { margin: 4px 0 0; padding: 0; list-style: none; }
+#vote-results:empty { display: none; }
+#vote-results button {
+  display: flex;
+  width: 100%;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 2px 0;
+  text-align: left;
+  border-color: transparent;
+}
+#vote-results button:hover { border-color: var(--accent); }
+#vote-results .votes { font-weight: 650; color: #e5484d; white-space: nowrap; }
+
+.timer {
+  bottom: 76px;
+  left: 50%;
+  transform: translateX(-50%);
+  gap: 6px;
+}
+.timer[hidden] { display: none; }
+#timer-text { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; min-width: 72px; text-align: center; }
+.timer[data-state="paused"] #timer-text { color: var(--muted); }
+.timer[data-state="done"] { border-color: #e5484d; animation: timer-done 1s ease-in-out infinite; }
+.timer[data-state="done"] #timer-text { color: #e5484d; }
+@keyframes timer-done { 50% { box-shadow: 0 0 0 6px rgba(229, 72, 77, 0.25); } }
+
+#badges {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.vote-badge {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  min-width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  padding: 0 6px;
+  border-radius: 12px;
+  color: #fff;
+  font-weight: 650;
+  line-height: 24px;
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  will-change: transform;
+}
+.vote-badge.mine { background: var(--accent); }
+.vote-badge.total { background: #e5484d; }
 /* 右クリックメニュー */
 #context-menu {
   position: fixed;
