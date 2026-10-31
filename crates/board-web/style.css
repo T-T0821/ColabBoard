@@ -311,3 +311,17 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 #context-menu button[disabled] { color: #b0b0ad; cursor: default; }
 #context-menu kbd { color: var(--muted); font: 11px/1.8 system-ui, sans-serif; }
 #context-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
+
+/* フォロー・プレゼン */
+.follow {
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.follow[hidden] { display: none; }
+.follow[data-state="presenting"] { border-color: #e5484d; color: #e5484d; }
+.follow[data-state="available"] { border-color: var(--border); color: var(--text); }
+.peer-list { display: flex; flex-wrap: wrap; gap: 4px; color: var(--muted); font-size: 12px; }
+.peer { border-color: var(--c, var(--border)); border-left-width: 4px; }

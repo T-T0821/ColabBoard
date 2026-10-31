@@ -84,6 +84,11 @@
     <button id="timer-stop" title="タイマーを消す" aria-label="タイマーを消す">×</button>
   </div>
 
+  <div id="follow-banner" class="panel follow" hidden>
+    <span id="follow-text"></span>
+    <button id="follow-action">やめる</button>
+  </div>
+
   <details id="collab" class="panel collab">
     <summary>ファシリテーション</summary>
     <div class="collab-row">
@@ -102,6 +107,14 @@
     </div>
     <p id="vote-status" class="collab-status" data-state="none"></p>
     <ol id="vote-results"></ol>
+    <div class="collab-row">
+      <span class="label">画面共有</span>
+      <button id="present" title="参加者全員の画面をあなたの表示に追従させます">プレゼン開始</button>
+    </div>
+    <div class="collab-row">
+      <span class="label">参加者</span>
+      <span id="peer-list" class="peer-list" title="名前を押すとその人の画面をフォロー"></span>
+    </div>
     <div class="collab-row" title="選択中の付箋(2 枚以上)、なければボード上の全付箋を並べ直します">
       <span class="label">整理</span>
       <button id="arrange-grid">格子に整列</button>
