@@ -132,15 +132,17 @@ impl Connector {
         self.path.last().copied().unwrap_or(Vec2::ZERO)
     }
 
-    /// 経路を計算し直す。`lookup` はつながった相手の外接矩形を返す。
+    /// 経路を計算し直す。`lookup` はつながった相手の外接矩形と図形の種類を返す。
     /// 戻り値は経路が変わったか。
-    pub fn route(&mut self, lookup: impl Fn(ElementId) -> Option<Rect>) -> bool {
-        let rect_of = |e: &Endpoint| match e {
+    pub fn route(&mut self, lookup: impl Fn(ElementId) -> Option<Target>) -> bool {
+        let target_of = |e: &Endpoint| match e {
             Endpoint::Attached { id, .. } => lookup(*id),
             Endpoint::Free(_) => None,
         };
-        let from_rect = rect_of(&self.from);
-        let to_rect = rect_of(&self.to);
+        let from_t = target_of(&self.from);
+        let to_t = target_of(&self.to);
+        let from_rect = from_t.map(|t| t.rect);
+        let to_rect = to_t.map(|t| t.rect);
         // 相手が見つからない(削除された)端は、前回の位置に残す。
         let prev = (self.start(), self.end());
         let rough = |e: &Endpoint, r: Option<Rect>, fallback: Vec2| match (e, r) {
@@ -156,17 +158,36 @@ impl Connector {
         };
         let a0 = rough(&self.from, from_rect, prev.0);
         let b0 = rough(&self.to, to_rect, prev.1);
-        let resolve = |e: &Endpoint, r: Option<Rect>, rough_self: Vec2, toward: Vec2| match (e, r) {
-            (Endpoint::Attached { anchor: None, .. }, Some(r)) => boundary_toward(&r, toward),
-            _ => rough_self,
+        let elbow_style = self.style == PathStyle::Elbow;
+        // 端の位置と、そこから出ていく向き。
+        let resolve = |e: &Endpoint, t: Option<Target>, rough_self: Vec2, toward: Vec2| {
+            let r = t.map(|t| t.rect);
+            match (e, t) {
+                (Endpoint::Attached { anchor: None, .. }, Some(t)) => {
+                    let on_rect = boundary_toward(&t.rect, toward);
+                    let dir = exit_dir(on_rect, r, toward);
+                    // カギ線は辺の中央から出す。
+                    let p = if elbow_style {
+                        side_mid(&t.rect, dir)
+                    } else {
+                        on_rect
+                    };
+                    let p = match t.kind {
+                        Some(k) => crate::shape::outline_point(k, &t.rect, p),
+                        None => p,
+                    };
+                    (p, dir)
+                }
+                _ => (rough_self, exit_dir(rough_self, r, toward)),
+            }
         };
-        let a = resolve(&self.from, from_rect, a0, b0);
-        let b = resolve(&self.to, to_rect, b0, a0);
+        let (a, da) = resolve(&self.from, from_t, a0, b0);
+        let (b, db) = resolve(&self.to, to_t, b0, a0);
 
         let path = match self.style {
             PathStyle::Straight => vec![a, b],
-            PathStyle::Elbow => elbow(a, b, from_rect, to_rect),
-            PathStyle::Curved => curve(a, b, from_rect, to_rect),
+            PathStyle::Elbow => elbow(a, b, da, db),
+            PathStyle::Curved => curve(a, b, da, db),
         };
         if path != self.path {
             self.path = path;
@@ -282,6 +303,27 @@ impl Connector {
     }
 }
 
+/// つながる相手の形。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Target {
+    pub rect: Rect,
+    /// 図形なら種類(輪郭で線を止める)。手書き線などは `None`。
+    pub kind: Option<crate::shape::ShapeKind>,
+}
+
+impl From<Rect> for Target {
+    fn from(rect: Rect) -> Self {
+        Self { rect, kind: None }
+    }
+}
+
+/// 矩形の `dir` 側の辺の中央。
+fn side_mid(r: &Rect, dir: Vec2) -> Vec2 {
+    let c = r.center();
+    let h = r.size() * 0.5;
+    c + dir * h
+}
+
 /// 矩形の中心から `toward` へ向かう線が輪郭と交わる点。
 pub fn boundary_toward(r: &Rect, toward: Vec2) -> Vec2 {
     let c = r.center();
@@ -320,9 +362,7 @@ fn exit_dir(p: Vec2, r: Option<Rect>, toward: Vec2) -> Vec2 {
     }
 }
 
-fn elbow(a: Vec2, b: Vec2, ra: Option<Rect>, rb: Option<Rect>) -> Vec2s {
-    let da = exit_dir(a, ra, b);
-    let db = exit_dir(b, rb, a);
+fn elbow(a: Vec2, b: Vec2, da: Vec2, db: Vec2) -> Vec2s {
     let horizontal_a = da.x != 0.0;
     let horizontal_b = db.x != 0.0;
     let pts = match (horizontal_a, horizontal_b) {
@@ -350,10 +390,10 @@ fn dedup(mut pts: Vec2s) -> Vec2s {
     pts
 }
 
-fn curve(a: Vec2, b: Vec2, ra: Option<Rect>, rb: Option<Rect>) -> Vec2s {
+fn curve(a: Vec2, b: Vec2, da: Vec2, db: Vec2) -> Vec2s {
     let k = (a.distance(b) * 0.4).max(20.0);
-    let c1 = a + exit_dir(a, ra, b) * k;
-    let c2 = b + exit_dir(b, rb, a) * k;
+    let c1 = a + da * k;
+    let c2 = b + db * k;
     (0..=CURVE_SEGMENTS)
         .map(|i| {
             let t = i as f32 / CURVE_SEGMENTS as f32;
@@ -386,8 +426,8 @@ mod tests {
         );
         c.style = PathStyle::Straight;
         let lookup = |id: ElementId| match id.0 {
-            1 => Some(rect(0.0, 0.0)),
-            2 => Some(rect(300.0, 0.0)),
+            1 => Some(rect(0.0, 0.0).into()),
+            2 => Some(rect(300.0, 0.0).into()),
             _ => None,
         };
         assert!(c.route(lookup));
@@ -406,7 +446,7 @@ mod tests {
             },
             Endpoint::Free(Vec2::new(400.0, 300.0)),
         );
-        c.route(|id| (id.0 == 1).then(|| rect(0.0, 0.0)));
+        c.route(|id| (id.0 == 1).then(|| rect(0.0, 0.0).into()));
         for w in c.path.windows(2) {
             assert!(w[0].x == w[1].x || w[0].y == w[1].y, "{:?}", c.path);
         }
@@ -425,7 +465,7 @@ mod tests {
             },
         );
         c.style = PathStyle::Straight;
-        c.route(|_| Some(rect(300.0, 0.0)));
+        c.route(|_| Some(rect(300.0, 0.0).into()));
         assert_eq!(c.end(), Vec2::new(300.0, 50.0));
         c.route(|_| None);
         assert_eq!(c.end(), Vec2::new(300.0, 50.0));

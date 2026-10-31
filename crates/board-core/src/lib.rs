@@ -11,6 +11,7 @@ pub mod color;
 pub mod connector;
 mod crdt;
 pub mod editor;
+pub mod format;
 pub mod element;
 pub mod geom;
 pub mod navigation;
