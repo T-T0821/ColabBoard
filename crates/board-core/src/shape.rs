@@ -510,6 +510,45 @@ impl TextAlign {
     }
 }
 
+/// 文字の縦方向の揃え。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum VAlign {
+    Top,
+    #[default]
+    Middle,
+    Bottom,
+}
+
+impl VAlign {
+    pub const ALL: [VAlign; 3] = [VAlign::Top, VAlign::Middle, VAlign::Bottom];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            VAlign::Top => "top",
+            VAlign::Middle => "middle",
+            VAlign::Bottom => "bottom",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "top" => VAlign::Top,
+            "bottom" => VAlign::Bottom,
+            _ => VAlign::Middle,
+        }
+    }
+
+    /// 高さ `avail` の枠に高さ `content` の中身を置くときの上の余白(はみ出すときは上詰め)。
+    pub fn offset(self, avail: f32, content: f32) -> f32 {
+        let free = (avail - content).max(0.0);
+        match self {
+            VAlign::Top => 0.0,
+            VAlign::Middle => free * 0.5,
+            VAlign::Bottom => free,
+        }
+    }
+}
+
 /// キャンバス上の 1 要素。座標はワールド座標(px 相当、y 下向き)。
 #[derive(Clone, Debug, PartialEq)]
 pub struct Shape {
@@ -527,6 +566,10 @@ pub struct Shape {
     /// 文字の大きさ(ワールド単位)。0 なら種類ごとの既定値。
     pub font_size: f32,
     pub align: TextAlign,
+    /// 文字の縦方向の揃え。
+    pub valign: VAlign,
+    /// 縦書き(右の列から左へ)。
+    pub vertical: bool,
     pub text_color: Rgba8,
     pub meta: Meta,
     /// 画像のバイト列(`ShapeKind::Image` のときだけ)。
@@ -577,8 +620,10 @@ pub struct TextBox {
     /// はみ出した文字を切り取る範囲。
     pub clip: Rect,
     pub style: TextStyle,
-    /// 縦方向も中央に寄せるか(文字だけの要素は上詰め)。
-    pub center_vertically: bool,
+    /// 縦方向の揃え。
+    pub valign: VAlign,
+    /// 縦書き。
+    pub vertical: bool,
 }
 
 /// 文字の幅の概算(全角 1em、半角 0.55em)。
@@ -656,6 +701,8 @@ impl Shape {
             text: String::new(),
             font_size: 0.0,
             align: TextAlign::Center,
+            valign: VAlign::Middle,
+            vertical: false,
             text_color: Rgba8::BLACK,
             meta: Meta::default(),
             image: None,
@@ -672,6 +719,7 @@ impl Shape {
             stroke_width: 0.0,
             corner_radius: 0.0,
             align: TextAlign::Left,
+            valign: VAlign::Top,
             ..Self::rect(id, pos, size, Rgba8::TRANSPARENT)
         }
     }
@@ -684,6 +732,7 @@ impl Shape {
             stroke_width: 1.0,
             corner_radius: 6.0,
             align: TextAlign::Left,
+            valign: VAlign::Top,
             text: "フレーム".into(),
             ..Self::rect(id, pos, size, Rgba8::WHITE)
         }
@@ -710,6 +759,8 @@ impl Shape {
             text: String::new(),
             font_size: 0.0,
             align: TextAlign::Center,
+            valign: VAlign::Middle,
+            vertical: false,
             text_color: Rgba8::BLACK,
             meta: Meta::default(),
             image: None,
@@ -734,6 +785,21 @@ impl Shape {
         self.size = r.size();
     }
 
+    /// ハンコ(塗りのないスタンプ)か。
+    pub fn is_hanko(&self) -> bool {
+        self.kind == ShapeKind::Stamp && self.fill.0[3] == 0
+    }
+
+    /// 日付印(中段に数字のある 3 段のハンコ)か。段の間に線を引く。
+    pub fn is_date_hanko(&self) -> bool {
+        let mut lines = self.text.lines();
+        self.is_hanko()
+            && self.text.lines().count() == 3
+            && lines
+                .nth(1)
+                .is_some_and(|l| l.chars().any(|c| c.is_ascii_digit()))
+    }
+
     /// 種類ごとの既定の文字の大きさ。
     pub fn default_font_size(kind: ShapeKind) -> f32 {
         match kind {
@@ -745,10 +811,26 @@ impl Shape {
     }
 
     pub fn text_style(&self) -> TextStyle {
-        let font_size = if self.kind == ShapeKind::Stamp {
-            // スタンプの記号は丸の大きさに合わせる。
-            (self.size.y * 0.46).max(1.0)
-        } else if self.font_size > 0.0 {
+        if self.kind == ShapeKind::Stamp {
+            // スタンプの文字は丸の大きさと文字数に合わせる。
+            let lh = if self.is_date_hanko() {
+                crate::stamp::DATE_LINE_HEIGHT
+            } else {
+                crate::stamp::STAMP_LINE_HEIGHT
+            };
+            let mut font_size = crate::stamp::stamp_font_size_with(&self.text, self.size.y, lh);
+            if self.is_hanko() && !self.is_date_hanko() {
+                // ハンコは枠が太いので、文字を少し内側に収める。
+                font_size *= 0.88;
+            }
+            return TextStyle {
+                font_size,
+                line_height: font_size * lh,
+                color: self.text_color,
+                align: TextAlign::Center,
+            };
+        }
+        let font_size = if self.font_size > 0.0 {
             self.font_size
         } else {
             Self::default_font_size(self.kind)
@@ -858,18 +940,54 @@ impl Shape {
         }
     }
 
+    /// 付箋の作者名を置く場所(作者がなければ `None`)。付箋の左下に小さく出す。
+    pub fn author_box(&self) -> Option<TextBox> {
+        if self.kind != ShapeKind::Sticky || self.meta.author.is_empty() {
+            return None;
+        }
+        let b = self.bounds();
+        // 小さな付箋でも読める大きさに、大きな付箋では控えめに。
+        let font_size = (b.size().y * 0.06).clamp(8.0, 14.0);
+        let line_height = font_size * 1.3;
+        let pad = font_size * 0.8;
+        let rect = Rect::new(
+            Vec2::new(b.min.x + pad, b.max.y - pad - line_height),
+            Vec2::new(b.max.x - pad, b.max.y - pad),
+        );
+        let [r, g, bl, _] = self.text_color.0;
+        Some(TextBox {
+            rect,
+            clip: rect,
+            style: TextStyle {
+                font_size,
+                line_height,
+                color: Rgba8([r, g, bl, 140]),
+                align: TextAlign::Left,
+            },
+            valign: VAlign::Top,
+            vertical: false,
+        })
+    }
+
     pub fn text_box(&self) -> TextBox {
         TextBox {
             rect: self.text_rect(),
             clip: self.text_clip(),
             style: self.text_style(),
-            center_vertically: !matches!(self.kind, ShapeKind::Text | ShapeKind::Frame),
+            // フレームの見出しは 1 行の横書きのまま。
+            valign: if self.kind == ShapeKind::Frame {
+                VAlign::Top
+            } else {
+                self.valign
+            },
+            vertical: self.vertical && self.kind != ShapeKind::Frame,
         }
     }
 
     /// 文字だけの要素の高さを中身に合わせる。
     pub fn fit_text_height(&mut self) {
-        if self.kind != ShapeKind::Text {
+        // 縦書きは幅が中身で決まらないので、大きさはそのまま。
+        if self.kind != ShapeKind::Text || self.vertical {
             return;
         }
         let style = self.text_style();

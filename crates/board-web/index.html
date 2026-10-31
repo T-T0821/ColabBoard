@@ -33,6 +33,7 @@
     <span id="hud-net" data-status="connecting">接続中…</span>
     <button id="share" title="このボードを共有">リンクをコピー</button>
     <button id="slides-start" title="フレームを 1 枚ずつスライドとして全画面で表示 (← → で移動、Esc で終了)">スライド</button>
+    <button id="call-toggle" title="ボードを開いたまま、参加者と音声で話す" aria-pressed="false">通話</button>
     <button id="comments-toggle" title="コメント" aria-pressed="false">コメント</button>
     <button id="history-toggle" title="バージョン履歴" aria-pressed="false" hidden>履歴</button>
     <button id="notif-button" class="icon" title="通知" aria-label="通知"></button>
@@ -98,7 +99,7 @@
       </button>
       <div id="stamp-picker" class="popover stamp-picker" role="menu" aria-label="スタンプ・リアクション"></div>
     </div>
-    <button id="insert-image" class="tool" title="画像・PDF・マークダウンを挿入(貼り付け・ドロップでも置けます)">
+    <button id="insert-image" class="tool" title="画像・PDF・マークダウン・CSV・Excel を挿入(貼り付け・ドロップでも置けます)">
       <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-9 9"/></svg>
     </button>
     <div class="tool-group">
@@ -107,7 +108,7 @@
       </button>
       <div id="template-picker" class="popover template-picker" role="menu" aria-label="テンプレート"></div>
     </div>
-    <input id="image-file" type="file" accept="image/png,image/jpeg,application/pdf,.pdf,.md,.markdown,text/markdown" multiple hidden>
+    <input id="image-file" type="file" accept="image/png,image/jpeg,application/pdf,.pdf,.md,.markdown,text/markdown,.csv,.tsv,text/csv,.xlsx,.xlsm,.xlsb,.xls,.ods" multiple hidden>
     <span class="sep"></span>
     <button id="tool-frame" class="tool" title="フレーム (F)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><path d="M7 3v18M17 3v18M3 7h18M3 17h18"/></svg>
@@ -149,6 +150,18 @@
     <button id="slide-next" class="icon" title="次へ (→ / Space)" aria-label="次のスライド">›</button>
     <button id="slide-exit" title="スライドを終了 (Esc)">終了</button>
   </div>
+
+  <section id="call-bar" class="panel call-bar" aria-label="音声通話" hidden>
+    <span class="call-live" aria-hidden="true"></span>
+    <span id="call-people" class="call-people" role="list" aria-label="通話中の参加者"></span>
+    <span id="call-status" class="call-status" role="status" hidden></span>
+    <button id="call-mute" class="icon call-mute" title="ミュート" aria-label="ミュート" aria-pressed="false">
+      <svg class="mic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21M8.5 21h7"/></svg>
+      <svg class="mic-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 9.5V6a3 3 0 00-5.8-1.1M9 9v2a3 3 0 004.9 2.3M5.5 11a6.5 6.5 0 0010.6 5M18.5 11a6.4 6.4 0 01-.6 2.7M12 17.5V21M8.5 21h7M4 4l16 16"/></svg>
+    </button>
+    <button id="call-leave" class="call-leave" title="通話から抜ける">退出</button>
+    <button id="call-dismiss" class="icon call-dismiss" title="閉じる" aria-label="閉じる">✕</button>
+  </section>
 
   <div id="follow-banner" class="panel follow" hidden>
     <span id="follow-text"></span>
@@ -206,6 +219,8 @@
     <span id="hud-zoom">100%</span>
     <button id="zoom-in" aria-label="拡大">+</button>
     <button id="zoom-fit">全体</button>
+    <span class="sep"></span>
+    <button id="toggle-authors" aria-pressed="true" title="付箋に書いた人の名前を表示">名前</button>
   </nav>
 
   <p class="panel help">スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ ダブルクリック/Enter: 文字入力 ・ Delete: 削除 ・ Ctrl/⌘+Z: 元に戻す</p>
@@ -239,6 +254,12 @@
     </div>
     <div class="label">サンプル</div>
     <div id="diagram-samples" class="diagram-samples"></div>
+    <hr />
+    <div class="label">選んだ図を自動整列(つながった図形もまとめて)</div>
+    <div class="diagram-row">
+      <button id="diagram-layout-right" title="左から右へ (Alt+Shift+L)">左 → 右</button>
+      <button id="diagram-layout-down" title="上から下へ (Alt+Shift+J)">上 → 下</button>
+    </div>
   </section>
 
   <div id="search-box" class="panel search-box" role="search" hidden>

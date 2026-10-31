@@ -49,6 +49,61 @@ pub fn create(board: &mut Board, center: Vec2, rows: usize, cols: usize) -> Vec<
     ids
 }
 
+/// 文字の入った表の列の幅と行の高さ(文字の量に合わせる)。
+pub fn measure(rows: &[Vec<String>]) -> (Vec<f32>, Vec<f32>) {
+    use crate::shape::{estimate_text_height, estimate_text_width};
+    let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
+    let probe = cell(ElementId(0), Vec2::ZERO, CELL_SIZE, false, 0);
+    let style = probe.text_style();
+    let pad = probe.size - probe.text_rect().size();
+    let widths: Vec<f32> = (0..cols)
+        .map(|c| {
+            let w = rows
+                .iter()
+                .filter_map(|r| r.get(c))
+                .flat_map(|t| t.split('\n'))
+                .map(|l| estimate_text_width(l, style.font_size))
+                .fold(0.0, f32::max);
+            (w + pad.x + 4.0).clamp(CELL_SIZE.x * 0.75, CELL_SIZE.x * 2.0)
+        })
+        .collect();
+    let heights = rows
+        .iter()
+        .map(|r| {
+            (0..cols)
+                .map(|c| {
+                    let t = r.get(c).map(String::as_str).unwrap_or("");
+                    estimate_text_height(t, widths[c] - pad.x, &style) + pad.y
+                })
+                .fold(CELL_SIZE.y, f32::max)
+        })
+        .collect();
+    (widths, heights)
+}
+
+/// 文字の入った表を左上 `pos` に作る。1 行目は見出しの色。足りないセルは空にする。
+pub fn build(rows: &[Vec<String>], pos: Vec2, alloc: &mut dyn FnMut() -> ElementId) -> Vec<Shape> {
+    let (widths, heights) = measure(rows);
+    if widths.is_empty() {
+        return Vec::new();
+    }
+    let group = alloc().0;
+    let mut out = Vec::with_capacity(rows.len() * widths.len());
+    let mut y = pos.y;
+    for (r, row) in rows.iter().enumerate() {
+        let mut x = pos.x;
+        for (c, w) in widths.iter().enumerate() {
+            let size = Vec2::new(*w, heights[r]);
+            let mut s = cell(alloc(), Vec2::new(x, y), size, r == 0, group);
+            s.text = row.get(c).cloned().unwrap_or_default();
+            out.push(s);
+            x += w;
+        }
+        y += heights[r];
+    }
+    out
+}
+
 /// グループから読み取った格子。
 #[derive(Clone, Debug, PartialEq)]
 pub struct Grid {

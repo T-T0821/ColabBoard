@@ -16,14 +16,18 @@ use web_sys::{
 
 mod actions;
 mod ai;
+mod call_ui;
 mod collab;
 mod comments;
 mod export;
 mod follow;
 mod format_bar;
 mod history;
+mod imports;
+mod issues;
 mod media;
 mod offline;
+mod prefs;
 mod reactions;
 mod search_ui;
 mod slides;
@@ -93,8 +97,13 @@ struct App {
     search: search_ui::Search,
     comments: comments::Comments,
     history: history::History,
+    /// 音声通話(サーバーにつながるボードだけ)。
+    voice: Option<crate::voice::VoiceCall>,
+    call_ui: call_ui::CallUi,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
     live_board: Option<Board>,
+    /// 付箋の作者名を出すか。
+    show_authors: bool,
     /// この端末への保存(共同編集のボードだけ)。
     local_store: Option<offline::LocalStore>,
     /// ボード名・権限・共有パネル(サーバーの API が使えるときだけ)。
@@ -275,12 +284,17 @@ pub async fn run() -> Result<(), String> {
     let (w, h) = renderer.size();
     let camera = Camera::new(Vec2::new(w as f32, h as f32));
     let mut local_store = None;
+    let mut voice = None;
     let (board, room, net) = match demo_count {
         Some(n) => (Board::demo(n), None, None),
         None if offline => (Board::welcome(), None, None),
         None => {
             let room = ensure_room(&window, &params);
             let mut net = Net::new(server_url(&window, &params, &room, key.as_deref())?);
+            // 通話のメッセージは最初の同期から受け取る(参加者番号を知るため)ので、つなぐ前に付ける。
+            let call = crate::voice::VoiceCall::new(net.sender());
+            net.set_tap(call.tap());
+            voice = Some(call);
             net.connect();
             // 前回この端末に保存した内容があれば、サーバーを待たずに表示する。
             let mut board = Board::new();
@@ -378,7 +392,10 @@ pub async fn run() -> Result<(), String> {
         search: search_ui::Search::default(),
         comments: comments::Comments::new(&document)?,
         history: history::History::new(&document)?,
+        voice,
+        call_ui: call_ui::CallUi::new(&document)?,
         live_board: None,
+        show_authors: true,
         local_store,
         chrome,
         access_slot: Rc::default(),
@@ -387,6 +404,12 @@ pub async fn run() -> Result<(), String> {
     }));
     {
         let mut a = app.borrow_mut();
+        a.load_prefs();
+        // 新しく作る付箋に、書いた人の名前(ログイン中は表示名)を入れる。
+        let author = a.identity.name.clone();
+        a.board.set_author(&author);
+        let show = show_authors_setting(&a.window);
+        a.set_show_authors(show);
         if a.net.is_some() && !a.board.is_empty() {
             // 端末に保存した内容から開いたときは、すぐに表示位置を決める。
             a.initial_view();
@@ -422,6 +445,7 @@ pub async fn run() -> Result<(), String> {
     media::install(&app)?;
     templates_ui::install(&app)?;
     search_ui::install(&app)?;
+    issues::install(&app)?;
     start_loop(app);
     Ok(())
 }
@@ -480,7 +504,28 @@ fn server_url(
     ))
 }
 
+/// 付箋の作者名を出すか(端末ごとの設定)。
+const SHOW_AUTHORS_KEY: &str = "colabboard.showAuthors";
+
+fn show_authors_setting(window: &Window) -> bool {
+    window
+        .local_storage()
+        .ok()
+        .flatten()
+        .and_then(|s| s.get_item(SHOW_AUTHORS_KEY).ok().flatten())
+        .is_none_or(|v| v != "0")
+}
+
 impl App {
+    fn set_show_authors(&mut self, on: bool) {
+        self.show_authors = on;
+        self.renderer.set_show_authors(on);
+        if let Some(el) = self.document.get_element_by_id("toggle-authors") {
+            let _ = el.set_attribute("aria-pressed", if on { "true" } else { "false" });
+        }
+        self.dirty = true;
+    }
+
     fn set_board(&mut self, board: Board) {
         // ダミー表示に切り替えたら共同編集はやめる。
         if let Some(net) = self.net.as_mut() {
@@ -636,6 +681,8 @@ impl App {
                 NetEvent::Message(Message::Refresh(TOPIC_COMMENTS)) => self.fetch_comments(),
                 NetEvent::Message(Message::Refresh(TOPIC_VERSIONS)) => self.versions_changed(),
                 NetEvent::Message(Message::Refresh(_)) => {}
+                // 通話のメッセージは voice が先に受け取っている。
+                NetEvent::Message(Message::Voice(_) | Message::Signal(_)) => {}
                 NetEvent::Closed => {
                     self.cursors.clear();
                     self.follow_reset();
@@ -843,6 +890,7 @@ impl App {
 
     fn frame(&mut self, now: f64) {
         export::pump(self);
+        self.save_prefs();
         self.pump_net(now);
         self.save_local(now, false);
         self.collab_frame();
@@ -851,6 +899,7 @@ impl App {
         self.comments_frame(now);
         self.history_frame();
         self.touch_frame(now);
+        self.call_frame();
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
         if (w, h) != self.renderer.size() {
@@ -1062,6 +1111,7 @@ impl App {
         } else if e.button() == 0 {
             let mods = Modifiers {
                 shift: e.shift_key(),
+                alt: e.alt_key(),
             };
             self.editor
                 .pointer_down(&mut self.board, &self.camera, p, mods);
@@ -1104,6 +1154,7 @@ impl App {
         } else if self.editor.is_dragging() && past_slop {
             let mods = Modifiers {
                 shift: e.shift_key(),
+                alt: e.alt_key(),
             };
             if self
                 .editor
@@ -1209,10 +1260,19 @@ impl App {
         let _ = css.set_property("height", "0px");
         let content = self.text_editor.scroll_height() as f32;
         let _ = css.set_property("height", &px(size.y));
-        let pad = if tb.center_vertically {
-            ((size.y - content) * 0.5).max(0.0)
-        } else {
+        // 縦書きは入力欄も縦書きにする(縦方向の揃えは表示側だけ)。
+        let _ = css.set_property(
+            "writing-mode",
+            if tb.vertical {
+                "vertical-rl"
+            } else {
+                "horizontal-tb"
+            },
+        );
+        let pad = if tb.vertical {
             0.0
+        } else {
+            tb.valign.offset(size.y, content)
         };
         let _ = css.set_property("padding-top", &px(pad));
         let _ = css.set_property("box-sizing", "border-box");
@@ -1628,11 +1688,19 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     slides::install(app, doc)?;
     comments::install(app, doc)?;
     history::install(app)?;
+    call_ui::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;
     on_click(doc, "zoom-out", app, |a| a.zoom_center(0.8))?;
     on_click(doc, "zoom-fit", app, |a| a.fit())?;
+    on_click(doc, "toggle-authors", app, |a| {
+        let on = !a.show_authors;
+        a.set_show_authors(on);
+        if let Ok(Some(s)) = a.window.local_storage() {
+            let _ = s.set_item(SHOW_AUTHORS_KEY, if on { "1" } else { "0" });
+        }
+    })?;
     diagram_ui::install(app, doc)?;
     ai_ui::install(app, doc)?;
     {

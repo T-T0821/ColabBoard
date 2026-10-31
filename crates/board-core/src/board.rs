@@ -75,6 +75,8 @@ pub struct Board {
     client: u64,
     counter: u64,
     sync: Option<Sync>,
+    /// 新しい付箋に入れる作者名。
+    author: String,
 }
 
 impl Default for Board {
@@ -164,6 +166,7 @@ impl Board {
             revision: 0,
             client,
             counter: 0,
+            author: String::new(),
             sync: Some(Sync {
                 doc,
                 map,
@@ -185,6 +188,7 @@ impl Board {
             revision: 0,
             client: 0,
             counter: 0,
+            author: String::new(),
             sync: None,
         }
     }
@@ -247,8 +251,22 @@ impl Board {
         self.push_with(ORIGIN_LOCAL, element.into())
     }
 
-    fn push_with(&mut self, origin: &str, element: Element) -> ElementId {
+    /// 新しく作る付箋に入れる作者名(ログイン中の表示名など)。
+    pub fn set_author(&mut self, name: &str) {
+        self.author = name.trim().chars().take(40).collect();
+    }
+
+    fn push_with(&mut self, origin: &str, mut element: Element) -> ElementId {
         let id = element.id();
+        // 新しい付箋には作者を入れる(複製・貼り付けは元の作者のまま)。
+        if !self.author.is_empty()
+            && !self.index.contains_key(&id)
+            && let Element::Shape(s) = &mut element
+            && s.kind == ShapeKind::Sticky
+            && s.meta.author.is_empty()
+        {
+            s.meta.author = self.author.clone();
+        }
         let z = match self.index.get(&id) {
             Some(&i) => self.z[i],
             None => self.top_z() + 1.0,
@@ -916,6 +934,33 @@ impl SplitMix64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_stickies_get_author_and_sync_it() {
+        let mut a = Board::new();
+        a.set_author("  つのもん ");
+        let id = a.alloc_id();
+        a.push(Shape::sticky(id, Vec2::ZERO, Rgba8::WHITE));
+        let rect = a.alloc_id();
+        a.push(Shape::rect(rect, Vec2::ZERO, Vec2::ONE, Rgba8::WHITE));
+        assert_eq!(a.get(id).unwrap().meta().author, "つのもん");
+        // 付箋以外には入れない。
+        assert!(a.get(rect).unwrap().meta().author.is_empty());
+
+        // 他の人が書き換えても作者は変わらない。
+        let mut b = Board::new();
+        b.apply_remote(&a.encode_diff(None).unwrap()).unwrap();
+        b.set_author("はな");
+        b.update(id, |e| {
+            if let Element::Shape(s) = e {
+                s.text = "追記".into();
+            }
+        });
+        assert_eq!(b.get(id).unwrap().meta().author, "つのもん");
+        let s = b.get(id).unwrap().as_shape().unwrap();
+        let tb = s.author_box().unwrap();
+        assert!(tb.rect.max.y <= s.bounds().max.y && tb.rect.min.y > s.bounds().min.y);
+    }
     use crate::connector::PathStyle;
 
     #[test]
@@ -949,6 +994,9 @@ mod tests {
             },
         );
         c.style = PathStyle::Straight;
+        c.start_cap = crate::Cap::DiamondFilled;
+        c.end_cap = crate::Cap::ZeroOrMany;
+        c.dashed = true;
         a.push(c);
         let path = |b: &Board| match b.get(cid) {
             Some(Element::Connector(c)) => c.path.clone(),
@@ -968,6 +1016,10 @@ mod tests {
         b.apply_remote(&a.encode_diff(None).unwrap()).unwrap();
         assert_eq!(path(&b), path(&a));
         assert!(matches!(b.get(s2), Some(Element::Shape(s)) if s.kind == ShapeKind::Star));
+        // UML・ER の記号と破線も届く。
+        assert!(matches!(b.get(cid), Some(Element::Connector(c))
+            if c.dashed && c.start_cap == crate::Cap::DiamondFilled
+                && c.end_cap == crate::Cap::ZeroOrMany));
 
         // 経路が変わったコネクタも、新しい位置でヒットテストに当たる。
         assert_eq!(

@@ -107,7 +107,7 @@ fn apply_view(camera: &mut Camera, v: &View) {
 }
 
 impl App {
-    fn peer_name(&self, peer: u32) -> String {
+    pub(super) fn peer_name(&self, peer: u32) -> String {
         self.cursors
             .get(peer)
             .map(|p| p.name.clone())
