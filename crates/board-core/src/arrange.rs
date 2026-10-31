@@ -38,6 +38,8 @@ pub fn expand_groups(board: &Board, ids: &[ElementId]) -> Vec<ElementId> {
 
 /// 動かすときに一緒に動く要素(選択 + フレームの中身)。ロック中の要素は動かさない。
 pub fn move_set(board: &Board, selection: &[ElementId]) -> Vec<ElementId> {
+    // マインドマップの中心を動かすときは木全体を動かす。
+    let selection = &crate::mindmap::expand_for_move(board, selection);
     let mut out: Vec<ElementId> = selection
         .iter()
         .copied()
@@ -103,6 +105,11 @@ pub fn paste(board: &mut Board, elements: Vec<Element>, offset: Vec2) -> Vec<Ele
     }
     let mut groups: HashMap<u64, u64> = HashMap::new();
     let mut out = Vec::with_capacity(elements.len());
+    // マインドマップの枝は並べ直すときに作り直すので貼らない。
+    let elements: Vec<Element> = elements
+        .into_iter()
+        .filter(|e| !matches!(e.meta().mind, Some(crate::mindmap::Mind::Branch)))
+        .collect();
     for mut e in elements {
         let new_id = ids[&e.id()];
         let old_group = e.meta().group;
@@ -113,6 +120,11 @@ pub fn paste(board: &mut Board, elements: Vec<Element>, offset: Vec2) -> Vec<Ele
             e.meta_mut().group = g;
         }
         e.meta_mut().locked = false;
+        e.meta_mut().hidden = false;
+        // 一緒にコピーした親につなぎ直す。親がなければ新しいマインドマップの中心にする。
+        if let Some(crate::mindmap::Mind::Node(l)) = &mut e.meta_mut().mind {
+            l.parent = l.parent.and_then(|p| ids.get(&p).copied());
+        }
         match &mut e {
             Element::Shape(s) => s.id = new_id,
             Element::Stroke(s) => s.id = new_id,

@@ -77,6 +77,8 @@ pub struct Board {
     sync: Option<Sync>,
     /// 新しい付箋に入れる作者名。
     author: String,
+    /// マインドマップの要素が変わった(自動レイアウトのやり直しが要る)。
+    mind_dirty: bool,
 }
 
 impl Default for Board {
@@ -174,6 +176,7 @@ impl Board {
                 changed,
                 outbox,
             }),
+            mind_dirty: false,
         }
     }
 
@@ -190,6 +193,7 @@ impl Board {
             counter: 0,
             author: String::new(),
             sync: None,
+            mind_dirty: false,
         }
     }
 
@@ -274,6 +278,41 @@ impl Board {
         };
         self.write(origin, vec![(id, Some((element, z)))]);
         id
+    }
+
+    /// 要素の追加・置き換えと削除を、Undo の対象にせずに書く(自動レイアウトの結果など)。
+    /// 追加する要素の重なり順は、既存ならそのまま、新規なら `z` で指定する(`None` なら最前面)。
+    pub fn write_untracked(&mut self, puts: Vec<(Element, Option<f64>)>, removes: &[ElementId]) {
+        let mut top = self.top_z();
+        let mut writes: Vec<(ElementId, Option<(Element, f64)>)> = puts
+            .into_iter()
+            .map(|(e, z)| {
+                let id = e.id();
+                let z = match (self.index.get(&id), z) {
+                    (Some(&i), _) => self.z[i],
+                    (None, Some(z)) => z,
+                    (None, None) => {
+                        top += 1.0;
+                        top
+                    }
+                };
+                (id, Some((e, z)))
+            })
+            .collect();
+        writes.extend(
+            removes
+                .iter()
+                .filter(|id| self.index.contains_key(id))
+                .map(|id| (*id, None)),
+        );
+        if !writes.is_empty() {
+            self.write(ORIGIN_INIT, writes);
+        }
+    }
+
+    /// マインドマップの要素が前回から変わったか(読むと戻る)。
+    pub fn take_mind_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.mind_dirty)
     }
 
     /// 重なり順の値(大きいほど手前)。
@@ -415,6 +454,14 @@ impl Board {
     /// 追加・削除・重なり順の変更が多いとき(初回同期や貼り付け)は、1 個ずつ挿入すると
     /// 要素数の 2 乗の時間がかかるので、並べ直しを 1 回のマージで済ませる。
     fn apply_view(&mut self, updates: Vec<(ElementId, Option<(Element, f64)>)>) {
+        if !self.mind_dirty {
+            self.mind_dirty = updates.iter().any(|(id, change)| {
+                change
+                    .as_ref()
+                    .is_some_and(|(e, _)| e.meta().mind.is_some())
+                    || self.get(*id).is_some_and(|e| e.meta().mind.is_some())
+            });
+        }
         let mut structural = Vec::new();
         for (id, change) in updates {
             match (change, self.index.get(&id).copied()) {
@@ -737,7 +784,7 @@ impl Board {
 
     /// 矩形に完全に含まれる要素(範囲選択用)。描画順。
     pub fn query_inside(&self, r: &Rect) -> Vec<ElementId> {
-        let inside = |e: &&Element| r.contains_rect(&e.bounds());
+        let inside = |e: &&Element| !e.meta().hidden && r.contains_rect(&e.bounds());
         match self.query_candidates(r) {
             Some(c) => c
                 .into_iter()

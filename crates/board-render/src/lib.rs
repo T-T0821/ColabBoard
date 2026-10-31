@@ -183,6 +183,10 @@ impl ShapeInstance {
 
 /// 要素をインスタンス列に変換して `out` に足す。手書き線は線分ごとに 1 インスタンス。
 pub fn push_instances(e: &Element, out: &mut Vec<ShapeInstance>) {
+    // 折りたたまれたマインドマップの枝などは描かない。
+    if e.meta().hidden {
+        return;
+    }
     match e {
         // 文字だけの要素は図形を描かない(文字は文字描画で出す)。
         // 画像は画像描画で出す。

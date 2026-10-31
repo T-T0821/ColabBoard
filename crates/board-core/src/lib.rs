@@ -24,6 +24,7 @@ pub mod ink;
 pub mod issue;
 pub mod markdown;
 pub mod miro;
+pub mod mindmap;
 pub mod navigation;
 pub mod ops;
 pub mod plugin;

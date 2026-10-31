@@ -662,6 +662,8 @@ impl Editor {
             .copied()
             .filter(|id| board.get(*id).is_some_and(|e| !e.is_locked()))
             .collect();
+        // マインドマップのノードは子孫と枝もまとめて消す。
+        let ids = crate::mindmap::expand_for_delete(board, &ids);
         let n = board.remove(&ids);
         self.selection.clear();
         n
