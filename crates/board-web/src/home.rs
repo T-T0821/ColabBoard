@@ -159,7 +159,7 @@ impl Home {
         };
         format!(
             r#"<div class="home-card auth">
-  <h1>ColabBoard</h1>
+  <h1>グラボード</h1>
   <p class="muted">{lead}</p>
   <form data-form="auth">
     <label>ログイン名<input name="login" autocomplete="username" required autofocus maxlength="32" placeholder="英小文字・数字・-・_" /></label>
@@ -245,7 +245,7 @@ impl Home {
         format!(
             r#"<div class="home-card list">
   <header class="home-head">
-    <h1>ColabBoard</h1>
+    <h1>グラボード</h1>
     <span class="me">{name} <span class="muted">@{login}</span></span>
     <button type="button" class="quiet" data-action="logout">ログアウト</button>
   </header>

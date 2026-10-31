@@ -1,4 +1,4 @@
-// ColabBoard の Service Worker。アプリ本体(HTML・JS・WASM・CSS・フォント)を端末に置き、
+// グラボード の Service Worker。アプリ本体(HTML・JS・WASM・CSS・フォント)を端末に置き、
 // ネットワークがなくても開けるようにする。ボードの中身は IndexedDB に別に保存する。
 //
 // - ページ(HTML): ネットワーク優先。つながらなければ前回のものを使う

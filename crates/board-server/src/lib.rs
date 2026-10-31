@@ -1,4 +1,4 @@
-//! ColabBoard の同期サーバー。
+//! グラボード の同期サーバー。
 //!
 //! - `GET /ws/{room}?key=`: WebSocket。メッセージ形式は [`board_core::protocol`]。
 //! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])と図の生成([`ai_diagram`])。

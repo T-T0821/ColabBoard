@@ -1,4 +1,6 @@
-# ColabBoard
+# グラボード (Graboard)
+
+> 英字表記は **Graboard**。リポジトリ名・クレート名(`colabboard` / `board-*`)と、端末に保存済みのデータを引き継ぐための内部キー(`colabboard.*` など)は旧名のまま。
 
 Miro や FigJam のように、Web 上で複数人が同時に編集できるホワイトボード。
 クライアントもサーバーも **Pure Rust** で書き、描画は wgpu(WebGPU / WebGL2)で GPU に任せる。
