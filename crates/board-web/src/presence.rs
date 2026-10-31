@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use board_core::protocol::Presence;
+use board_core::protocol::{Presence, Voice};
 use board_core::{Camera, Vec2};
 use web_sys::{Document, HtmlElement, Window};
 
@@ -72,6 +72,8 @@ pub struct Cursors {
     document: Document,
     layer: HtmlElement,
     peers: HashMap<u32, Peer>,
+    /// 小部屋に分かれているときの自分の部屋。外にいる人のカーソルは出さない。
+    pub area: Option<board_core::geom::Rect>,
 }
 
 impl Cursors {
@@ -80,6 +82,7 @@ impl Cursors {
             document,
             layer,
             peers: HashMap::new(),
+            area: None,
         }
     }
 
@@ -117,6 +120,24 @@ impl Cursors {
         peer.presence = p;
     }
 
+    /// カーソルの名札に通話の状態(マイク・ミュート・発話中)を出す。
+    pub fn set_voice(&mut self, peer: u32, voice: Option<Voice>) {
+        let Some(p) = self.peers.get(&peer) else {
+            return;
+        };
+        let el = &p.el;
+        match voice.filter(|v| v.in_call) {
+            Some(v) => {
+                let _ = el.set_attribute("data-voice", if v.muted { "muted" } else { "on" });
+                let _ = el.toggle_attribute_with_force("data-speaking", v.speaking && !v.muted);
+            }
+            None => {
+                let _ = el.remove_attribute("data-voice");
+                let _ = el.remove_attribute("data-speaking");
+            }
+        }
+    }
+
     pub fn remove(&mut self, peer: u32) {
         if let Some(p) = self.peers.remove(&peer) {
             p.el.remove();
@@ -145,7 +166,8 @@ impl Cursors {
         for peer in self.peers.values() {
             let p = &peer.presence;
             let style = peer.el.style();
-            if !p.is_visible() {
+            let outside = self.area.is_some_and(|r| !r.contains(Vec2::new(p.x, p.y)));
+            if !p.is_visible() || outside {
                 let _ = style.set_property("display", "none");
                 continue;
             }

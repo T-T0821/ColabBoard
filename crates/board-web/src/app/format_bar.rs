@@ -187,15 +187,41 @@ fn render(s: &Summary, link_open: bool) -> String {
             );
         }
         g.push_str("</select>");
+        for (act, title, current) in [
+            ("start-cap", "始点の記号", s.start_cap),
+            ("end-cap", "終点の記号", s.end_cap),
+        ] {
+            let _ = write!(
+                g,
+                r#"<select data-act="{act}" title="{title}" aria-label="{title}">"#
+            );
+            if current.is_none() {
+                g.push_str(r#"<option value="" selected>—</option>"#);
+            }
+            for cap in Cap::ALL {
+                let sel = if current == Some(cap) {
+                    " selected"
+                } else {
+                    ""
+                };
+                let _ = write!(
+                    g,
+                    r#"<option value="{}"{sel}>{}{}</option>"#,
+                    cap.name(),
+                    if act == "start-cap" {
+                        "始点: "
+                    } else {
+                        "終点: "
+                    },
+                    cap.label()
+                );
+            }
+            g.push_str("</select>");
+        }
         let _ = write!(
             g,
-            r#"<button data-act="start-cap" title="始点の矢印" aria-pressed="{}"><svg viewBox="0 0 24 24"><path d="M20 12H5M10 7l-5 5 5 5"/></svg></button>"#,
-            pressed(s.start_cap == Some(Cap::Arrow))
-        );
-        let _ = write!(
-            g,
-            r#"<button data-act="end-cap" title="終点の矢印" aria-pressed="{}"><svg viewBox="0 0 24 24"><path d="M4 12h15M14 7l5 5-5 5"/></svg></button>"#,
-            pressed(s.end_cap == Some(Cap::Arrow))
+            r#"<button data-act="dashed" title="破線" aria-pressed="{}"><svg viewBox="0 0 24 24"><path d="M3 12h4M10 12h4M17 12h4"/></svg></button>"#,
+            pressed(s.dashed == Some(true))
         );
         groups.push(g);
     }
@@ -416,18 +442,7 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
                     "align" => a.apply_format(Change::Align(TextAlign::from_name(&value))),
                     "valign" => a.apply_format(Change::VAlign(VAlign::from_name(&value))),
                     "vertical" => a.apply_format(Change::Vertical(s.vertical != Some(true))),
-                    "start-cap" => {
-                        a.apply_format(Change::StartCap(if s.start_cap == Some(Cap::Arrow) {
-                            Cap::None
-                        } else {
-                            Cap::Arrow
-                        }))
-                    }
-                    "end-cap" => a.apply_format(Change::EndCap(if s.end_cap == Some(Cap::Arrow) {
-                        Cap::None
-                    } else {
-                        Cap::Arrow
-                    })),
+                    "dashed" => a.apply_format(Change::Dashed(s.dashed != Some(true))),
                     "width" => {
                         if let Ok(w) = value.parse() {
                             a.apply_format(Change::Width(w));
@@ -463,6 +478,8 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
                 "kind" => ShapeKind::from_name(&value).map(Change::Kind),
                 "font" => value.parse().ok().map(Change::FontSize),
                 "path" => Some(Change::Path(PathStyle::from_name(&value))),
+                "start-cap" => Some(Change::StartCap(Cap::from_name(&value))),
+                "end-cap" => Some(Change::EndCap(Cap::from_name(&value))),
                 _ => None,
             };
             let _ = sel.blur();

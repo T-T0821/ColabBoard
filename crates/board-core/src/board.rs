@@ -258,12 +258,13 @@ impl Board {
 
     fn push_with(&mut self, origin: &str, mut element: Element) -> ElementId {
         let id = element.id();
-        // 新しい付箋には作者を入れる(複製・貼り付けは元の作者のまま)。
+        // 新しい付箋には作者を入れる(複製・貼り付けは元の作者のまま。匿名モード中は入れない)。
         if !self.author.is_empty()
             && !self.index.contains_key(&id)
             && let Element::Shape(s) = &mut element
             && s.kind == ShapeKind::Sticky
             && s.meta.author.is_empty()
+            && !self.anonymous()
         {
             s.meta.author = self.author.clone();
         }
@@ -994,6 +995,9 @@ mod tests {
             },
         );
         c.style = PathStyle::Straight;
+        c.start_cap = crate::Cap::DiamondFilled;
+        c.end_cap = crate::Cap::ZeroOrMany;
+        c.dashed = true;
         a.push(c);
         let path = |b: &Board| match b.get(cid) {
             Some(Element::Connector(c)) => c.path.clone(),
@@ -1013,6 +1017,10 @@ mod tests {
         b.apply_remote(&a.encode_diff(None).unwrap()).unwrap();
         assert_eq!(path(&b), path(&a));
         assert!(matches!(b.get(s2), Some(Element::Shape(s)) if s.kind == ShapeKind::Star));
+        // UML・ER の記号と破線も届く。
+        assert!(matches!(b.get(cid), Some(Element::Connector(c))
+            if c.dashed && c.start_cap == crate::Cap::DiamondFilled
+                && c.end_cap == crate::Cap::ZeroOrMany));
 
         // 経路が変わったコネクタも、新しい位置でヒットテストに当たる。
         assert_eq!(

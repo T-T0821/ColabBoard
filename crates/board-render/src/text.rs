@@ -155,6 +155,7 @@ impl TextLayer {
     }
 
     /// 見えている図形の文字を準備する。`skip` は編集中で別の欄に表示している要素。
+    #[allow(clippy::too_many_arguments)]
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -163,6 +164,7 @@ impl TextLayer {
         camera: &Camera,
         layers: &[Layer],
         skip: Option<ElementId>,
+        hidden: &std::collections::HashSet<ElementId>,
     ) -> usize {
         self.prepared.clear();
         self.prepared.resize(layers.len(), false);
@@ -183,16 +185,23 @@ impl TextLayer {
         let show_authors = self.show_authors;
         let visible: Vec<(usize, Item<'_>)> = near
             .flat_map(|(i, e)| {
-                let body = (!e.text().is_empty() && Some(e.id()) != skip)
-                    .then(|| e.text_box())
-                    .flatten()
-                    .map(|tb| {
+                let masked = hidden.contains(&e.id());
+                // 伏せたカードは中身の代わりに「作業中」とだけ出す(描かない種類は何も出さない)。
+                let text = if masked {
+                    board_core::privacy::face_down(e).map(|_| board_core::privacy::FACE_DOWN_TEXT)
+                } else {
+                    Some(e.text())
+                };
+                let body = text
+                    .filter(|t| !t.is_empty() && Some(e.id()) != skip)
+                    .and_then(|t| Some((t, e.text_box()?)))
+                    .map(|(text, tb)| {
                         (
                             i,
                             Item {
                                 id: e.id(),
                                 slot: 0,
-                                text: e.text(),
+                                text,
                                 tb,
                                 on_canvas: e.as_shape().is_none_or(|s| {
                                     s.fill.0[3] < 128 || s.kind == ShapeKind::Frame
@@ -202,7 +211,7 @@ impl TextLayer {
                     });
                 let author = e
                     .as_shape()
-                    .filter(|_| show_authors)
+                    .filter(|_| show_authors && !masked)
                     .and_then(|s| Some((s, s.author_box()?)))
                     .map(|(s, tb)| {
                         (

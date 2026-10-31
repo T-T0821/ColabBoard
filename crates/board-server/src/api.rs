@@ -39,6 +39,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/boards/{id}/sharing", get(sharing))
         .route("/boards/{id}/members", put(set_member))
         .route("/boards/{id}/link", put(set_link))
+        .route("/boards/{id}/embed", put(set_embed))
         .route(
             "/boards/{id}/slack",
             get(slack::get_settings).put(slack::set_settings),
@@ -347,6 +348,7 @@ async fn delete_board(
     meta.deleted = true;
     meta.members.clear();
     meta.link = None;
+    meta.embed = None;
     meta.slack = None;
     meta.updated = auth::now_ms();
     boards::put(state.store(), &meta)?;
@@ -415,6 +417,22 @@ async fn set_link(
     let user = require_user(&state, &headers)?;
     let mut meta = owned_board(&state, &id, &user, None, Role::Owner)?;
     boards::set_link(&mut meta, req.role, req.regenerate);
+    meta.updated = auth::now_ms();
+    boards::put(state.store(), &meta)?;
+    state.hub.kick(&id);
+    Ok(Json(meta.sharing()))
+}
+
+/// 埋め込み(iframe)用の鍵。共有リンクとは別に止めたり作り直したりできる。
+async fn set_embed(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(req): Json<SetLink>,
+) -> ApiResult<Json<Sharing>> {
+    let user = require_user(&state, &headers)?;
+    let mut meta = owned_board(&state, &id, &user, None, Role::Owner)?;
+    boards::set_embed(&mut meta, req.role, req.regenerate);
     meta.updated = auth::now_ms();
     boards::put(state.store(), &meta)?;
     state.hub.kick(&id);

@@ -11,13 +11,23 @@
   <link data-trunk rel="copy-file" href="sw.js" />
   <script>
     // アプリ本体を端末に置いて、オフラインでも開けるようにする(https か localhost のときだけ動く)。
-    if ('serviceWorker' in navigator && !new URLSearchParams(location.search).has('nosw')) {
+    // 他のサイトに埋め込まれたとき(?embed=1)は登録しない。
+    if ('serviceWorker' in navigator && !/[?&](nosw|embed=1)(&|=|$)/.test(location.search)) {
       addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
     }
   </script>
 </head>
 <body>
-  <canvas id="board" tabindex="0" aria-label="ホワイトボード"></canvas>
+  <a class="skip-link" href="#board">キャンバスへ移動</a>
+  <a class="skip-link" href="#tool-select">ツールへ移動</a>
+  <canvas id="board" tabindex="0" role="application" aria-roledescription="ホワイトボード" aria-label="ホワイトボード" aria-describedby="sr-help"></canvas>
+  <p id="sr-help" class="sr-only">Tab で要素を順に選択、Alt+矢印で近くの要素へ移動、矢印で選んだ要素を移動、Alt+Shift+矢印でつなぐ、Enter で文字を入力。S で付箋ツールにして Enter で置けます。? でキーボード操作の一覧。</p>
+  <div id="sr-live-a" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="sr-live-b" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></div>
+  <section id="sr-board" class="sr-only" aria-labelledby="sr-board-summary">
+    <h2 id="sr-board-summary">ボードの要素</h2>
+    <ul id="sr-board-list"></ul>
+  </section>
   <div id="badges" aria-hidden="true"></div>
   <div id="cursors" aria-hidden="true"></div>
   <textarea id="text-editor" spellcheck="false" aria-label="文字を入力"></textarea>
@@ -30,8 +40,10 @@
     <span><span class="label">描画</span> <span id="hud-backend">初期化中…</span></span>
     <span><span class="label">要素</span> <span id="hud-count">0</span></span>
     <span class="sep"></span>
-    <span id="hud-net" data-status="connecting">接続中…</span>
+    <span id="hud-net" data-status="connecting" role="status">接続中…</span>
     <button id="share" title="このボードを共有">リンクをコピー</button>
+    <button id="slides-start" title="フレームを 1 枚ずつスライドとして全画面で表示 (← → で移動、Esc で終了)">スライド</button>
+    <button id="call-toggle" title="ボードを開いたまま、参加者と音声で話す" aria-pressed="false">通話</button>
     <button id="comments-toggle" title="コメント" aria-pressed="false">コメント</button>
     <button id="history-toggle" title="バージョン履歴" aria-pressed="false" hidden>履歴</button>
     <button id="notif-button" class="icon" title="通知" aria-label="通知"></button>
@@ -49,6 +61,7 @@
   <section id="history-panel" class="panel history-panel" aria-label="バージョン履歴" hidden></section>
   <div id="preview-banner" class="panel preview-banner" role="status" hidden></div>
 
+  <a id="embed-open" class="panel embed-open" target="_blank" rel="noopener" hidden>グラボードで開く ↗</a>
   <section id="share-panel" class="panel share-panel" aria-label="共有" hidden></section>
 
   <section class="panel demo" aria-label="性能確認">
@@ -63,32 +76,32 @@
   </section>
 
   <nav class="panel toolbar" aria-label="ツール">
-    <button id="tool-select" class="tool" title="選択 (V)" aria-pressed="true">
+    <button id="tool-select" aria-keyshortcuts="V" class="tool" title="選択 (V)" aria-pressed="true">
       <svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 1.5L10 19z"/></svg>
     </button>
-    <button id="tool-hand" class="tool" title="手のひら (H / Space)" aria-pressed="false">
+    <button id="tool-hand" aria-keyshortcuts="H" class="tool" title="手のひら (H / Space)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><path d="M8 13V5.5a1.5 1.5 0 013 0V11m0-6.5a1.5 1.5 0 013 0V11m0-5a1.5 1.5 0 013 0v7c0 4-2.5 7-6.5 7S5 17 4 14.5l-1-2.5a1.4 1.4 0 012.4-1.4L8 13"/></svg>
     </button>
     <span class="sep"></span>
-    <button id="tool-sticky" class="tool" title="付箋 (S)" aria-pressed="false">
+    <button id="tool-sticky" aria-keyshortcuts="S" class="tool" title="付箋 (S)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><path d="M4 4h16v11l-5 5H4z M15 20v-5h5"/></svg>
     </button>
-    <button id="tool-shape" class="tool" title="図形ライブラリ (R: 四角形 / O: 楕円)" aria-pressed="false" aria-haspopup="true" aria-controls="shape-panel" aria-expanded="false">
+    <button id="tool-shape" aria-keyshortcuts="R O" class="tool" title="図形ライブラリ (R: 四角形 / O: 楕円)" aria-pressed="false" aria-haspopup="true" aria-controls="shape-panel" aria-expanded="false">
       <svg viewBox="0 0 24 24"><rect x="3" y="11" width="9" height="9" rx="1.5"/><circle cx="16.5" cy="7.5" r="4.5"/></svg>
     </button>
-    <button id="tool-text" class="tool" title="テキスト (T)" aria-pressed="false">
+    <button id="tool-text" aria-keyshortcuts="T" class="tool" title="テキスト (T)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg>
     </button>
-    <button id="tool-connector" class="tool" title="コネクタ (X)" aria-pressed="false">
+    <button id="tool-connector" aria-keyshortcuts="X" class="tool" title="コネクタ (X)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><circle cx="5" cy="19" r="2"/><path d="M6.5 17.5L18 6M13 6h5v5"/></svg>
     </button>
-    <button id="tool-pen" class="tool" title="ペン (P)" aria-pressed="false">
+    <button id="tool-pen" aria-keyshortcuts="P" class="tool" title="ペン (P)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><path d="M4 20l1-4L16 5l3 3L8 19z M14 7l3 3"/></svg>
     </button>
-    <button id="tool-highlighter" class="tool" title="蛍光ペン (M)" aria-pressed="false">
+    <button id="tool-highlighter" aria-keyshortcuts="M" class="tool" title="蛍光ペン (M)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><path d="M9 15l-3 3h5l1-1M9 15l8-8 3 3-8 8zM4 21h16"/></svg>
     </button>
-    <button id="tool-eraser" class="tool" title="消しゴム (E)" aria-pressed="false">
+    <button id="tool-eraser" aria-keyshortcuts="E" class="tool" title="消しゴム (E)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><path d="M8 20h12M5 15l9-9 5 5-7 7H8z M9.5 10.5l5 5"/></svg>
     </button>
     <div class="tool-group">
@@ -97,7 +110,7 @@
       </button>
       <div id="stamp-picker" class="popover stamp-picker" role="menu" aria-label="スタンプ・リアクション"></div>
     </div>
-    <button id="insert-image" class="tool" title="画像・PDF・マークダウン・CSV・Excel を挿入(貼り付け・ドロップでも置けます)">
+    <button id="insert-image" class="tool" title="画像・PDF・マークダウン・CSV・Excel・Mermaid・PlantUML を挿入(貼り付け・ドロップでも置けます)">
       <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-9 9"/></svg>
     </button>
     <div class="tool-group">
@@ -106,16 +119,16 @@
       </button>
       <div id="template-picker" class="popover template-picker" role="menu" aria-label="テンプレート"></div>
     </div>
-    <input id="image-file" type="file" accept="image/png,image/jpeg,application/pdf,.pdf,.md,.markdown,text/markdown,.csv,.tsv,text/csv,.xlsx,.xlsm,.xlsb,.xls,.ods" multiple hidden>
+    <input id="image-file" type="file" accept="image/png,image/jpeg,application/pdf,.pdf,.md,.markdown,text/markdown,.csv,.tsv,text/csv,.xlsx,.xlsm,.xlsb,.xls,.ods,.mmd,.mermaid,.puml,.plantuml,.pu,.iuml,.wsd" multiple hidden>
     <span class="sep"></span>
-    <button id="tool-frame" class="tool" title="フレーム (F)" aria-pressed="false">
+    <button id="tool-frame" aria-keyshortcuts="F" class="tool" title="フレーム (F)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><path d="M7 3v18M17 3v18M3 7h18M3 17h18"/></svg>
     </button>
     <span class="sep"></span>
-    <button id="undo" class="tool" title="元に戻す (Ctrl/⌘+Z)" disabled>
+    <button id="undo" aria-keyshortcuts="Control+Z Meta+Z" class="tool" title="元に戻す (Ctrl/⌘+Z)" disabled>
       <svg viewBox="0 0 24 24"><path d="M9 7L4 12l5 5M4 12h11a5 5 0 010 10h-2"/></svg>
     </button>
-    <button id="redo" class="tool" title="やり直す (Ctrl/⌘+Shift+Z)" disabled>
+    <button id="redo" aria-keyshortcuts="Control+Shift+Z Meta+Shift+Z" class="tool" title="やり直す (Ctrl/⌘+Shift+Z)" disabled>
       <svg viewBox="0 0 24 24"><path d="M15 7l5 5-5 5M20 12H9a5 5 0 000 10h2"/></svg>
     </button>
     <span class="sep"></span>
@@ -139,6 +152,27 @@
     <button id="timer-add" title="1 分延長">+1分</button>
     <button id="timer-stop" title="タイマーを消す" aria-label="タイマーを消す">×</button>
   </div>
+
+  <div id="slide-spot" class="slide-spot" aria-hidden="true" hidden></div>
+  <div id="slide-bar" class="panel slide-bar" role="toolbar" aria-label="スライド" hidden>
+    <button id="slide-prev" class="icon" title="前へ (←)" aria-label="前のスライド">‹</button>
+    <span id="slide-counter" class="slide-counter"></span>
+    <span id="slide-title" class="slide-title"></span>
+    <button id="slide-next" class="icon" title="次へ (→ / Space)" aria-label="次のスライド">›</button>
+    <button id="slide-exit" title="スライドを終了 (Esc)">終了</button>
+  </div>
+
+  <section id="call-bar" class="panel call-bar" aria-label="音声通話" hidden>
+    <span class="call-live" aria-hidden="true"></span>
+    <span id="call-people" class="call-people" role="list" aria-label="通話中の参加者"></span>
+    <span id="call-status" class="call-status" role="status" hidden></span>
+    <button id="call-mute" class="icon call-mute" title="ミュート" aria-label="ミュート" aria-pressed="false">
+      <svg class="mic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21M8.5 21h7"/></svg>
+      <svg class="mic-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 9.5V6a3 3 0 00-5.8-1.1M9 9v2a3 3 0 004.9 2.3M5.5 11a6.5 6.5 0 0010.6 5M18.5 11a6.4 6.4 0 01-.6 2.7M12 17.5V21M8.5 21h7M4 4l16 16"/></svg>
+    </button>
+    <button id="call-leave" class="call-leave" title="通話から抜ける">退出</button>
+    <button id="call-dismiss" class="icon call-dismiss" title="閉じる" aria-label="閉じる">✕</button>
+  </section>
 
   <div id="follow-banner" class="panel follow" hidden>
     <span id="follow-text"></span>
@@ -170,6 +204,25 @@
     </div>
     <p id="vote-status" class="collab-status" data-state="none"></p>
     <ol id="vote-results"></ol>
+    <div class="collab-row" title="自分にだけ中身が見えるフレームを作ります。付箋をエリアの外へ出すか、公開すると全員に見えます">
+      <span class="label">個人作業</span>
+      <button id="area-create">自分のエリアを作る</button>
+      <button id="area-reveal">自分のを公開</button>
+      <button id="area-reveal-all">全員分を公開</button>
+    </div>
+    <p id="area-status" class="collab-status"></p>
+    <div class="collab-row" title="全員の画面で、ほかの人のカーソルを灰色にして名前を隠します">
+      <span class="label">匿名</span>
+      <label><input id="anon-toggle" type="checkbox" /> だれが書いたかわからなくする</label>
+    </div>
+    <div class="collab-row" title="部屋(フレーム)を作り、参加者を人の少ない部屋へ自動で振り分けます">
+      <span class="label">小部屋</span>
+      <label><input id="room-count" type="number" min="1" max="12" value="3" /> 部屋</label>
+      <button id="breakout-start">分かれる</button>
+      <button id="breakout-end">全員を戻す</button>
+    </div>
+    <p id="breakout-status" class="collab-status"></p>
+    <ol id="room-list" class="room-list"></ol>
     <div class="collab-row">
       <span class="label">画面共有</span>
       <button id="present" title="参加者全員の画面をあなたの表示に追従させます">プレゼン開始</button>
@@ -204,9 +257,10 @@
     <button id="zoom-fit">全体</button>
     <span class="sep"></span>
     <button id="toggle-authors" aria-pressed="true" title="付箋に書いた人の名前を表示">名前</button>
+    <button id="shortcuts-button" title="キーボード操作 (?)" aria-label="キーボード操作の一覧" aria-controls="shortcuts" aria-keyshortcuts="Shift+?">?</button>
   </nav>
 
-  <p class="panel help">スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ ダブルクリック/Enter: 文字入力 ・ Delete: 削除 ・ Ctrl/⌘+Z: 元に戻す</p>
+  <p class="panel help">スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ ダブルクリック/Enter: 文字入力 ・ Delete: 削除 ・ Ctrl/⌘+Z: 元に戻す ・ ?: キーボード操作</p>
 
   <section id="shape-panel" class="panel shape-panel" aria-label="図形ライブラリ" hidden></section>
   <button id="diagram-toggle" class="panel diagram-toggle" aria-expanded="false" aria-controls="diagram-panel" title="AWS 構成図・フローチャート・生成 AI">構成図・AI</button>
@@ -255,6 +309,28 @@
   <div id="format-bar" class="panel format-bar" role="toolbar" aria-label="書式" hidden></div>
 
   <main id="home" hidden></main>
+
+  <section id="shortcuts" class="panel shortcuts" role="dialog" aria-labelledby="shortcuts-title" hidden>
+    <div class="shortcuts-head">
+      <h2 id="shortcuts-title">キーボード操作</h2>
+      <button id="shortcuts-close" class="icon-btn" aria-label="閉じる" title="閉じる (Esc)">✕</button>
+    </div>
+    <dl>
+      <dt><kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd></dt><dd>要素を読む順(上から下、左から右)に選ぶ</dd>
+      <dt><kbd>Alt</kbd>+矢印</dt><dd>その方向で一番近い要素へ移る</dd>
+      <dt>矢印</dt><dd>選んだ要素を動かす(<kbd>Shift</kbd> で 10 倍)。選んでいなければ画面を動かす</dd>
+      <dt><kbd>Alt</kbd>+<kbd>Shift</kbd>+矢印</dt><dd>その方向の要素とコネクタでつなぐ(なければ新しく置いてつなぐ)</dd>
+      <dt><kbd>S</kbd> <kbd>R</kbd> <kbd>O</kbd> <kbd>T</kbd> <kbd>F</kbd> → <kbd>Enter</kbd></dt><dd>付箋・四角形・楕円・テキスト・フレームを画面の中央に置く</dd>
+      <dt><kbd>Enter</kbd> / <kbd>F2</kbd></dt><dd>選んだ要素の文字を入力(<kbd>Esc</kbd> で確定)</dd>
+      <dt><kbd>Delete</kbd></dt><dd>選んだ要素を消す</dd>
+      <dt><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd></dt><dd>元に戻す / やり直す</dd>
+      <dt><kbd>Ctrl</kbd>+<kbd>D</kbd> / <kbd>Ctrl</kbd>+<kbd>G</kbd></dt><dd>複製 / グループ化</dd>
+      <dt><kbd>+</kbd> <kbd>-</kbd> <kbd>0</kbd> <kbd>1</kbd></dt><dd>拡大・縮小・100%・全体を表示</dd>
+      <dt><kbd>Ctrl</kbd>+<kbd>F</kbd></dt><dd>ボード内を検索</dd>
+      <dt><kbd>Esc</kbd></dt><dd>選択を解除</dd>
+    </dl>
+    <p class="muted">画面読み上げを使っているときは、見出し「ボードの要素」の一覧から要素を選ぶこともできます。</p>
+  </section>
 
   <div id="ai-toast" class="panel ai-toast" role="status" hidden></div>
   <div id="error" role="alert"></div>

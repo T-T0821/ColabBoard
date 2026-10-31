@@ -64,6 +64,7 @@ pub fn encode(e: &Element, z: f64) -> Vec<(&'static str, Any)> {
         ("g", Any::Number(Number::Int(meta.group as i64))),
         ("lock", Any::Bool(meta.locked)),
         ("link", Any::String(meta.link.as_str().into())),
+        ("priv", Any::String(meta.private.as_str().into())),
         ("by", Any::String(meta.author.as_str().into())),
     ]);
     match e {
@@ -102,6 +103,7 @@ pub fn encode(e: &Element, z: f64) -> Vec<(&'static str, Any)> {
                 ("style", Any::String(c.style.name().into())),
                 ("cs", Any::String(c.start_cap.name().into())),
                 ("ce", Any::String(c.end_cap.name().into())),
+                ("dash", Any::Bool(c.dashed)),
                 ("text", Any::String(c.text.as_str().into())),
             ]);
         }
@@ -160,6 +162,7 @@ fn meta<T: ReadTxn>(m: &MapRef, txn: &T) -> Meta {
         group,
         locked: boolean(m, txn, "lock"),
         link: string(m, txn, "link"),
+        private: string(m, txn, "priv"),
         author: string(m, txn, "by"),
     }
 }
@@ -220,6 +223,7 @@ pub fn decode<T: ReadTxn>(id: ElementId, m: &MapRef, txn: &T) -> Option<(Element
         c.style = PathStyle::from_name(&string(m, txn, "style"));
         c.start_cap = Cap::from_name(&string(m, txn, "cs"));
         c.end_cap = Cap::from_name(&string(m, txn, "ce"));
+        c.dashed = boolean(m, txn, "dash");
         c.text = string(m, txn, "text");
         c.meta = meta(m, txn);
         return Some((Element::Connector(c), z));

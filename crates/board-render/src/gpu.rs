@@ -4,7 +4,9 @@ use board_core::{Board, Camera, ElementId, Shape, Vec2};
 
 use crate::cull::{VisibleBlocks, clip_ranges};
 use crate::text::TextLayer;
-use crate::{GRID_WGSL, Globals, Layer, ShapeInstance, build_layers, changed_range, shapes_wgsl};
+use crate::{
+    GRID_WGSL, Globals, Layer, ShapeInstance, build_layers_masked, changed_range, shapes_wgsl,
+};
 
 #[derive(Debug)]
 pub enum RenderError {
@@ -62,6 +64,7 @@ pub struct Renderer {
     instance_cap: u64,
     instance_count: u32,
     uploaded_revision: Option<u64>,
+    hidden: std::collections::HashSet<board_core::ElementId>,
     /// GPU に送ってあるインスタンス列(差分転送のために覚えておく)。
     uploaded: Vec<ShapeInstance>,
     staging: Vec<ShapeInstance>,
@@ -208,6 +211,7 @@ impl Renderer {
             instance_cap,
             instance_count: 0,
             uploaded_revision: None,
+            hidden: Default::default(),
             uploaded: Vec::new(),
             staging: Vec::new(),
             layers: Vec::new(),
@@ -272,6 +276,14 @@ impl Renderer {
             .register_icon(&self.device, &self.queue, name, bytes)
     }
 
+    /// 個人作業エリアで隠す要素を設定する(変わったらインスタンス列を作り直す)。
+    pub fn set_hidden(&mut self, hidden: &std::collections::HashSet<board_core::ElementId>) {
+        if *hidden != self.hidden {
+            self.hidden = hidden.clone();
+            self.uploaded_revision = None;
+        }
+    }
+
     pub fn has_font(&self) -> bool {
         self.text.has_font()
     }
@@ -295,7 +307,7 @@ impl Renderer {
         if self.uploaded_revision == Some(board.revision()) {
             return false;
         }
-        self.layers = build_layers(board.elements(), &mut self.staging);
+        self.layers = build_layers_masked(board.elements(), &self.hidden, &mut self.staging);
         let needed = self.staging.len() as u64;
         let range = if needed > self.instance_cap {
             self.instance_cap = needed.next_power_of_two();
@@ -350,8 +362,14 @@ impl Renderer {
     ) -> Result<FrameStats, RenderError> {
         let uploaded = self.sync_instances(board);
         self.sync_overlay(overlay);
-        self.images
-            .prepare(&self.device, &self.queue, board, camera, &self.layers);
+        self.images.prepare(
+            &self.device,
+            &self.queue,
+            board,
+            camera,
+            &self.layers,
+            &self.hidden,
+        );
         self.text.prepare(
             &self.device,
             &self.queue,
@@ -359,6 +377,7 @@ impl Renderer {
             camera,
             &self.layers,
             text_skip,
+            &self.hidden,
         );
 
         self.write_globals(camera, self.dark);
@@ -510,8 +529,14 @@ impl Renderer {
         camera.origin = area.min;
 
         self.sync_instances(board);
-        self.images
-            .prepare(&self.device, &self.queue, board, &camera, &self.layers);
+        self.images.prepare(
+            &self.device,
+            &self.queue,
+            board,
+            &camera,
+            &self.layers,
+            &self.hidden,
+        );
         self.text.set_dark(false);
         self.text.prepare(
             &self.device,
@@ -520,6 +545,7 @@ impl Renderer {
             &camera,
             &self.layers,
             None,
+            &self.hidden,
         );
         self.text.set_dark(self.dark);
         // 書き出しはダークモードでも白背景の見た目にする。

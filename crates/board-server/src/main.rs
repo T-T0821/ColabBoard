@@ -14,6 +14,9 @@
 //! - `SLACK_WEBHOOK_PREFIXES`(既定 `https://hooks.slack.com/`): Slack 通知を送ってよい URL の先頭(カンマ区切り)。
 //! - `GITHUB_TOKEN` / `GITHUB_API_URL`: 課題カードで GitHub を引くとき(トークンなしでも公開リポジトリは読める)。
 //! - `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN`: 課題カードで Jira を引くとき。
+//! - `ICE_SERVERS`: 音声通話で使う STUN / TURN サーバー(`RTCIceServer` の JSON 配列)。
+//!   既定は Google の公開 STUN。社内ネットワーク越しにつなぐなら TURN を足す。
+//! - `EMBED_ALLOWED_ORIGINS`(既定 `*`): ボードを iframe で埋め込んでよいサイト(空白区切り。例 `https://wiki.example.com`)。
 //! - `RUST_LOG`(既定 `info`)
 //!
 //! `board-server healthcheck` は自分の `/healthz` を確かめて終了コードで返す(コンテナの死活監視用)。
@@ -110,12 +113,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         max_message_bytes,
         anonymous_boards: flag("ANONYMOUS_BOARDS", true),
         secure_cookies: flag("COOKIE_SECURE", false),
+        ice_servers: board_server::ice_servers_from_env(std::env::var("ICE_SERVERS").ok()),
         ai: board_server::ai::AiConfig::from_env().map(|c| {
             tracing::info!("AI 機能: 有効(モデル {})", c.model);
             Arc::new(board_server::ai::Ai::new(c))
         }),
         slack: board_server::slack::SlackConfig::from_env(),
         issues: board_server::issues::IssuesConfig::from_env(),
+        embed_origins: std::env::var("EMBED_ALLOWED_ORIGINS")
+            .ok()
+            .map(|v| v.replace(',', " ").trim().to_string())
+            .filter(|v| !v.is_empty() && !v.contains(';'))
+            .unwrap_or_else(|| "*".into()),
     };
     if let Some(j) = &config.issues.jira {
         tracing::info!("Jira 連携: {}", j.base_url);

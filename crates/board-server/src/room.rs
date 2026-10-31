@@ -19,6 +19,8 @@ const ELEMENTS: &str = "elements";
 #[derive(Clone, Debug)]
 pub struct Outgoing {
     pub from: u32,
+    /// 宛先。`None` なら送り主以外の全員。
+    pub to: Option<u32>,
     pub bytes: Arc<[u8]>,
 }
 
@@ -26,6 +28,11 @@ impl Outgoing {
     /// 中身が空の 1 通は「接続を切って、つなぎ直させる」合図(権限が変わったときなど)。
     pub fn is_kick(&self) -> bool {
         self.bytes.is_empty()
+    }
+
+    /// 参加者 `peer` に届けるか。
+    pub fn is_for(&self, peer: u32) -> bool {
+        self.from != peer && self.to.is_none_or(|t| t == peer)
     }
 }
 
@@ -39,6 +46,8 @@ pub struct Room {
     presence: Mutex<HashMap<u32, Arc<[u8]>>>,
     /// 参加者ごとの最新の表示範囲(エンコード済み)。途中参加でもプレゼンに追従できるように。
     views: Mutex<HashMap<u32, Arc<[u8]>>>,
+    /// 参加者ごとの音声通話の状態(エンコード済み)。通話中の人だけ。
+    voices: Mutex<HashMap<u32, Arc<[u8]>>>,
     dirty: AtomicBool,
     peers: AtomicUsize,
     /// 最後のバージョン(履歴)以降に変更があるか。
@@ -62,6 +71,7 @@ impl Room {
             tx: broadcast::channel(1024).0,
             presence: Mutex::default(),
             views: Mutex::default(),
+            voices: Mutex::default(),
             dirty: AtomicBool::new(false),
             peers: AtomicUsize::new(0),
             unversioned: AtomicBool::new(false),
@@ -186,16 +196,33 @@ impl Room {
         self.views.lock().unwrap().insert(peer, encoded);
     }
 
-    /// カーソルと表示範囲を消す。どちらかを配っていたなら true。
-    pub fn remove_presence(&self, peer: u32) -> bool {
-        let view = self.views.lock().unwrap().remove(&peer).is_some();
-        self.presence.lock().unwrap().remove(&peer).is_some() || view
+    /// 通話の状態を覚える(通話をやめたら忘れる)。
+    pub fn set_voice(&self, peer: u32, in_call: bool, encoded: Arc<[u8]>) {
+        let mut voices = self.voices.lock().unwrap();
+        if in_call {
+            voices.insert(peer, encoded);
+        } else {
+            voices.remove(&peer);
+        }
     }
 
-    /// 新しく来た人に送る、他の参加者のカーソルと表示範囲。
+    /// 通話中の人数。
+    pub fn voice_count(&self) -> usize {
+        self.voices.lock().unwrap().len()
+    }
+
+    /// カーソル・表示範囲・通話の状態を消す。どれかを配っていたなら true。
+    pub fn remove_presence(&self, peer: u32) -> bool {
+        let view = self.views.lock().unwrap().remove(&peer).is_some();
+        let voice = self.voices.lock().unwrap().remove(&peer).is_some();
+        self.presence.lock().unwrap().remove(&peer).is_some() || view || voice
+    }
+
+    /// 新しく来た人に送る、他の参加者のカーソル・表示範囲・通話の状態。
     pub fn presences(&self) -> Vec<Arc<[u8]>> {
         let mut out: Vec<_> = self.presence.lock().unwrap().values().cloned().collect();
         out.extend(self.views.lock().unwrap().values().cloned());
+        out.extend(self.voices.lock().unwrap().values().cloned());
         out
     }
 
@@ -205,7 +232,20 @@ impl Room {
 
     pub fn broadcast(&self, from: u32, bytes: Arc<[u8]>) {
         // 受け手がいないときのエラーは無視してよい。
-        let _ = self.tx.send(Outgoing { from, bytes });
+        let _ = self.tx.send(Outgoing {
+            from,
+            to: None,
+            bytes,
+        });
+    }
+
+    /// 1 人にだけ送る(通話の接続手順)。
+    pub fn send_to(&self, from: u32, to: u32, bytes: Arc<[u8]>) {
+        let _ = self.tx.send(Outgoing {
+            from,
+            to: Some(to),
+            bytes,
+        });
     }
 
     /// 参加者全員の接続を切る(クライアントはつなぎ直し、そのとき権限を確かめ直す)。
