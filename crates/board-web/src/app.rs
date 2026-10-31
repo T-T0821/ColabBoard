@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
-use board_core::protocol::{Message, Presence, TOPIC_COMMENTS};
+use board_core::protocol::{Message, Presence, TOPIC_COMMENTS, TOPIC_VERSIONS};
 use board_core::{
     Board, Camera, Editor, Element as BoardElement, ElementId, Modifiers, Navigator, Tool, Vec2,
 };
@@ -20,6 +20,7 @@ mod collab;
 mod comments;
 mod follow;
 mod format_bar;
+mod history;
 mod reactions;
 mod toolbar;
 
@@ -76,6 +77,9 @@ struct App {
     follow: follow::Follow,
     format_bar: format_bar::FormatBar,
     comments: comments::Comments,
+    history: history::History,
+    /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
+    live_board: Option<Board>,
     /// ボード名・権限・共有パネル(サーバーの API が使えるときだけ)。
     chrome: Option<SharedChrome>,
     /// 権限の確かめ直しの結果(非同期で届く)。
@@ -303,6 +307,8 @@ pub async fn run() -> Result<(), String> {
         follow: follow::Follow::new(&document)?,
         format_bar: format_bar::FormatBar::default(),
         comments: comments::Comments::new(&document)?,
+        history: history::History::new(&document)?,
+        live_board: None,
         chrome,
         access_slot: Rc::default(),
         syncs: 0,
@@ -420,9 +426,19 @@ impl App {
 
     /// 編集できるか(閲覧のみ・コメント可の人は見るだけ)。
     fn can_edit(&self) -> bool {
-        self.chrome
-            .as_ref()
-            .is_none_or(|c| c.borrow().role().can_edit())
+        self.live_board.is_none()
+            && self
+                .chrome
+                .as_ref()
+                .is_none_or(|c| c.borrow().role().can_edit())
+    }
+
+    /// 同期の相手にする本物のボード(昔のバージョンを表示中でも)。
+    fn live_board_mut(&mut self) -> &mut Board {
+        match self.live_board.as_mut() {
+            Some(b) => b,
+            None => &mut self.board,
+        }
     }
 
     /// 権限を確かめ直す(つなぎ直したとき)。結果は `apply_access` で反映する。
@@ -489,13 +505,13 @@ impl App {
                         self.recheck_access();
                         self.fetch_comments();
                     }
-                    if let Err(e) = self.board.apply_remote(&state) {
+                    if let Err(e) = self.live_board_mut().apply_remote(&state) {
                         log::error!("初回同期に失敗: {e}");
                     }
                     // 切断中の変更も含めて手元の全体を送る(重複は CRDT が吸収する)。
-                    let _ = self.board.take_outgoing();
-                    if let (Some(net), Ok(full)) = (self.net.as_ref(), self.board.encode_diff(None))
-                    {
+                    let _ = self.live_board_mut().take_outgoing();
+                    let live = self.live_board.as_ref().unwrap_or(&self.board);
+                    if let (Some(net), Ok(full)) = (self.net.as_ref(), live.encode_diff(None)) {
                         net.send(&Message::Update(full));
                     }
                     self.cursors.clear();
@@ -508,7 +524,7 @@ impl App {
                     self.dirty = true;
                 }
                 NetEvent::Message(Message::Update(u)) => {
-                    if let Err(e) = self.board.apply_remote(&u) {
+                    if let Err(e) = self.live_board_mut().apply_remote(&u) {
                         log::warn!("更新を取り込めません: {e}");
                     }
                     self.editor.prune_selection(&self.board);
@@ -525,6 +541,7 @@ impl App {
                 NetEvent::Message(Message::View(v)) => self.on_view(v),
                 NetEvent::Message(Message::Reaction(r)) => self.on_reaction(r),
                 NetEvent::Message(Message::Refresh(TOPIC_COMMENTS)) => self.fetch_comments(),
+                NetEvent::Message(Message::Refresh(TOPIC_VERSIONS)) => self.versions_changed(),
                 NetEvent::Message(Message::Refresh(_)) => {}
                 NetEvent::Closed => {
                     self.cursors.clear();
@@ -725,6 +742,7 @@ impl App {
         self.collab_frame();
         self.follow_frame(now);
         self.comments_frame(now);
+        self.history_frame();
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
         if (w, h) != self.renderer.size() {
@@ -975,7 +993,7 @@ impl App {
         }
         let key = e.key();
         let ctrl = e.ctrl_key() || e.meta_key();
-        if key == "Escape" && self.comments_escape() {
+        if key == "Escape" && (self.comments_escape() || self.history_escape()) {
             return true;
         }
         if key == "Escape"
@@ -1343,6 +1361,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     ai::install(app, doc)?;
     follow::install(app, doc)?;
     comments::install(app, doc)?;
+    history::install(app)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;
