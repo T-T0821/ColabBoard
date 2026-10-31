@@ -137,9 +137,11 @@ ID は 16 進の文字列、座標はボードのワールド座標(左上が原
 | 種類 | 使えるフィールド |
 | --- | --- |
 | 図形 | `x` `y` `w` `h` `kind` `text` `fill` `stroke` `stroke_width` `text_color` `font_size` `align` `icon` |
-| コネクタ | `from` `to` `text` `color` `width` `style` `start_cap` `end_cap` |
+| コネクタ | `from` `to` `text` `color` `width` `style` `start_cap` `end_cap` `dashed` |
 | 手書きの線 | `x` `y`(外接矩形の左上を動かす) `points` `color` `width` `highlighter` |
 | どれでも | `z` `group` `locked` `link` |
+
+端の飾り(`start_cap` / `end_cap`)は `none` / `arrow` / `triangle`(白三角・継承)/ `triangle-filled` / `diamond`(白ひし形・集約)/ `diamond-filled`(黒ひし形・コンポジション)/ `circle` / ER のカラスの足 `one` / `many` / `zero-or-one` / `one-or-many` / `zero-or-many`。`dashed: true` で破線。
 
 ### 一括操作
 
