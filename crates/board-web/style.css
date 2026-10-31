@@ -414,7 +414,9 @@ body[data-role="commenter"] .collab,
 body[data-role="viewer"] .diagram-toggle,
 body[data-role="commenter"] .diagram-toggle,
 body[data-role="viewer"] .diagram-panel,
-body[data-role="commenter"] .diagram-panel { display: none; }
+body[data-role="commenter"] .diagram-panel,
+body[data-role="viewer"] .format-bar,
+body[data-role="commenter"] .format-bar { display: none !important; }
 
 /* ---- 共有パネル ---- */
 .share-panel {
