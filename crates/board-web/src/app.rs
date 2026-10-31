@@ -15,6 +15,7 @@ use web_sys::{
 };
 
 mod actions;
+mod ai;
 mod collab;
 mod follow;
 
@@ -63,6 +64,7 @@ struct App {
     presence_sent_at: f64,
     last_status: Option<(Status, usize)>,
     collab: collab::Collab,
+    ai: ai::AiUi,
     follow: follow::Follow,
 }
 
@@ -236,6 +238,7 @@ pub async fn run() -> Result<(), String> {
         presence_sent_at: 0.0,
         last_status: None,
         collab: collab::Collab::new(&document)?,
+        ai: ai::AiUi::new(&document)?,
         follow: follow::Follow::new(&document)?,
     }));
     {
@@ -1117,6 +1120,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     })?;
     on_click(doc, "share", app, |a| a.copy_link())?;
     collab::install(app, doc)?;
+    ai::install(app, doc)?;
     follow::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;

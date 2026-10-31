@@ -6,3 +6,6 @@ dist = "dist"
 [[proxy]]
 backend = "ws://127.0.0.1:8080/ws"
 ws = true
+
+[[proxy]]
+backend = "http://127.0.0.1:8080/api"

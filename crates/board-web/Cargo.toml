@@ -58,6 +58,8 @@ web-sys = { version = "0.3", features = [
     "AudioScheduledSourceNode",
     "OscillatorNode",
     "GainNode",
+    "RequestInit",
+    "Headers",
     "ClipboardEvent",
     "DataTransfer",
 ] }

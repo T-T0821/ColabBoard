@@ -325,3 +325,8 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 .follow[data-state="available"] { border-color: var(--border); color: var(--text); }
 .peer-list { display: flex; flex-wrap: wrap; gap: 4px; color: var(--muted); font-size: 12px; }
 .peer { border-color: var(--c, var(--border)); border-left-width: 4px; }
+
+/* AI */
+#ai-status[data-state="busy"] { color: var(--accent); }
+#ai-status[data-state="error"] { color: #e5484d; }
+#ai-status[data-state="done"] { color: #30a46c; }
