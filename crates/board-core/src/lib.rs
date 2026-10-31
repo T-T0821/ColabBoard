@@ -6,6 +6,7 @@
 pub mod board;
 pub mod camera;
 pub mod color;
+mod crdt;
 pub mod editor;
 pub mod element;
 pub mod geom;

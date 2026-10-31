@@ -31,6 +31,7 @@ struct App {
     navigating: bool,
     space_down: bool,
     last_tool: Option<Tool>,
+    last_history: Option<(bool, bool)>,
     last_count: Option<usize>,
     dirty: bool,
     continuous: bool,
@@ -186,6 +187,7 @@ pub async fn run() -> Result<(), String> {
         navigating: false,
         space_down: false,
         last_tool: None,
+        last_history: None,
         last_count: None,
         dirty: true,
         continuous: false,
@@ -224,6 +226,26 @@ impl App {
         self.dirty = true;
     }
 
+    fn undo(&mut self) {
+        if self.editor.is_dragging() {
+            return;
+        }
+        self.board.end_gesture();
+        self.board.undo();
+        self.editor.prune_selection(&self.board);
+        self.dirty = true;
+    }
+
+    fn redo(&mut self) {
+        if self.editor.is_dragging() {
+            return;
+        }
+        self.board.end_gesture();
+        self.board.redo();
+        self.editor.prune_selection(&self.board);
+        self.dirty = true;
+    }
+
     fn set_tool(&mut self, tool: Tool) {
         self.editor.set_tool(tool);
         self.dirty = true;
@@ -255,6 +277,23 @@ impl App {
         self.set_cursor(cursor);
     }
 
+    fn sync_history_buttons(&mut self) {
+        let state = (self.board.can_undo(), self.board.can_redo());
+        if self.last_history == Some(state) {
+            return;
+        }
+        self.last_history = Some(state);
+        for (id, enabled) in [("undo", state.0), ("redo", state.1)] {
+            if let Some(el) = self.document.get_element_by_id(id) {
+                if enabled {
+                    let _ = el.remove_attribute("disabled");
+                } else {
+                    let _ = el.set_attribute("disabled", "");
+                }
+            }
+        }
+    }
+
     /// ツールバーの表示を編集状態に合わせる。
     fn sync_toolbar(&mut self) {
         let tool = self.editor.tool();
@@ -284,6 +323,7 @@ impl App {
         }
 
         self.sync_toolbar();
+        self.sync_history_buttons();
         if self.last_count != Some(self.board.len()) {
             self.last_count = Some(self.board.len());
             self.hud
@@ -401,6 +441,8 @@ impl App {
         } else if self.editor.pointer_up(&mut self.board, &self.camera, p) {
             self.dirty = true;
         }
+        // ドラッグ 1 回を 1 つの Undo 単位にする。
+        self.board.end_gesture();
         if let Some(id) = self.editor.take_pending_edit() {
             self.begin_text_edit(id);
         }
@@ -429,7 +471,9 @@ impl App {
             return;
         }
         let text = commit.then(|| self.text_editor.value());
+        self.board.end_gesture();
         self.editor.end_edit(&mut self.board, text);
+        self.board.end_gesture();
         let _ = self.text_editor.remove_attribute("data-visible");
         self.dirty = true;
     }
@@ -490,8 +534,17 @@ impl App {
             }
             "Delete" | "Backspace" => {
                 self.editor.delete_selection(&mut self.board);
+                self.board.end_gesture();
                 self.dirty = true;
             }
+            "z" | "Z" if ctrl => {
+                if e.shift_key() {
+                    self.redo();
+                } else {
+                    self.undo();
+                }
+            }
+            "y" | "Y" if ctrl => self.redo(),
             "Escape" => {
                 if self.editor.is_dragging() {
                     self.editor.cancel(&mut self.board);
@@ -750,7 +803,9 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
             move |_: web_sys::MouseEvent| {
                 let mut a = app.borrow_mut();
                 let App { editor, board, .. } = &mut *a;
+                board.end_gesture();
                 editor.apply_color(board, color);
+                board.end_gesture();
                 a.dirty = true;
             },
         )?;
@@ -767,6 +822,8 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     on_click(doc, "demo-clear", app, |a| {
         a.set_board(Board::welcome());
     })?;
+    on_click(doc, "undo", app, |a| a.undo())?;
+    on_click(doc, "redo", app, |a| a.redo())?;
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;
     on_click(doc, "zoom-out", app, |a| a.zoom_center(0.8))?;
     on_click(doc, "zoom-fit", app, |a| a.fit())?;
