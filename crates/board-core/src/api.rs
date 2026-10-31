@@ -38,6 +38,9 @@
 //! | `PATCH` | `/api/teams/{tid}` | 名前の変更([`NewTeam`] → [`Team`]、管理者以上) |
 //! | `DELETE` | `/api/teams/{tid}` | チームを消す(オーナーのみ。ボードは作った人の個人ボードに戻る) |
 //! | `PUT` | `/api/teams/{tid}/members` | メンバーの追加・変更・削除([`SetTeamMember`] → [`Team`]) |
+//! | `PUT` | `/api/teams/{tid}/sso` | SSO 自動参加ドメインの設定([`TeamSso`] → [`Team`]、サーバー管理者のみ) |
+//! | `GET` | `/api/sso` | ログイン方法([`SsoStatus`]、ログイン不要) |
+//! | `GET` | `/api/sso/oidc/start?next=` | OpenID Connect でログインを始める(IdP へリダイレクト) |
 //! | `GET` | `/api/audit?team=&before=&limit=&action=` | 操作ログ([`AuditEvent`] の配列、新しい順。`team` 指定はチームの管理者、なしはサーバー管理者) |
 //! | `GET` | `/api/audit/export?team=&format=csv\|jsonl` | 操作ログの書き出し(CSV か JSON Lines) |
 //!
@@ -280,6 +283,25 @@ pub struct Team {
     /// ログイン名 → 役割。
     pub members: BTreeMap<String, TeamRole>,
     pub created: u64,
+    /// SSO でログインした人のメールがこのドメインなら、自動でメンバーにする。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sso_domains: Vec<String>,
+}
+
+/// SSO 自動参加ドメインの設定。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct TeamSso {
+    pub domains: Vec<String>,
+}
+
+/// サーバーが受け付けるログイン方法。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SsoStatus {
+    /// パスワードでのログイン・アカウント作成ができるか。
+    pub password_login: bool,
+    /// OpenID Connect が使えるなら、ボタンに出す名前。
+    #[serde(default)]
+    pub oidc: Option<String>,
 }
 
 impl Team {
