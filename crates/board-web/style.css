@@ -312,6 +312,40 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 #context-menu kbd { color: var(--muted); font: 11px/1.8 system-ui, sans-serif; }
 #context-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
 
+/* 図形ライブラリ */
+.tool-group { position: relative; display: flex; }
+.popover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: none;
+  grid-template-columns: repeat(4, 36px);
+  gap: 4px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+.popover[data-open] { display: grid; }
+.popover button {
+  width: 36px;
+  height: 36px;
+  padding: 6px;
+  border-color: transparent;
+  display: grid;
+  place-items: center;
+}
+.popover button:hover { background: #eef3fe; }
+.popover svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+}
 /* フォロー・プレゼン */
 .follow {
   top: 100px;

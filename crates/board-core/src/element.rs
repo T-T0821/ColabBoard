@@ -201,6 +201,32 @@ impl Element {
         }
     }
 
+    /// 文字を置く場所(文字を持てない要素は `None`)。
+    pub fn text_box(&self) -> Option<crate::shape::TextBox> {
+        match self {
+            Element::Shape(s) => Some(s.text_box()),
+            Element::Connector(c) => c.label_box().or_else(|| {
+                // 空のラベルを編集するとき用の場所。
+                let mut tmp = c.clone();
+                tmp.text = "  ".into();
+                tmp.label_box()
+            }),
+            Element::Stroke(_) => None,
+        }
+    }
+
+    /// 文字を設定する(文字を持てない要素では何もしない)。
+    pub fn set_text(&mut self, text: String) {
+        match self {
+            Element::Shape(s) => {
+                s.text = text;
+                s.fit_text_height();
+            }
+            Element::Connector(c) => c.text = text,
+            Element::Stroke(_) => {}
+        }
+    }
+
     pub fn as_shape(&self) -> Option<&Shape> {
         match self {
             Element::Shape(s) => Some(s),

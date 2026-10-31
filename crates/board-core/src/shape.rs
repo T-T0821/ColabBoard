@@ -124,6 +124,37 @@ pub struct TextStyle {
     pub align: TextAlign,
 }
 
+/// 文字を置く場所と書式。描画と編集用の入力欄の両方がこれに従う。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextBox {
+    pub rect: Rect,
+    /// はみ出した文字を切り取る範囲。
+    pub clip: Rect,
+    pub style: TextStyle,
+    /// 縦方向も中央に寄せるか(文字だけの要素は上詰め)。
+    pub center_vertically: bool,
+}
+
+/// 文字の幅の概算(全角 1em、半角 0.55em)。
+pub fn estimate_text_width(text: &str, font_size: f32) -> f32 {
+    text.chars()
+        .map(|c| if c.is_ascii() { 0.55 } else { 1.0 })
+        .sum::<f32>()
+        * font_size
+}
+
+/// 幅 `width` で折り返したときの高さの概算。
+pub fn estimate_text_height(text: &str, width: f32, style: &TextStyle) -> f32 {
+    let lines: f32 = text
+        .split('\n')
+        .map(|line| {
+            let w = estimate_text_width(line, style.font_size);
+            (w / width.max(1.0)).ceil().max(1.0)
+        })
+        .sum();
+    lines * style.line_height
+}
+
 /// フレームの見出しの高さ(ワールド単位)。
 pub const FRAME_TITLE_HEIGHT: f32 = 32.0;
 
@@ -299,6 +330,26 @@ impl Shape {
             ShapeKind::Frame => self.text_rect(),
             _ => self.bounds(),
         }
+    }
+
+    pub fn text_box(&self) -> TextBox {
+        TextBox {
+            rect: self.text_rect(),
+            clip: self.text_clip(),
+            style: self.text_style(),
+            center_vertically: !matches!(self.kind, ShapeKind::Text | ShapeKind::Frame),
+        }
+    }
+
+    /// 文字だけの要素の高さを中身に合わせる。
+    pub fn fit_text_height(&mut self) {
+        if self.kind != ShapeKind::Text {
+            return;
+        }
+        let style = self.text_style();
+        let width = self.text_rect().size().x;
+        let h = estimate_text_height(&self.text, width, &style) + 8.0;
+        self.size.y = h.max(style.line_height + 8.0);
     }
 
     /// ワールド座標の点が要素の内側か。

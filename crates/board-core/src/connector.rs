@@ -227,6 +227,35 @@ impl Connector {
         self.start()
     }
 
+    /// 線の上に出す文字の場所と書式(文字がなければ `None`)。
+    pub fn label_box(&self) -> Option<crate::shape::TextBox> {
+        if self.text.is_empty() {
+            return None;
+        }
+        let style = crate::shape::TextStyle {
+            font_size: 16.0,
+            line_height: 22.0,
+            color: Rgba8::BLACK,
+            align: crate::shape::TextAlign::Center,
+        };
+        let w = self
+            .text
+            .split('\n')
+            .map(|l| crate::shape::estimate_text_width(l, style.font_size))
+            .fold(0.0, f32::max)
+            .clamp(24.0, 240.0)
+            + 8.0;
+        let h = crate::shape::estimate_text_height(&self.text, w - 8.0, &style);
+        let c = self.midpoint();
+        let rect = Rect::new(c - Vec2::new(w, h) * 0.5, c + Vec2::new(w, h) * 0.5);
+        Some(crate::shape::TextBox {
+            rect,
+            clip: rect.expand(2.0),
+            style,
+            center_vertically: true,
+        })
+    }
+
     /// 矢じりの 2 本の線(先端, 根元)。`at_end` が false なら始点側。
     pub fn arrow_lines(&self, at_end: bool) -> Option<[(Vec2, Vec2); 2]> {
         let pts = &self.path;
