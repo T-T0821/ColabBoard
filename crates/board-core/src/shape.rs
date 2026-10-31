@@ -20,6 +20,8 @@ pub enum ShapeKind {
     Text,
     /// フレーム(セクション)。`text` は見出し。中に置いた要素ごと動かせる。
     Frame,
+    /// スタンプ(色付きの丸に白い記号)。`text` が記号。
+    Stamp,
 }
 
 impl ShapeKind {
@@ -47,6 +49,7 @@ impl ShapeKind {
             ShapeKind::Parallelogram => "parallelogram",
             ShapeKind::Text => "text",
             ShapeKind::Frame => "frame",
+            ShapeKind::Stamp => "stamp",
         }
     }
 
@@ -62,6 +65,7 @@ impl ShapeKind {
             "parallelogram" => ShapeKind::Parallelogram,
             "text" => ShapeKind::Text,
             "frame" => ShapeKind::Frame,
+            "stamp" => ShapeKind::Stamp,
             _ => return None,
         })
     }
@@ -277,7 +281,10 @@ impl Shape {
     }
 
     pub fn text_style(&self) -> TextStyle {
-        let font_size = if self.font_size > 0.0 {
+        let font_size = if self.kind == ShapeKind::Stamp {
+            // スタンプの記号は丸の大きさに合わせる。
+            (self.size.y * 0.46).max(1.0)
+        } else if self.font_size > 0.0 {
             self.font_size
         } else {
             Self::default_font_size(self.kind)
@@ -302,6 +309,7 @@ impl Shape {
         let pad = match self.kind {
             ShapeKind::Sticky => 16.0,
             ShapeKind::Text => 4.0,
+            ShapeKind::Stamp => 0.0,
             _ => 12.0,
         };
         // 図形の内側に入る矩形の大きさ(外接矩形に対する比率)。
@@ -371,7 +379,7 @@ pub fn kind_contains(kind: ShapeKind, r: &Rect, p: Vec2) -> bool {
     }
     let d = (p - r.center()) / half; // -1..1
     match kind {
-        ShapeKind::Ellipse => d.length_squared() <= 1.0,
+        ShapeKind::Ellipse | ShapeKind::Stamp => d.length_squared() <= 1.0,
         ShapeKind::Diamond => d.x.abs() + d.y.abs() <= 1.0,
         // 上の頂点と下の 2 頂点。
         ShapeKind::Triangle => d.x.abs() <= (d.y + 1.0) * 0.5,

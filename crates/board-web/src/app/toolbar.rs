@@ -1,4 +1,4 @@
-//! ツールバーの補助: 図形ライブラリのポップオーバー。
+//! ツールバーの補助: 図形ライブラリなどのポップオーバー。
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -11,20 +11,7 @@ use super::{App, by_id, js_err, listen};
 
 pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
     let doc = app.borrow().document.clone();
-    let button: Element = by_id(&doc, "tool-shape")?;
     let library: Element = by_id(&doc, "shape-library")?;
-
-    // 図形ボタンを押すたびにライブラリを開閉する(ツールの切り替えは共通の処理で行う)。
-    {
-        let library = library.clone();
-        listen(button.as_ref(), "click", false, move |_: MouseEvent| {
-            if library.has_attribute("data-open") {
-                let _ = library.remove_attribute("data-open");
-            } else {
-                let _ = library.set_attribute("data-open", "");
-            }
-        })?;
-    }
 
     let items = library.query_selector_all("[data-shape]").map_err(js_err)?;
     for i in 0..items.length() {
@@ -58,23 +45,37 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
         })?;
     }
 
-    // 外を押したら閉じる。
-    {
-        let window = app.borrow().window.clone();
-        listen(
-            window.as_ref(),
-            "pointerdown",
-            false,
-            move |e: web_sys::PointerEvent| {
-                let inside = e
-                    .target()
-                    .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
-                    .is_some_and(|n| library.contains(Some(&n)) || button.contains(Some(&n)));
-                if !inside {
-                    let _ = library.remove_attribute("data-open");
-                }
-            },
-        )?;
-    }
+    popover(app, "tool-shape", library)?;
     Ok(())
+}
+
+/// ボタン `button_id` で開閉するポップオーバー。外を押したら閉じる。
+pub fn popover(app: &Rc<RefCell<App>>, button_id: &str, pop: Element) -> Result<(), String> {
+    let doc = app.borrow().document.clone();
+    let button: Element = by_id(&doc, button_id)?;
+    {
+        let pop = pop.clone();
+        listen(button.as_ref(), "click", false, move |_: MouseEvent| {
+            if pop.has_attribute("data-open") {
+                let _ = pop.remove_attribute("data-open");
+            } else {
+                let _ = pop.set_attribute("data-open", "");
+            }
+        })?;
+    }
+    let window = app.borrow().window.clone();
+    listen(
+        window.as_ref(),
+        "pointerdown",
+        false,
+        move |e: web_sys::PointerEvent| {
+            let inside = e
+                .target()
+                .and_then(|t| t.dyn_into::<web_sys::Node>().ok())
+                .is_some_and(|n| pop.contains(Some(&n)) || button.contains(Some(&n)));
+            if !inside {
+                let _ = pop.remove_attribute("data-open");
+            }
+        },
+    )
 }

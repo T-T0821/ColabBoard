@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use board_core::protocol::{Message, Presence, View};
+use board_core::protocol::{Message, Presence, Reaction, View};
 use board_core::{Board, Rgba8, Shape, Vec2};
 use board_server::{Config, Hub, Store, router};
 use futures_util::{SinkExt, StreamExt};
@@ -167,4 +167,26 @@ async fn views_are_relayed_and_replayed() {
         panic!()
     };
     assert!(v.presenting && v.peer == id_a);
+}
+
+#[tokio::test]
+async fn reactions_are_relayed_not_stored() {
+    let base = serve().await;
+    let (mut a, _, id_a) = join(&base, "react").await;
+    let (mut b, _, _) = join(&base, "react").await;
+    let r = Reaction {
+        peer: 0,
+        x: 10.0,
+        y: 20.0,
+        emoji: "🎉".into(),
+    };
+    send(&mut a, Message::Reaction(r.clone())).await;
+    let Message::Reaction(got) = recv(&mut b).await else {
+        panic!()
+    };
+    assert_eq!(got, Reaction { peer: id_a, ..r });
+    // 途中参加の人には届かない(保存しない)。
+    let (mut c, _, _) = join(&base, "react").await;
+    let got = tokio::time::timeout(Duration::from_millis(300), c.next()).await;
+    assert!(got.is_err(), "リアクションが再送された: {got:?}");
 }

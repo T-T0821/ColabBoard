@@ -29,10 +29,12 @@ pub enum Tool {
     Highlighter,
     Eraser,
     Frame,
+    /// スタンプ(種類は `Editor::stamp`)。クリックするたびに押せる。
+    Stamp,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 10] = [
+    pub const ALL: [Tool; 11] = [
         Tool::Select,
         Tool::Hand,
         Tool::Sticky,
@@ -43,6 +45,7 @@ impl Tool {
         Tool::Highlighter,
         Tool::Eraser,
         Tool::Frame,
+        Tool::Stamp,
     ];
 
     /// キーボードショートカット。図形の種類も決まるものは `Some(kind)` を返す。
@@ -75,6 +78,7 @@ impl Tool {
             Tool::Highlighter => "highlighter",
             Tool::Eraser => "eraser",
             Tool::Frame => "frame",
+            Tool::Stamp => "stamp",
         }
     }
 
@@ -263,6 +267,7 @@ pub struct Editor {
     pub highlighter_color: Rgba8,
     pub shape_kind: ShapeKind,
     pub connector_style: PathStyle,
+    pub stamp: crate::stamp::Stamp,
     /// コネクタを引いているときに、つながりそうな要素(強調表示用)。
     hover_target: Option<ElementId>,
 }
@@ -295,6 +300,7 @@ impl Editor {
             highlighter_color: Rgba8([0xff, 0xe0, 0x33, 0x66]),
             shape_kind: ShapeKind::Rect,
             connector_style: PathStyle::default(),
+            stamp: crate::stamp::STAMPS[0],
             hover_target: None,
         }
     }
@@ -305,6 +311,12 @@ impl Editor {
 
     pub fn set_tool(&mut self, tool: Tool) {
         self.tool = tool;
+    }
+
+    /// スタンプツールにして種類を選ぶ。
+    pub fn set_stamp(&mut self, stamp: crate::stamp::Stamp) {
+        self.tool = Tool::Stamp;
+        self.stamp = stamp;
     }
 
     /// 図形ツールにして種類を選ぶ。
@@ -323,10 +335,11 @@ impl Editor {
 
     /// 文字編集を始める。図形とコネクタ(ラベル)が対象。
     pub fn begin_edit(&mut self, board: &Board, id: ElementId) -> bool {
-        if board
-            .get(id)
-            .is_none_or(|e| e.text_box().is_none() || e.is_locked())
-        {
+        if board.get(id).is_none_or(|e| {
+            e.text_box().is_none()
+                || e.is_locked()
+                || e.as_shape().is_some_and(|s| s.kind == ShapeKind::Stamp)
+        }) {
             return false;
         }
         self.drag = None;
@@ -479,7 +492,8 @@ impl Editor {
             | Tool::Connector
             | Tool::Pen
             | Tool::Highlighter
-            | Tool::Frame => "crosshair",
+            | Tool::Frame
+            | Tool::Stamp => "crosshair",
             Tool::Select => {
                 if let Some((h, _)) = self.handle_at(board, camera, screen) {
                     return h.cursor();
@@ -611,6 +625,17 @@ impl Editor {
                 self.selection.clear();
                 self.drag = Some(Drag::Erase);
                 erase_at(board, world, 8.0 / camera.zoom);
+                true
+            }
+            Tool::Stamp => {
+                let id = board.alloc_id();
+                board.push(self.stamp.shape(id, world));
+                self.selection = vec![id];
+                // そのままドラッグで位置を調整できる。ツールはスタンプのまま。
+                self.drag = Some(Drag::Move {
+                    last: world,
+                    ids: vec![id],
+                });
                 true
             }
             Tool::Sticky => {

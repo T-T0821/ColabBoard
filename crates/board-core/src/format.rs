@@ -61,7 +61,10 @@ fn merge<T: PartialEq + Clone>(acc: &mut Option<Option<T>>, v: T) {
 }
 
 fn convertible(kind: ShapeKind) -> bool {
-    !matches!(kind, ShapeKind::Sticky | ShapeKind::Text | ShapeKind::Frame)
+    !matches!(
+        kind,
+        ShapeKind::Sticky | ShapeKind::Text | ShapeKind::Frame | ShapeKind::Stamp
+    )
 }
 
 /// 図形の枠線の太さ(枠線が無い図形は 0)。
@@ -78,6 +81,7 @@ pub fn summarize(board: &Board, ids: &[ElementId]) -> Summary {
         out.locked |= e.is_locked();
         merge(&mut link, e.meta().link.clone());
         match e {
+            Element::Shape(s) if s.kind == ShapeKind::Stamp => {}
             Element::Shape(s) => {
                 out.has_text = true;
                 let st = s.text_style();

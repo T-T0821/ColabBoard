@@ -19,6 +19,7 @@ pub mod navigation;
 pub mod protocol;
 pub mod session;
 pub mod shape;
+pub mod stamp;
 pub mod tidy;
 
 pub use board::Board;
