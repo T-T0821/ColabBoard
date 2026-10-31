@@ -15,6 +15,7 @@
 //! | `PUT` | `/api/boards/{id}/members` | メンバーの追加・変更・削除([`SetMember`]、オーナーのみ) |
 //! | `PUT` | `/api/boards/{id}/link` | 共有リンクの設定([`SetLink`] → [`Sharing`]、オーナーのみ) |
 //! | `PUT` | `/api/boards/{id}/embed` | 埋め込み(iframe)の設定([`SetLink`] → [`Sharing`]、オーナーのみ) |
+//! | `PUT` | `/api/boards/{id}/public` | Web への公開([`SetPublic`] → [`Sharing`]、オーナーのみ) |
 //! | `GET` | `/api/boards/{id}/comments?key=` | コメント一覧([`Comment`] の配列、閲覧者以上) |
 //! | `POST` | `/api/boards/{id}/comments?key=` | コメント・返信([`NewComment`] → [`Posted`]、コメント可以上・要ログイン) |
 //! | `PATCH` | `/api/boards/{id}/comments/{cid}?key=` | 本文の編集(本人)・解決/再開(コメント可以上)([`EditComment`]) |
@@ -37,6 +38,8 @@
 //! | `PATCH` | `/api/teams/{tid}` | 名前の変更([`NewTeam`] → [`Team`]、管理者以上) |
 //! | `DELETE` | `/api/teams/{tid}` | チームを消す(オーナーのみ。ボードは作った人の個人ボードに戻る) |
 //! | `PUT` | `/api/teams/{tid}/members` | メンバーの追加・変更・削除([`SetTeamMember`] → [`Team`]) |
+//! | `GET` | `/api/audit?team=&before=&limit=&action=` | 操作ログ([`AuditEvent`] の配列、新しい順。`team` 指定はチームの管理者、なしはサーバー管理者) |
+//! | `GET` | `/api/audit/export?team=&format=csv\|jsonl` | 操作ログの書き出し(CSV か JSON Lines) |
 //!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
 
@@ -102,6 +105,9 @@ pub struct Me {
     pub login: String,
     /// 表示名。
     pub name: String,
+    /// サーバー管理者(`ADMIN_LOGINS`)か。全体の操作ログを見られる。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub admin: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -166,6 +172,33 @@ pub struct Sharing {
     /// 他のサイトに埋め込む(iframe)ときの鍵と権限。共有リンクとは別に作り直せる。
     #[serde(default)]
     pub embed: Option<LinkShare>,
+    /// Web に公開中なら、その公開ページ。
+    #[serde(default)]
+    pub public: Option<PublicShare>,
+}
+
+/// Web への公開。`/p/{board}/{slug}` を知っている人は誰でも(ログインなしで)見られる。
+/// 見るだけで、編集やコメントはできない。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicShare {
+    pub slug: String,
+    /// 公開した時刻(ミリ秒)。
+    pub since: u64,
+}
+
+impl PublicShare {
+    /// 公開ページのパス(`/p/{board}/{slug}`)。
+    pub fn path(&self, board: &str) -> String {
+        format!("/p/{board}/{}", self.slug)
+    }
+}
+
+/// `enabled` が false なら公開をやめる。`regenerate` で URL を作り直す(古い URL は使えなくなる)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetPublic {
+    pub enabled: bool,
+    #[serde(default)]
+    pub regenerate: bool,
 }
 
 /// `role` が `None` ならメンバーから外す。
@@ -280,6 +313,60 @@ pub struct SetBoardTeam {
     pub team: Option<String>,
     #[serde(default)]
     pub access: Option<Role>,
+}
+
+/// 操作ログの 1 件。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub id: u64,
+    /// 時刻(UNIX ミリ秒)。
+    pub at: u64,
+    /// 操作の種類(`board.create`・`team.member` など)。
+    pub action: String,
+    /// 操作した人のログイン名(ログイン前の操作なら `None`)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub actor: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub board: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    /// 操作の対象(メンバーのログイン名など)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    /// 補足(変更後の権限・名前など)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// 接続元の IP アドレス。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip: Option<String>,
+}
+
+impl AuditEvent {
+    /// 画面に出す操作の名前。
+    pub fn label(&self) -> &str {
+        match self.action.as_str() {
+            "auth.signup" => "アカウント作成",
+            "auth.login" => "ログイン",
+            "auth.login_failed" => "ログイン失敗",
+            "auth.logout" => "ログアウト",
+            "auth.sso" => "SSO でログイン",
+            "board.create" => "ボード作成",
+            "board.rename" => "ボード名の変更",
+            "board.delete" => "ボード削除",
+            "board.member" => "ボードのメンバー変更",
+            "board.link" => "共有リンクの変更",
+            "board.team" => "ボードのチーム変更",
+            "board.restore" => "バージョンの復元",
+            "team.create" => "チーム作成",
+            "team.rename" => "チーム名の変更",
+            "team.delete" => "チーム削除",
+            "team.member" => "チームのメンバー変更",
+            "team.settings" => "チームの設定変更",
+            "token.create" => "API トークン作成",
+            "token.revoke" => "API トークン失効",
+            other => other,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

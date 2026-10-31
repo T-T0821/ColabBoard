@@ -269,7 +269,10 @@ impl ImageLayer {
         for (li, layer) in layers.iter().enumerate() {
             for e in &elements[layer.elements.clone()] {
                 let Some(s) = e.as_shape() else { continue };
-                if s.kind != ShapeKind::Image && s.icon.is_empty() || hidden.contains(&s.id) {
+                if s.kind != ShapeKind::Image && s.icon.is_empty()
+                    || hidden.contains(&s.id)
+                    || s.meta.hidden
+                {
                     continue;
                 }
                 if !s.bounds().intersects(&view) {

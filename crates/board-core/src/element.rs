@@ -24,6 +24,10 @@ pub struct Meta {
     pub private: String,
     /// 作った人の表示名(空ならなし)。付箋の下に小さく出す。
     pub author: String,
+    /// マインドマップのノード・枝なら、その情報(`crate::mindmap`)。
+    pub mind: Option<crate::mindmap::Mind>,
+    /// 表示しない(マインドマップで折りたたまれた枝の中など)。描画・当たり判定から外す。
+    pub hidden: bool,
 }
 
 /// 手書きの線。点列をそのまま持ち、GPU では線分ごとのカプセルとして描く。
@@ -137,6 +141,9 @@ impl Element {
 
     /// 点がこの要素に当たるか。`tolerance` はワールド単位の許容距離。
     pub fn hit(&self, p: Vec2, tolerance: f32) -> bool {
+        if self.meta().hidden {
+            return false;
+        }
         match self {
             Element::Shape(s) if tolerance <= 0.0 => s.contains(p),
             Element::Shape(s) => {

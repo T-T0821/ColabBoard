@@ -700,3 +700,257 @@ async fn teams_share_boards_with_members() {
     assert_eq!(info["role"], "owner");
     assert!(info.get("team").is_none());
 }
+
+#[tokio::test]
+async fn audit_log_records_and_exports() {
+    let s = start(Config {
+        admins: vec!["root".into()],
+        trust_proxy: true,
+        ..Config::default()
+    })
+    .await;
+    let root = s.signup("root").await;
+    let alice = s.signup("alice").await;
+    let _bob = s.signup("bob").await;
+
+    // ログイン失敗も残る。接続元はプロキシのヘッダーから取る。
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/login")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-forwarded-for", "203.0.113.7, 10.0.0.1")
+        .header("x-graboard-client-ip", "6.6.6.6");
+    let res = s
+        .app
+        .clone()
+        .oneshot(
+            req.body(Body::from(
+                json!({"login": "alice", "password": "wrong-password"}).to_string(),
+            ))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    let (_, team, _) = s
+        .call(
+            "POST",
+            "/api/teams",
+            Some(&alice),
+            Some(json!({"name": "営業"})),
+        )
+        .await;
+    let tid = team["id"].as_str().unwrap().to_string();
+    s.call(
+        "PUT",
+        &format!("/api/teams/{tid}/members"),
+        Some(&alice),
+        Some(json!({"login": "bob", "role": "member"})),
+    )
+    .await;
+    s.call(
+        "POST",
+        "/api/boards",
+        Some(&alice),
+        Some(json!({"title": "見込み客", "team": tid})),
+    )
+    .await;
+
+    // チームのログはチームの管理者だけ。
+    let path = format!("/api/audit?team={tid}");
+    let (status, events, _) = s.call("GET", &path, Some(&alice), None).await;
+    assert_eq!(status, StatusCode::OK);
+    let actions: Vec<&str> = events
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["action"].as_str().unwrap())
+        .collect();
+    assert_eq!(actions, vec!["board.create", "team.member", "team.create"]);
+    assert_eq!(events[1]["target"], "bob");
+    let (status, _, _) = s.call("GET", &path, Some(&root), None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // 全体のログはサーバー管理者だけ。
+    let (status, _, _) = s.call("GET", "/api/audit", Some(&alice), None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, events, _) = s
+        .call("GET", "/api/audit?action=auth", Some(&root), None)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let failed = events
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["action"] == "auth.login_failed")
+        .unwrap();
+    assert_eq!(failed["target"], "alice");
+    assert_eq!(failed["ip"], "203.0.113.7");
+    let (_, me, _) = s.call("GET", "/api/me", Some(&root), None).await;
+    assert_eq!(me["admin"], true);
+
+    // 書き出し。
+    let req = Request::builder()
+        .uri(format!("/api/audit/export?team={tid}&format=csv"))
+        .header(header::COOKIE, &alice)
+        .body(Body::empty())
+        .unwrap();
+    let res = s.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(
+        res.headers()[header::CONTENT_DISPOSITION]
+            .to_str()
+            .unwrap()
+            .contains(".csv")
+    );
+    let body = res.into_body().collect().await.unwrap().to_bytes();
+    let text = String::from_utf8(body.to_vec()).unwrap();
+    assert_eq!(text.lines().count(), 4);
+    assert!(text.contains("チーム作成"));
+}
+
+#[tokio::test]
+async fn client_ip_header_cannot_be_spoofed() {
+    let s = start(Config {
+        admins: vec!["eve".into()],
+        ..Config::default()
+    })
+    .await;
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/signup")
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("x-graboard-client-ip", "6.6.6.6")
+        .header("x-forwarded-for", "7.7.7.7")
+        .body(Body::from(
+            json!({"login": "eve", "name": "", "password": "password123"}).to_string(),
+        ))
+        .unwrap();
+    let res = s.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let cookie = res.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    // 外から付けたヘッダーは消え、プロキシを信じない設定なので X-Forwarded-For も使わない。
+    let (status, events, _) = s.call("GET", "/api/audit", Some(&cookie), None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(events[0]["action"], "auth.signup");
+    assert!(events[0].get("ip").is_none(), "{events}");
+}
+
+/// 生の応答(HTML や PNG を見るため)。
+async fn raw(server: &Server, path: &str) -> (StatusCode, String, Vec<u8>) {
+    let req = Request::builder()
+        .uri(path)
+        .header(header::HOST, "board.example")
+        .header("x-forwarded-proto", "https")
+        .body(Body::empty())
+        .unwrap();
+    let res = server.app.clone().oneshot(req).await.unwrap();
+    let status = res.status();
+    let ct = res
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .map(|v| v.to_str().unwrap().to_string())
+        .unwrap_or_default();
+    let bytes = res.into_body().collect().await.unwrap().to_bytes().to_vec();
+    (status, ct, bytes)
+}
+
+#[tokio::test]
+async fn public_pages_with_ogp() {
+    let server = start(Config::default()).await;
+    let alice = server.signup("alice").await;
+    let bob = server.signup("bob").await;
+    let (_, b, _) = server
+        .call(
+            "POST",
+            "/api/boards",
+            Some(&alice),
+            Some(json!({"title": "<企画> 会議"})),
+        )
+        .await;
+    let id = b["id"].as_str().unwrap().to_string();
+
+    // オーナー以外は公開できない。
+    let (status, _, _) = server
+        .call(
+            "PUT",
+            &format!("/api/boards/{id}/public"),
+            Some(&bob),
+            Some(json!({"enabled": true})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, sharing, _) = server
+        .call(
+            "PUT",
+            &format!("/api/boards/{id}/public"),
+            Some(&alice),
+            Some(json!({"enabled": true})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{sharing}");
+    let sharing: Sharing = serde_json::from_value(sharing).unwrap();
+    let slug = sharing.public.unwrap().slug;
+
+    // 公開ページ: OGP と、閲覧用のボードへの移動。
+    let (status, ct, body) = raw(&server, &format!("/p/{id}/{slug}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(ct.starts_with("text/html"));
+    let html = String::from_utf8(body).unwrap();
+    assert!(
+        html.contains(r#"<meta property="og:title" content="&lt;企画&gt; 会議">"#),
+        "{html}"
+    );
+    assert!(html.contains(&format!(
+        r#"<meta property="og:image" content="https://board.example/p/{id}/{slug}/og.png"#
+    )));
+    assert!(html.contains("summary_large_image"));
+    assert!(html.contains(&format!("/?room={id}&key={slug}&public")));
+
+    let (status, ct, png) = raw(&server, &format!("/p/{id}/{slug}/og.png")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(ct, "image/png");
+    assert_eq!(&png[1..4], b"PNG");
+
+    // 公開の鍵で、ログインなしで見られる(見るだけ)。
+    let (status, info, _) = server
+        .call("GET", &format!("/api/boards/{id}?key={slug}"), None, None)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let info: BoardInfo = serde_json::from_value(info).unwrap();
+    assert_eq!(info.role, Role::Viewer);
+    assert!(server.connect(&id, None, Some(&slug)).await.is_some());
+
+    // 鍵が違えば 404。
+    assert_eq!(
+        raw(&server, &format!("/p/{id}/wrong")).await.0,
+        StatusCode::NOT_FOUND
+    );
+
+    // 公開をやめると見られなくなる。
+    let (status, _, _) = server
+        .call(
+            "PUT",
+            &format!("/api/boards/{id}/public"),
+            Some(&alice),
+            Some(json!({"enabled": false})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        raw(&server, &format!("/p/{id}/{slug}")).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        raw(&server, &format!("/p/{id}/{slug}/og.png")).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert!(server.connect(&id, None, Some(&slug)).await.is_none());
+}

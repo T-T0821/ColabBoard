@@ -1,9 +1,10 @@
 //! グラボード の同期サーバー。
 //!
 //! - `GET /ws/{room}?key=`: WebSocket。メッセージ形式は [`board_core::protocol`]。
+//! - `GET /p/{board}/{slug}`: Web に公開したボードのページと OGP 画像([`public`])。
 //! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])と図の生成([`ai_diagram`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -11,15 +12,20 @@
 //! 接続時に権限([`boards::role_for`])を確かめ、編集権限のない人からの更新は捨てる。
 
 pub mod ai;
+pub mod ai_board;
 pub mod ai_diagram;
+pub mod ai_ink;
 pub mod api;
+pub mod audit;
 pub mod auth;
 pub mod boards;
 pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
 pub mod issues;
+pub mod og;
 pub mod plugins;
+pub mod public;
 pub mod rest;
 pub mod room;
 pub mod slack;
@@ -75,6 +81,16 @@ pub struct Config {
     /// `?embed=1` のページを iframe で埋め込んでよいサイト(CSP の `frame-ancestors` の値)。
     /// それ以外のページは同じサイトからしか埋め込めない。
     pub embed_origins: String,
+    /// サーバー管理者のログイン名(全体の操作ログを見られる)。
+    pub admins: Vec<String>,
+    /// リバースプロキシの `X-Forwarded-For` を接続元として信じるか。
+    pub trust_proxy: bool,
+}
+
+impl Config {
+    pub fn is_admin(&self, login: &str) -> bool {
+        self.admins.iter().any(|a| a == login)
+    }
 }
 
 /// 既定の ICE サーバー(公開 STUN)。
@@ -110,6 +126,8 @@ impl Default for Config {
             issues: issues::IssuesConfig::default(),
             ice_servers: default_ice_servers(),
             embed_origins: "*".into(),
+            admins: Vec::new(),
+            trust_proxy: false,
         }
     }
 }
@@ -118,6 +136,10 @@ impl Default for Config {
 pub struct AppState {
     pub hub: Arc<Hub>,
     pub config: Config,
+    /// 公開ページの OGP 画像のキャッシュ。
+    pub og: public::OgCache,
+    /// OGP 画像の文字に使うフォント(Web クライアントと同じもの)。
+    pub font: Option<ab_glyph::FontArc>,
 }
 
 impl AppState {
@@ -129,26 +151,46 @@ impl AppState {
 pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
     let static_dir = config.static_dir.take();
     let frame_policy: Arc<str> = format!("frame-ancestors {}", config.embed_origins).into();
-    let state = Arc::new(AppState { hub, config });
+    let font = load_font(static_dir.as_deref());
+    let state = Arc::new(AppState {
+        hub,
+        config,
+        og: public::OgCache::default(),
+        font,
+    });
     let app = Router::new()
         .route("/ws/{room}", get(ws_handler))
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/boards/{id}/ai/summarize", post(ai::summarize))
         .route("/api/boards/{id}/ai/cluster", post(ai::cluster))
         .route("/api/boards/{id}/ai/diagram", post(ai_diagram::generate))
+        .route("/api/boards/{id}/ai/ink", post(ai_ink::recognize))
+        .route("/api/boards/{id}/ai/minutes", post(ai_board::minutes))
+        .route("/api/boards/{id}/ai/ask", post(ai_board::ask))
+        .route("/api/boards/{id}/ai/mindmap", post(ai_board::mindmap))
         .route("/api/ai/status", get(ai_diagram::status))
         .route("/api/boards/{id}/issues", post(issues::lookup))
         .route("/api/rtc", get(rtc_config))
+        .route("/p/{id}/{slug}", get(public::page))
+        .route("/p/{id}/{slug}/og.png", get(public::image))
         .nest("/api/v1", rest::routes().merge(plugins::routes()))
         .nest(
             "/api",
             api::routes()
                 .merge(rest::token_routes())
-                .merge(teams::routes()),
+                .merge(teams::routes())
+                .merge(audit::routes()),
         )
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            audit::client_ip,
+        ))
         .with_state(state);
     let app = match static_dir {
-        Some(dir) => app.fallback_service(ServeDir::new(dir)),
+        // `.br` / `.gz` があれば、ブラウザが受け取れる形式をそのまま返す(`tools/precompress`)。
+        Some(dir) => {
+            app.fallback_service(ServeDir::new(dir).precompressed_br().precompressed_gzip())
+        }
         #[cfg(feature = "embed")]
         None if embedded::available() => app.fallback(embedded::serve),
         None => app,
@@ -203,6 +245,31 @@ pub fn has_embedded_client() -> bool {
     {
         false
     }
+}
+
+/// OGP 画像用のフォント。配信するファイル(埋め込みを含む)の中か、なければリポジトリの中から探す。
+fn load_font(static_dir: Option<&std::path::Path>) -> Option<ab_glyph::FontArc> {
+    const FILE: &str = "fonts/NotoSansJP-Regular.ttf";
+    let dev = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../board-web/assets");
+    let candidates = static_dir
+        .map(|d| d.join(FILE))
+        .into_iter()
+        .chain(std::iter::once(dev.join(FILE)));
+    #[cfg(feature = "embed")]
+    if static_dir.is_none()
+        && let Some(f) = embedded::file(FILE).and_then(|b| ab_glyph::FontArc::try_from_vec(b).ok())
+    {
+        return Some(f);
+    }
+    for path in candidates {
+        if let Ok(bytes) = std::fs::read(&path) {
+            match ab_glyph::FontArc::try_from_vec(bytes) {
+                Ok(f) => return Some(f),
+                Err(e) => tracing::warn!("フォントを読めません({}): {e}", path.display()),
+            }
+        }
+    }
+    None
 }
 
 /// 定期的に保存する。

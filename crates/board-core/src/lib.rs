@@ -20,8 +20,10 @@ pub mod element;
 pub mod export;
 pub mod format;
 pub mod geom;
+pub mod ink;
 pub mod issue;
 pub mod markdown;
+pub mod mindmap;
 pub mod miro;
 pub mod navigation;
 pub mod ops;
@@ -39,6 +41,7 @@ pub mod table;
 pub mod tabular;
 pub mod templates;
 pub mod tidy;
+pub mod uml;
 pub mod workshop;
 
 pub use board::Board;

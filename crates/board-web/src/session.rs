@@ -6,8 +6,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use board_core::api::{
-    BoardInfo, Me, RenameBoard, Role, SetLink, SetMember, SetSlack, Sharing, SlackEvents,
-    SlackSettings,
+    BoardInfo, Me, RenameBoard, Role, SetLink, SetMember, SetPublic, SetSlack, Sharing,
+    SlackEvents, SlackSettings,
 };
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -225,6 +225,19 @@ impl BoardChrome {
         )
     }
 
+    /// 公開ページの URL(`/p/{board}/{slug}`)。
+    fn public_url(&self, slug: &str) -> String {
+        let loc = self.window.location();
+        let dir = loc.pathname().unwrap_or_default();
+        let dir = dir.rsplit_once('/').map_or("", |(d, _)| d);
+        format!(
+            "{}{dir}/p/{}/{}",
+            loc.origin().unwrap_or_default(),
+            self.room,
+            slug
+        )
+    }
+
     fn render_share(&self) {
         let Some(panel) = self.share_panel() else {
             return;
@@ -267,6 +280,15 @@ impl BoardChrome {
             ),
             None => String::new(),
         };
+        let public = match &sh.public {
+            Some(p) => format!(
+                r#"<p class="muted small">URL を知っている人は誰でも、ログインせずに見られます(編集・コメントはできません)。SNS やチャットに貼るとプレビュー画像が出ます。</p>
+<div class="row"><input class="grow" readonly value="{url}" data-copy /><button data-action="copy-public">コピー</button></div>
+<div class="row"><a class="small" href="{url}" target="_blank" rel="noopener">公開ページを開く</a><span class="grow"></span><button class="link small" data-action="regenerate-public">URL を作り直す</button></div>"#,
+                url = escape(&self.public_url(&p.slug))
+            ),
+            None => r#"<p class="muted small">オンにすると、ログインしていない人も見られる閲覧専用のページができます。</p>"#.to_string(),
+        };
         let mut members = String::new();
         if let Some(owner) = &sh.owner {
             members.push_str(&format!(
@@ -292,6 +314,10 @@ impl BoardChrome {
   <label class="field">リンクを知っている人<select data-link-role>{link_opts}</select></label>
   {link}
 </section>
+<section class="public-share">
+  <label class="row switch"><strong class="grow">Web に公開</strong><input type="checkbox" data-public {public_checked} /></label>
+  {public}
+</section>
 <section>
   <strong>メンバー</strong>
   <ul class="members">{members}</ul>
@@ -311,6 +337,7 @@ impl BoardChrome {
                 .replace("オフ(招待した人だけ)", "オフ"),
             link_opts = options(sh.link.as_ref().map(|l| l.role), true),
             invite_opts = options(Some(Role::Editor), false),
+            public_checked = if sh.public.is_some() { "checked" } else { "" },
         ));
         if let Ok(Some(section)) = panel.query_selector("[data-slot=slack]") {
             section.set_inner_html(&self.slack_html());
@@ -395,6 +422,10 @@ fn update_sharing(chrome: &SharedChrome, req: SharingRequest) {
                 http::send::<_, Sharing>("PUT", &http::board_path(&room, None, "/embed"), &body)
                     .await
             }
+            SharingRequest::Public(body) => {
+                http::send::<_, Sharing>("PUT", &http::board_path(&room, None, "/public"), &body)
+                    .await
+            }
             SharingRequest::Member(body) => {
                 http::send::<_, Sharing>("PUT", &http::board_path(&room, None, "/members"), &body)
                     .await
@@ -415,6 +446,7 @@ fn update_sharing(chrome: &SharedChrome, req: SharingRequest) {
 enum SharingRequest {
     Link(SetLink),
     Embed(SetLink),
+    Public(SetPublic),
     Member(SetMember),
 }
 
@@ -670,6 +702,25 @@ fn install(chrome: &SharedChrome) {
                     events: SlackEvents::default(),
                 }),
             ),
+            Some("copy-public") => {
+                let c = ch.borrow();
+                if let Some(slug) = c
+                    .sharing
+                    .as_ref()
+                    .and_then(|s| s.public.as_ref())
+                    .map(|p| p.slug.clone())
+                {
+                    copy_text(&c.window, &c.public_url(&slug));
+                    el.set_text_content(Some("コピーしました"));
+                }
+            }
+            Some("regenerate-public") => update_sharing(
+                &ch,
+                SharingRequest::Public(SetPublic {
+                    enabled: true,
+                    regenerate: true,
+                }),
+            ),
             Some("remove-member") => {
                 if let Some(login) = el.get_attribute("data-login") {
                     update_sharing(&ch, SharingRequest::Member(SetMember { login, role: None }));
@@ -683,6 +734,20 @@ fn install(chrome: &SharedChrome) {
 
     let ch = chrome.clone();
     let on_change = Closure::<dyn FnMut(web_sys::Event)>::new(move |e: web_sys::Event| {
+        if let Some(input) = e
+            .target()
+            .and_then(|t| t.dyn_into::<HtmlInputElement>().ok())
+            .filter(|i| i.has_attribute("data-public"))
+        {
+            update_sharing(
+                &ch,
+                SharingRequest::Public(SetPublic {
+                    enabled: input.checked(),
+                    regenerate: false,
+                }),
+            );
+            return;
+        }
         let Some(sel) = e
             .target()
             .and_then(|t| t.dyn_into::<HtmlSelectElement>().ok())

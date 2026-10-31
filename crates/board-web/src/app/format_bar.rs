@@ -239,6 +239,13 @@ fn render(s: &Summary, link_open: bool) -> String {
         groups.push(g);
     }
 
+    if s.has_ink && !s.locked {
+        groups.push(
+            r#"<button data-act="ink" title="手書きの線を四角・丸・矢印などの図形に整える">図形に整形</button><button data-act="ink-ai" title="AI が手書きの図と文字を読んで整える">AI で整形</button>"#
+                .into(),
+        );
+    }
+
     let link = s.link.clone().unwrap_or_default();
     let mut g = format!(
         r#"<button data-act="link" title="リンク" aria-pressed="{}"><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/></svg></button>"#,
@@ -343,6 +350,9 @@ impl App {
             return;
         }
         let ids = self.editor.selection().to_vec();
+        if let Change::Vertical(v) = change {
+            self.editor.note_vertical(&self.board, v);
+        }
         self.board.end_gesture();
         format::apply(&mut self.board, &ids, &change);
         self.board.end_gesture();
@@ -422,6 +432,10 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
                 }
                 let act = el.get_attribute("data-act").unwrap_or_default();
                 let value = el.get_attribute("data-value").unwrap_or_default();
+                if act == "ink-ai" {
+                    super::ink_ui::beautify_ink_ai(&app);
+                    return;
+                }
                 let mut a = app.borrow_mut();
                 let s = a.format_bar.shown.clone().unwrap_or_default();
                 match act.as_str() {
@@ -442,6 +456,7 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
                         a.open_link_editor(open);
                     }
                     "link-apply" => a.commit_link(),
+                    "ink" => a.beautify_ink(),
                     _ => {}
                 }
             },

@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
   <title>グラボード</title>
   <link data-trunk rel="rust" data-wasm-opt="s" />
+  <!-- PDF の取り込み(hayro)は別の wasm。PDF が貼られたときに Web Worker で初めて読み込む -->
+  <link data-trunk rel="rust" href="../board-pdf/Cargo.toml" data-type="worker" data-loader-shim data-wasm-opt="s" />
   <link data-trunk rel="css" href="style.css" />
   <link data-trunk rel="copy-dir" href="assets/fonts" />
   <link data-trunk rel="copy-dir" href="assets/cloud-icons" />
@@ -121,6 +123,9 @@
       </button>
       <div id="template-picker" class="popover template-picker" role="menu" aria-label="テンプレート"></div>
     </div>
+    <button id="mindmap-button" class="tool" title="マインドマップ(Tab: 子 / Enter: 兄弟)">
+      <svg viewBox="0 0 24 24"><rect x="8.5" y="10" width="7" height="4" rx="2"/><circle cx="3.5" cy="5" r="1.5"/><circle cx="3.5" cy="19" r="1.5"/><circle cx="20.5" cy="5" r="1.5"/><circle cx="20.5" cy="19" r="1.5"/><path d="M8.5 12C6 12 6 5 5 5M8.5 12C6 12 6 19 5 19M15.5 12c2.5 0 2.5-7 3.5-7M15.5 12c2.5 0 2.5 7 3.5 7"/></svg>
+    </button>
     <input id="image-file" type="file" accept="image/png,image/jpeg,application/pdf,.pdf,.md,.markdown,text/markdown,.csv,.tsv,text/csv,.xlsx,.xlsm,.xlsb,.xls,.ods,.mmd,.mermaid,.puml,.plantuml,.pu,.iuml,.wsd,.drawio,.dio,.xml,.svg,.json" multiple hidden>
     <span class="sep"></span>
     <button id="tool-frame" aria-keyshortcuts="F" class="tool" title="フレーム (F)" aria-pressed="false">
@@ -242,7 +247,13 @@
       <span class="label">AI</span>
       <button id="ai-summarize">要約</button>
       <button id="ai-cluster">グループ分け</button>
+      <button id="ai-minutes" title="選択中の要素、なければボード全体から議事録(概要・決定事項・アクション)を作って横に置きます">議事録</button>
     </div>
+    <form id="ai-ask-form" class="collab-row ai-ask" title="選択中の要素、なければボード全体の内容をもとに答えます">
+      <input id="ai-ask-input" type="text" maxlength="2000" placeholder="ボードについて質問(例: 決まったことは?)" aria-label="ボードについて質問" autocomplete="off">
+      <button id="ai-ask" type="submit">質問する</button>
+    </form>
+    <div id="ai-answer" class="ai-answer" aria-live="polite" hidden></div>
     <p id="ai-status" class="collab-status" data-state="none"></p>
   </details>
 
@@ -273,7 +284,7 @@
       </select>
       <button id="ai-generate" class="primary">生成</button>
     </div>
-    <p id="ai-status" class="ai-status" role="status"></p>
+    <p id="ai-diagram-status" class="ai-status" role="status"></p>
     <hr />
     <div class="diagram-row">
       <label class="label" for="diagram-service">部品</label>
@@ -303,6 +314,7 @@
     <button id="search-close" title="閉じる (Esc)" aria-label="閉じる">✕</button>
   </div>
   <div id="format-bar" class="panel format-bar" role="toolbar" aria-label="書式" hidden></div>
+  <div id="mind-panel" class="panel mind-panel" role="toolbar" aria-label="マインドマップ" hidden></div>
 
   <main id="home" hidden></main>
 
@@ -328,6 +340,7 @@
     <p class="muted">画面読み上げを使っているときは、見出し「ボードの要素」の一覧から要素を選ぶこともできます。</p>
   </section>
 
+  <div id="ai-toast" class="panel ai-toast" role="status" hidden></div>
   <div id="error" role="alert"></div>
 </body>
 </html>

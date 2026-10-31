@@ -33,41 +33,91 @@ fn is_node(e: &Element) -> bool {
     matches!(e, Element::Shape(s) if s.kind != ShapeKind::Frame) && !e.is_locked()
 }
 
-/// 選択から並べる対象(ノードと矢印)を決める。
+/// グループ(UML のクラスなど)は 1 つの塊として扱う。塊の代表は、グループの中で
+/// いちばん奥にある図形(クラスなら外枠)。
+struct Units {
+    rep_of_group: HashMap<u64, ElementId>,
+}
+
+impl Units {
+    fn new(board: &Board) -> Self {
+        let mut rep_of_group = HashMap::new();
+        for e in board.elements() {
+            let g = e.meta().group;
+            if g != 0 && is_node(e) {
+                rep_of_group.entry(g).or_insert(e.id());
+            }
+        }
+        Self { rep_of_group }
+    }
+
+    /// 要素の塊の代表。並べる対象にならない要素は `None`。
+    fn rep(&self, board: &Board, id: ElementId) -> Option<ElementId> {
+        let e = board.get(id)?;
+        match e.meta().group {
+            0 => is_node(e).then_some(id),
+            g => self.rep_of_group.get(&g).copied(),
+        }
+    }
+}
+
+/// 塊の中身(グループならグループ全体)。
+fn members(board: &Board, rep: ElementId) -> Vec<ElementId> {
+    crate::arrange::expand_groups(board, &[rep])
+}
+
+/// 塊の外接矩形。
+fn unit_bounds(board: &Board, rep: ElementId) -> Rect {
+    board
+        .bounds_of(&members(board, rep))
+        .unwrap_or_else(|| Rect::new(Vec2::ZERO, Vec2::ZERO))
+}
+
+/// 選択から並べる対象(塊の代表と矢印)を決める。
 ///
 /// 図形を 2 つ以上選んでいればそれらを、1 つ(またはコネクタだけ)なら、
-/// それとコネクタでつながった図形全部を対象にする。
+/// それとコネクタでつながった図形全部を対象にする。グループは 1 つの塊になる。
 pub fn collect(
     board: &Board,
     selection: &[ElementId],
 ) -> (Vec<ElementId>, Vec<(ElementId, ElementId)>) {
-    // コネクタの両端がつながっている組(向き付き)。
-    let all_edges: Vec<(ElementId, ElementId)> = board
+    let units = Units::new(board);
+    // コネクタの両端がつながっている塊の組(向き付き)。グループの中の線は除く。
+    let mut all_edges: Vec<(ElementId, ElementId)> = board
         .elements()
         .iter()
         .filter_map(|e| match e {
             Element::Connector(c) => {
-                let (a, b) = (c.from.attached_to()?, c.to.attached_to()?);
+                let a = units.rep(board, c.from.attached_to()?)?;
+                let b = units.rep(board, c.to.attached_to()?)?;
                 (a != b).then_some((a, b))
             }
             _ => None,
         })
         .collect();
-    let node_ok = |id: &ElementId| board.get(*id).is_some_and(is_node);
-    let mut nodes: Vec<ElementId> = selection.iter().copied().filter(node_ok).collect();
+    all_edges.sort_unstable();
+    all_edges.dedup();
+    let mut nodes: Vec<ElementId> = Vec::new();
+    for id in selection {
+        if let Some(r) = units.rep(board, *id)
+            && !nodes.contains(&r)
+        {
+            nodes.push(r);
+        }
+    }
     if nodes.len() < 2 {
         // 選んだ図形やコネクタからたどれる図形全部。
         let mut seeds = nodes.clone();
         for id in selection {
             if let Some(Element::Connector(c)) = board.get(*id) {
-                seeds.extend(c.from.attached_to());
-                seeds.extend(c.to.attached_to());
+                seeds.extend(c.from.attached_to().and_then(|a| units.rep(board, a)));
+                seeds.extend(c.to.attached_to().and_then(|a| units.rep(board, a)));
             }
         }
         let mut seen: Vec<ElementId> = Vec::new();
         let mut stack = seeds;
         while let Some(v) = stack.pop() {
-            if seen.contains(&v) || !node_ok(&v) {
+            if seen.contains(&v) {
                 continue;
             }
             seen.push(v);
@@ -264,7 +314,7 @@ fn place_in_order(layer: &[usize], want: &[f32], size: &[Vec2], ax: Axes, center
     }
 }
 
-/// 位置の計算だけを行う(ボードは変えない)。返り値は動かす先の左上。
+/// 位置の計算だけを行う(ボードは変えない)。返り値は塊の代表と、塊を動かす先の左上。
 pub fn plan(
     board: &Board,
     nodes: &[ElementId],
@@ -274,15 +324,7 @@ pub fn plan(
     let ax = Axes(dir);
     let index: HashMap<ElementId, usize> =
         nodes.iter().enumerate().map(|(i, id)| (*id, i)).collect();
-    let rects: Vec<Rect> = nodes
-        .iter()
-        .map(|id| {
-            board
-                .get(*id)
-                .map(Element::bounds)
-                .unwrap_or_else(|| Rect::new(Vec2::ZERO, Vec2::ZERO))
-        })
-        .collect();
+    let rects: Vec<Rect> = nodes.iter().map(|id| unit_bounds(board, *id)).collect();
     let Some(all) = rects.iter().copied().reduce(|a, b| a.union(&b)) else {
         return Vec::new();
     };
@@ -355,7 +397,17 @@ pub fn auto_layout(board: &mut Board, selection: &[ElementId], dir: Direction) -
         return 0;
     }
     let moves = plan(board, &nodes, &edges, dir);
-    crate::tidy::move_to(board, &moves);
+    board.end_gesture();
+    for (rep, pos) in &moves {
+        let d = *pos - unit_bounds(board, *rep).min;
+        if d == Vec2::ZERO {
+            continue;
+        }
+        for id in members(board, *rep) {
+            board.update(id, |e| e.translate(d));
+        }
+    }
+    board.end_gesture();
     moves.len()
 }
 
@@ -465,6 +517,27 @@ mod tests {
             .bounds()
             .union(&b.get(z).unwrap().bounds());
         assert!(pos(&b, lone).y >= ra.max.y + COMPONENT_GAP - 0.01);
+    }
+
+    #[test]
+    fn grouped_class_boxes_move_as_one() {
+        let mut b = Board::new();
+        let mut alloc = || b.alloc_id();
+        let (c1, o1) =
+            crate::uml::class_box(&mut alloc, Vec2::new(600.0, 400.0), "A", &["- x", "+ f()"]);
+        let (c2, o2) = crate::uml::class_box(&mut alloc, Vec2::ZERO, "B", &["- y", "+ g()"]);
+        let parts1: Vec<ElementId> = c1.iter().map(Element::id).collect();
+        b.push_many(c1);
+        b.push_many(c2);
+        link(&mut b, o1, o2);
+        // 区画(グループの一部)を 1 つ選んだだけでも、2 つのクラスが塊ごと並ぶ。
+        assert_eq!(auto_layout(&mut b, &[parts1[2]], Direction::Right), 2);
+        let outer = b.get(o1).unwrap().bounds();
+        for id in &parts1[1..] {
+            let r = b.get(*id).unwrap().bounds();
+            assert!(outer.contains_rect(&r), "区画が外枠からずれない");
+        }
+        assert!(b.get(o1).unwrap().bounds().max.x < b.get(o2).unwrap().bounds().min.x);
     }
 
     #[test]

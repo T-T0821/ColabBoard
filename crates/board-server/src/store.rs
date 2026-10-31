@@ -18,6 +18,7 @@
 //! | `teams` | チーム ID | [`TeamRecord`](crate::teams::TeamRecord)(JSON) |
 //! | `user_teams` | (ログイン名, チーム ID) | 入った時刻(JSON) |
 //! | `team_boards` | (チーム ID, ボード ID) | 加わった時刻(JSON) |
+//! | `audit` | (`*` か `team:{id}`, 記録 ID) | [`AuditEvent`](board_core::api::AuditEvent)(JSON) |
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -50,6 +51,7 @@ pub(crate) const USER_TEAMS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("user_teams");
 pub(crate) const TEAM_BOARDS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("team_boards");
+pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
 pub fn next_id() -> u64 {
@@ -108,6 +110,7 @@ impl Store {
         txn.open_table(TEAMS)?;
         txn.open_table(USER_TEAMS)?;
         txn.open_table(TEAM_BOARDS)?;
+        txn.open_table(AUDIT)?;
         txn.commit()?;
         Ok(Self { db, persistent })
     }
@@ -376,6 +379,49 @@ impl Store {
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// 1 つ目のキーが `a` で ID が `upper` 以下のものを、新しい順に `limit` 件まで読む(`keep` で絞る)。
+    pub(crate) fn scan_seq_rev<T: DeserializeOwned>(
+        &self,
+        table: SeqTable,
+        a: &str,
+        upper: u64,
+        limit: usize,
+        keep: impl Fn(&T) -> bool,
+    ) -> Result<Vec<T>, StoreError> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(table)?;
+        let mut out = Vec::new();
+        for entry in t.range((a, 0)..=(a, upper))?.rev() {
+            if out.len() >= limit {
+                break;
+            }
+            let (_, v) = entry?;
+            let item: T = serde_json::from_slice(v.value())?;
+            if keep(&item) {
+                out.push(item);
+            }
+        }
+        Ok(out)
+    }
+
+    /// ID が `min_id` より小さいものを(1 つ目のキーにかかわらず)全部消す。消した件数を返す。
+    pub(crate) fn retain_seq_newer(&self, table: SeqTable, min_id: u64) -> Result<u64, StoreError> {
+        let txn = self.db.begin_write()?;
+        let mut removed = 0;
+        {
+            let mut t = txn.open_table(table)?;
+            t.retain(|k, _| {
+                let keep = k.1 >= min_id;
+                if !keep {
+                    removed += 1;
+                }
+                keep
+            })?;
+        }
+        txn.commit()?;
+        Ok(removed)
     }
 
     /// 1 つ目のキーが `a` のものを全部消す。

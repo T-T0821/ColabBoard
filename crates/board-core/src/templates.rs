@@ -14,6 +14,7 @@ use crate::connector::{Cap, Connector, Endpoint, PathStyle};
 use crate::element::{Element, ElementId};
 use crate::geom::Rect;
 use crate::shape::{Shape, ShapeKind, TextAlign};
+use crate::uml::{self, Relation};
 
 const Y: Rgba8 = STICKY_COLORS[0];
 const O: Rgba8 = STICKY_COLORS[1];
@@ -83,6 +84,13 @@ pub enum Template {
     Matrix,
     Kanban,
     Meeting,
+    // 図解(UML・ER)
+    UmlClass,
+    Er,
+    Sequence,
+    UseCase,
+    StateMachine,
+    Activity,
 }
 
 /// テンプレートの分類(選ぶ画面の見出し)。
@@ -92,14 +100,16 @@ pub enum Category {
     Workshop,
     Strategy,
     Planning,
+    Diagram,
 }
 
 impl Category {
-    pub const ALL: [Category; 4] = [
+    pub const ALL: [Category; 5] = [
         Category::Retro,
         Category::Workshop,
         Category::Strategy,
         Category::Planning,
+        Category::Diagram,
     ];
 
     pub fn title(self) -> &'static str {
@@ -108,6 +118,7 @@ impl Category {
             Category::Workshop => "ワークショップ",
             Category::Strategy => "戦略・企画",
             Category::Planning => "計画・進行",
+            Category::Diagram => "図解(UML・ER)",
         }
     }
 }
@@ -294,7 +305,7 @@ const RESEARCH_STEPS: &[Step] = &[
 ];
 
 impl Template {
-    pub const ALL: [Template; 53] = [
+    pub const ALL: [Template; 59] = [
         Template::Kpt,
         Template::WentWell,
         Template::Ywt,
@@ -348,6 +359,12 @@ impl Template {
         Template::Matrix,
         Template::Kanban,
         Template::Meeting,
+        Template::UmlClass,
+        Template::Er,
+        Template::Sequence,
+        Template::UseCase,
+        Template::StateMachine,
+        Template::Activity,
     ];
 
     /// (名前, 表示名, 説明, 分類)
@@ -621,6 +638,42 @@ impl Template {
                 "定例ミーティング",
                 "議題・決定事項・宿題",
                 Planning,
+            ),
+            Template::UmlClass => (
+                "uml-class",
+                "UML クラス図",
+                "クラス・継承・実現・集約・コンポジション・依存",
+                Diagram,
+            ),
+            Template::Er => (
+                "er",
+                "ER 図",
+                "テーブルと 1 対多の関係(カラスの足)",
+                Diagram,
+            ),
+            Template::Sequence => (
+                "sequence",
+                "シーケンス図",
+                "ライフライン・メッセージ・戻り・alt",
+                Diagram,
+            ),
+            Template::UseCase => (
+                "use-case",
+                "ユースケース図",
+                "アクター・システム境界・include",
+                Diagram,
+            ),
+            Template::StateMachine => (
+                "state-machine",
+                "状態遷移図",
+                "開始・状態・遷移・終了",
+                Diagram,
+            ),
+            Template::Activity => (
+                "activity",
+                "アクティビティ図",
+                "スイムレーンと分岐のある流れ",
+                Diagram,
             ),
         }
     }
@@ -1015,6 +1068,21 @@ impl Template {
                 },
             ],
             Roadmap | SprintPlanning | Kanban | StoryMap | Moscow => PLAN_STEPS,
+            UmlClass | Er | UseCase | StateMachine | Activity => DIAGRAM_STEPS,
+            Sequence => &[
+                Step {
+                    label: "ライフラインを複製(Ctrl/⌘+D)して名前を書き換える",
+                    action: StepAction::None,
+                },
+                Step {
+                    label: "メッセージの矢印を複製して上下に並べる(スナップでそろう)",
+                    action: StepAction::None,
+                },
+                Step {
+                    label: "戻りは書式バーで破線、同期呼び出しは黒三角にする",
+                    action: StepAction::None,
+                },
+            ],
             Meeting => &[
                 Step {
                     label: "議題を確認",
@@ -1032,6 +1100,22 @@ impl Template {
         }
     }
 }
+
+/// 図解の進め方(説明だけ)。
+const DIAGRAM_STEPS: &[Step] = &[
+    Step {
+        label: "部品を複製(Ctrl/⌘+D)して名前を書き換える。部品は図形パネルの「UML・ER」にもある",
+        action: StepAction::None,
+    },
+    Step {
+        label: "線を選び、書式バーで端の記号(継承・集約・カラスの足など)と破線を選ぶ",
+        action: StepAction::None,
+    },
+    Step {
+        label: "右クリック → 図を自動整列 で並べ直す",
+        action: StepAction::None,
+    },
+];
 
 /// 要素を組み立てる。座標は左上を原点にして置き、最後にまとめて動かす。
 struct Builder<'a> {
@@ -1112,6 +1196,31 @@ impl Builder<'_> {
         );
         c.style = style;
         c.end_cap = cap;
+        self.push(c)
+    }
+
+    /// 複数の要素でできた部品(UML のクラスなど)を置く。返り値は線をつなぐ要素。
+    fn part(
+        &mut self,
+        f: impl FnOnce(&mut dyn FnMut() -> ElementId) -> (Vec<Element>, ElementId),
+    ) -> ElementId {
+        let board = &mut *self.board;
+        let (els, main) = f(&mut || board.alloc_id());
+        self.elements.extend(els);
+        main
+    }
+
+    /// UML・ER の線。
+    fn rel(
+        &mut self,
+        from: ElementId,
+        to: ElementId,
+        kind: uml::Relation,
+        label: &str,
+    ) -> ElementId {
+        let id = self.id();
+        let mut c = uml::relation(id, from, to, kind);
+        c.text = label.into();
         self.push(c)
     }
 
@@ -1807,6 +1916,249 @@ fn build(t: Template, b: &mut Builder<'_>) {
                 900.0,
                 22.0,
             );
+        }
+
+        // ---- 図解(UML・ER) ----
+        UmlClass => {
+            let at = |x: f32, y: f32| Vec2::new(x, y);
+            let customer = b.part(|a| {
+                uml::class_box(
+                    a,
+                    at(0.0, 0.0),
+                    "顧客",
+                    &["- id: int\n- name: String", "+ order(): 注文"],
+                )
+            });
+            let order = b.part(|a| {
+                uml::class_box(
+                    a,
+                    at(400.0, 0.0),
+                    "注文",
+                    &[
+                        "- id: int\n- orderedAt: Date",
+                        "+ total(): int\n+ pay(): bool",
+                    ],
+                )
+            });
+            let line = b.part(|a| {
+                uml::class_box(
+                    a,
+                    at(800.0, 0.0),
+                    "注文明細",
+                    &["- quantity: int", "+ subtotal(): int"],
+                )
+            });
+            let product = b.part(|a| {
+                uml::class_box(
+                    a,
+                    at(1200.0, 0.0),
+                    "商品",
+                    &["- name: String\n- price: int", ""],
+                )
+            });
+            let payment = b.part(|a| {
+                uml::class_box(
+                    a,
+                    at(400.0, 340.0),
+                    "«interface»\n支払い方法",
+                    &["+ pay(amount: int): bool"],
+                )
+            });
+            let card = b.part(|a| {
+                uml::class_box(
+                    a,
+                    at(160.0, 620.0),
+                    "クレジットカード",
+                    &["- number: String", "+ pay(amount: int): bool"],
+                )
+            });
+            let bank = b.part(|a| {
+                uml::class_box(
+                    a,
+                    at(640.0, 620.0),
+                    "銀行振込",
+                    &["- account: String", "+ pay(amount: int): bool"],
+                )
+            });
+            b.rel(customer, order, Relation::Association, "1 → *");
+            b.rel(order, line, Relation::Composition, "1..*");
+            b.rel(line, product, Relation::Association, "");
+            b.rel(order, payment, Relation::Dependency, "使う");
+            b.rel(card, payment, Relation::Realization, "");
+            b.rel(bank, payment, Relation::Realization, "");
+        }
+        Er => {
+            let at = |x: f32, y: f32| Vec2::new(x, y);
+            let users = b.part(|a| {
+                uml::entity_box(
+                    a,
+                    at(0.0, 0.0),
+                    "users",
+                    "PK  id : int\n     name : text\n     email : text",
+                )
+            });
+            let orders = b.part(|a| {
+                uml::entity_box(
+                    a,
+                    at(420.0, 0.0),
+                    "orders",
+                    "PK  id : int\nFK  user_id : int\n     ordered_at : date",
+                )
+            });
+            let items = b.part(|a| {
+                uml::entity_box(
+                    a,
+                    at(840.0, 0.0),
+                    "order_items",
+                    "PK  id : int\nFK  order_id : int\nFK  product_id : int\n     quantity : int",
+                )
+            });
+            let products = b.part(|a| {
+                uml::entity_box(
+                    a,
+                    at(840.0, 340.0),
+                    "products",
+                    "PK  id : int\nFK  category_id : int\n     name : text\n     price : int",
+                )
+            });
+            let categories = b.part(|a| {
+                uml::entity_box(
+                    a,
+                    at(420.0, 340.0),
+                    "categories",
+                    "PK  id : int\n     name : text",
+                )
+            });
+            b.rel(users, orders, Relation::OneToMany, "");
+            b.rel(orders, items, Relation::OneToMany, "");
+            b.rel(products, items, Relation::OneToMany, "");
+            b.rel(categories, products, Relation::OneToMany, "");
+        }
+        Sequence => {
+            let names = [":利用者", ":画面", ":API", ":データベース"];
+            let mut centers = Vec::new();
+            for (i, n) in names.iter().enumerate() {
+                let x = i as f32 * 280.0;
+                let head = b.part(|a| uml::lifeline(a, Vec2::new(x, 0.0), n, 560.0));
+                let w = b
+                    .elements
+                    .iter()
+                    .find(|e| e.id() == head)
+                    .map_or(160.0, |e| e.bounds().size().x);
+                centers.push(x + w * 0.5);
+            }
+            let id = b.id();
+            b.push(uml::fragment(
+                id,
+                Vec2::new(centers[2] - 220.0, 250.0),
+                Vec2::new(centers[3] - centers[2] + 320.0, 150.0),
+                "alt [キャッシュにない]",
+            ));
+            let id = b.id();
+            b.push(uml::activation(
+                id,
+                Vec2::new(centers[2] - 8.0, 185.0),
+                265.0,
+            ));
+            let msgs: [(usize, usize, &str, bool); 6] = [
+                (0, 1, "ログインする", false),
+                (1, 2, "POST /login", false),
+                (2, 3, "SELECT users", false),
+                (3, 2, "行", true),
+                (2, 1, "トークン", true),
+                (1, 0, "マイページ", true),
+            ];
+            for (k, (from, to, text, reply)) in msgs.into_iter().enumerate() {
+                // alt の枠の見出しと重ならないよう、枠の中は少し下げる。
+                let y = [130.0, 200.0, 300.0, 360.0, 440.0, 510.0][k];
+                let id = b.id();
+                b.push(uml::message(id, centers[from], centers[to], y, text, reply));
+            }
+        }
+        UseCase => {
+            let id = b.id();
+            let mut f = Shape::frame(id, Vec2::new(260.0, 0.0), Vec2::new(380.0, 600.0));
+            f.text = "オンラインショップ".into();
+            b.push(f);
+            let cases: Vec<ElementId> = ["商品を探す", "注文する", "支払う", "在庫を管理する"]
+                .iter()
+                .enumerate()
+                .map(|(i, name)| {
+                    let id = b.id();
+                    b.push(uml::use_case(
+                        id,
+                        Vec2::new(340.0, 40.0 + i as f32 * 140.0),
+                        name,
+                    ))
+                })
+                .collect();
+            let buyer = b.part(|a| uml::actor(a, Vec2::new(0.0, 150.0), "購入者"));
+            let staff = b.part(|a| uml::actor(a, Vec2::new(820.0, 380.0), "店舗スタッフ"));
+            b.rel(buyer, cases[0], Relation::Line, "");
+            b.rel(buyer, cases[1], Relation::Line, "");
+            b.rel(cases[1], cases[2], Relation::Dependency, "«include»");
+            b.rel(staff, cases[3], Relation::Line, "");
+        }
+        StateMachine => {
+            let id = b.id();
+            let start = b.push(uml::initial_state(id, Vec2::new(0.0, 59.0)));
+            let names = ["下書き", "申請中", "承認済み"];
+            let states: Vec<ElementId> = names
+                .iter()
+                .enumerate()
+                .map(|(i, n)| {
+                    let id = b.id();
+                    b.push(uml::state(id, Vec2::new(120.0 + i as f32 * 300.0, 40.0), n))
+                })
+                .collect();
+            let id = b.id();
+            let back = b.push(uml::state(id, Vec2::new(420.0, 260.0), "差し戻し"));
+            let end = b.part(|a| uml::final_state(a, Vec2::new(1060.0, 55.0)));
+            b.rel(start, states[0], Relation::Association, "");
+            b.rel(states[0], states[1], Relation::Association, "申請する");
+            b.rel(states[1], states[2], Relation::Association, "承認する");
+            b.rel(states[1], back, Relation::Transition, "差し戻す");
+            b.rel(back, states[0], Relation::Transition, "直す");
+            b.rel(states[2], end, Relation::Association, "公開");
+        }
+        Activity => {
+            let lane = Vec2::new(380.0, 900.0);
+            b.frame("利用者", Vec2::ZERO, lane);
+            b.frame("システム", Vec2::new(lane.x + 20.0, 0.0), lane);
+            let left = lane.x * 0.5;
+            let right = lane.x + 20.0 + lane.x * 0.5;
+            let id = b.id();
+            let start = b.push(uml::initial_state(id, Vec2::new(left - 16.0, 40.0)));
+            let action = |b: &mut Builder<'_>, cx: f32, y: f32, text: &str| {
+                let id = b.id();
+                b.push(uml::state(id, Vec2::new(cx - 90.0, y), text))
+            };
+            let apply = action(b, left, 130.0, "申し込む");
+            let check = action(b, right, 260.0, "入力を確かめる");
+            let id = b.id();
+            let mut d = Shape::new(
+                id,
+                ShapeKind::Diamond,
+                Vec2::new(right - 80.0, 400.0),
+                Vec2::new(160.0, 100.0),
+                WHITE,
+            );
+            d.stroke = uml::INK;
+            d.text = "正しい?".into();
+            d.font_size = 16.0;
+            let decide = b.push(d);
+            let fix = action(b, left, 410.0, "入力を直す");
+            let save = action(b, right, 580.0, "登録する");
+            let notify = action(b, left, 700.0, "完了メールを読む");
+            let end = b.part(|a| uml::final_state(a, Vec2::new(left - 20.0, 820.0)));
+            b.rel(start, apply, Relation::Association, "");
+            b.rel(apply, check, Relation::Association, "");
+            b.rel(check, decide, Relation::Association, "");
+            b.rel(decide, fix, Relation::Association, "いいえ");
+            b.rel(fix, check, Relation::Association, "");
+            b.rel(decide, save, Relation::Association, "はい");
+            b.rel(save, notify, Relation::Association, "");
+            b.rel(notify, end, Relation::Association, "");
         }
     }
 }

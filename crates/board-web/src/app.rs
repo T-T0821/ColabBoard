@@ -17,6 +17,7 @@ use web_sys::{
 mod a11y;
 mod actions;
 mod ai;
+mod ai_board;
 mod call_ui;
 mod collab;
 mod comments;
@@ -25,8 +26,10 @@ mod follow;
 mod format_bar;
 mod history;
 mod imports;
+mod ink_ui;
 mod issues;
 mod media;
+mod mindmap_ui;
 mod offline;
 mod plugins_ui;
 mod prefs;
@@ -98,6 +101,7 @@ struct App {
     workshop: workshop::Workshop,
     slides: slides::Slides,
     format_bar: format_bar::FormatBar,
+    mind: mindmap_ui::MindUi,
     search: search_ui::Search,
     a11y: a11y::A11y,
     comments: comments::Comments,
@@ -119,6 +123,8 @@ struct App {
     syncs: u32,
     /// 指・ペンの操作(タップ・長押し・手のひらの無視)。
     touch: touch::Touch,
+    /// Web に公開したページから開いた(`&public`)。見るだけで、カーソルも送らない。
+    public_view: bool,
 }
 
 struct Hud {
@@ -257,6 +263,11 @@ pub async fn run() -> Result<(), String> {
         && let crate::home::Outcome::Shown = crate::home::run(&window, &document).await?
     {
         return Ok(());
+    }
+    // Web に公開したページから来た(`&public`)。編集用の UI を隠す。
+    let public_view = params.has("public");
+    if public_view && let Some(body) = document.body() {
+        let _ = body.class_list().add_1("public-view");
     }
     // 共有リンクの鍵(`&key=`)。
     let key = params.get("key").filter(|k| valid_room(k));
@@ -399,6 +410,7 @@ pub async fn run() -> Result<(), String> {
         workshop: workshop::Workshop::new(&document)?,
         slides: slides::Slides::new(&document)?,
         format_bar: format_bar::FormatBar::default(),
+        mind: mindmap_ui::MindUi::default(),
         search: search_ui::Search::default(),
         a11y: a11y::A11y::default(),
         comments: comments::Comments::new(&document)?,
@@ -412,6 +424,7 @@ pub async fn run() -> Result<(), String> {
         access_slot: Rc::default(),
         syncs: 0,
         touch: touch::Touch::default(),
+        public_view,
     }));
     {
         let mut a = app.borrow_mut();
@@ -452,6 +465,7 @@ pub async fn run() -> Result<(), String> {
     actions::install_context_menu(&app)?;
     toolbar::install(&app)?;
     format_bar::install(&app)?;
+    mindmap_ui::install(&app)?;
     reactions::install(&app)?;
     media::install(&app)?;
     templates_ui::install(&app)?;
@@ -752,7 +766,8 @@ impl App {
             for u in self.board.take_outgoing() {
                 net.send(&Message::Update(u));
             }
-            if self.presence_sent != Some(self.cursor_world)
+            if !self.public_view
+                && self.presence_sent != Some(self.cursor_world)
                 && now - self.presence_sent_at >= PRESENCE_INTERVAL_MS
             {
                 let (x, y) = self
@@ -940,6 +955,7 @@ impl App {
         self.a11y_frame(now);
         self.touch_frame(now);
         self.call_frame();
+        self.mind_frame();
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
         if (w, h) != self.renderer.size() {
@@ -971,6 +987,7 @@ impl App {
         if self.dirty {
             self.layout_collab();
             self.layout_format_bar();
+            self.layout_mind_panel();
             self.layout_comments();
         }
         if !(self.dirty || self.continuous) {
@@ -994,7 +1011,8 @@ impl App {
         }
 
         self.layout_text_editor();
-        let overlay = self.editor.overlay(&self.board, &self.camera);
+        let mut overlay = self.editor.overlay(&self.board, &self.camera);
+        self.mind_overlay(&mut overlay);
         let editing = self.editor.editing();
         let started = now_ms(&self.window);
         match self
@@ -1125,6 +1143,11 @@ impl App {
             self.pointers.remove(&id);
             return;
         }
+        if e.button() == 0 && self.pointers.len() == 1 && self.mind_pointer_down(p) {
+            self.pointers.remove(&id);
+            self.update_cursor(Some(p));
+            return;
+        }
 
         let wants_nav = e.button() == 1
             || !self.can_edit()
@@ -1155,6 +1178,7 @@ impl App {
             };
             self.editor
                 .pointer_down(&mut self.board, &self.camera, p, mods);
+            self.mind_after_pointer_down();
         }
         self.dirty = true;
         self.update_cursor(Some(p));
@@ -1221,6 +1245,7 @@ impl App {
         } else if self.editor.pointer_up(&mut self.board, &self.camera, p) {
             self.dirty = true;
         }
+        self.mind_pointer_up(p);
         // ドラッグ 1 回を 1 つの Undo 単位にする。
         self.board.end_gesture();
         if let Some(id) = self.editor.take_pending_edit() {
@@ -1331,6 +1356,9 @@ impl App {
         }
         if let Some(a) = actions::action_for_key(e) {
             self.run_action(a);
+            return true;
+        }
+        if self.mind_key(e) {
             return true;
         }
         let key = e.key();
@@ -1563,6 +1591,18 @@ fn install_text_editor(app: &Rc<RefCell<App>>) -> Result<(), String> {
             if e.is_composing() {
                 return;
             }
+            // マインドマップのノードでは Tab で子を足し、Enter で確定する。
+            if matches!(e.key().as_str(), "Tab" | "Enter") {
+                let handled = app.borrow_mut().mind_editor_key(&e);
+                if handled {
+                    e.prevent_default();
+                    if e.key() == "Enter" {
+                        // blur で確定する(ノードは選ばれたまま)。
+                        let _ = el2.blur();
+                    }
+                    return;
+                }
+            }
             // 表のセルでは Tab / Shift+Tab で隣のセルへ。
             if e.key() == "Tab" {
                 let next = {
@@ -1733,6 +1773,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     })?;
     collab::install(app, doc)?;
     ai::install(app, doc)?;
+    ai_board::install(app, doc)?;
     follow::install(app, doc)?;
     workshop::install(app, doc)?;
     slides::install(app, doc)?;

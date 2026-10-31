@@ -102,11 +102,21 @@ impl Ai {
         user: String,
         schema: Value,
     ) -> Result<Value, AiError> {
+        self.call_content(system, Value::String(user), schema).await
+    }
+
+    /// [`Self::call`] と同じだが、本文に画像などのブロックの配列も渡せる。
+    pub(crate) async fn call_content(
+        &self,
+        system: &str,
+        content: Value,
+        schema: Value,
+    ) -> Result<Value, AiError> {
         let body = json!({
             "model": self.config.model,
             "max_tokens": 16000,
             "system": system,
-            "messages": [{ "role": "user", "content": user }],
+            "messages": [{ "role": "user", "content": content }],
             "output_config": {
                 "effort": "medium",
                 "format": { "type": "json_schema", "schema": schema },
@@ -356,14 +366,14 @@ fn room_board(hub: &Hub, room: &str) -> Result<Board, AiError> {
     Ok(board)
 }
 
-/// 権限を確かめ、対象の付箋を集める。
-fn prepare(
+/// AI が有効で、このボードの編集権限があることを確かめ、ボードの今の状態を返す。
+/// 呼びすぎの制限([`Ai::try_acquire`])は、ほかの断る理由を確かめてから呼び出し側で掛ける。
+pub(crate) fn authorize(
     state: &AppState,
     headers: &HeaderMap,
     room: &str,
     key: Option<&str>,
-    req: &AiRequest,
-) -> Result<(Arc<Ai>, Vec<Note>), AiError> {
+) -> Result<(Arc<Ai>, Board), AiError> {
     let ai = state.config.ai.clone().ok_or(AiError::Disabled)?;
     let user = api::current_user(state, headers).map_err(AiError::Api)?;
     let (_, role) = api::board_access(state, room, user.as_ref().map(|u| u.login.as_str()), key)
@@ -372,6 +382,18 @@ fn prepare(
         return Err(AiError::Forbidden);
     }
     let board = room_board(&state.hub, room)?;
+    Ok((ai, board))
+}
+
+/// 権限を確かめ、対象の付箋を集める。
+fn prepare(
+    state: &AppState,
+    headers: &HeaderMap,
+    room: &str,
+    key: Option<&str>,
+    req: &AiRequest,
+) -> Result<(Arc<Ai>, Vec<Note>), AiError> {
+    let (ai, board) = authorize(state, headers, room, key)?;
     let notes = collect_notes(&board, &req.ids)?;
     if !ai.try_acquire(room) {
         return Err(AiError::Busy);

@@ -11,12 +11,13 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use board_core::api::{
     ApiError, BoardInfo, Comment, EditComment, Login, MarkRead, Me, NewBoard, NewComment,
-    NewVersion, Notification, Posted, RenameBoard, Role, SetBoardTeam, SetLink, SetMember, Sharing,
-    Signup, VersionInfo,
+    NewVersion, Notification, Posted, RenameBoard, Role, SetBoardTeam, SetLink, SetMember,
+    SetPublic, Sharing, Signup, VersionInfo,
 };
 use board_core::protocol::{TOPIC_COMMENTS, TOPIC_VERSIONS};
 use serde::Deserialize;
 
+use crate::audit::{self, Entry};
 use crate::auth::{self, AuthError, SESSION_COOKIE, UserRecord};
 use crate::boards::{self, BoardMeta, Visitor};
 use crate::comments::{self, CommentError};
@@ -41,6 +42,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/boards/{id}/link", put(set_link))
         .route("/boards/{id}/embed", put(set_embed))
         .route("/boards/{id}/team", put(set_board_team))
+        .route("/boards/{id}/public", put(set_public))
         .route(
             "/boards/{id}/slack",
             get(slack::get_settings).put(slack::set_settings),
@@ -229,11 +231,17 @@ async fn blocking<T: Send + 'static>(
 
 async fn signup(
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
     Json(req): Json<Signup>,
 ) -> ApiResult<Response> {
     let store = state.store().clone();
     let user = blocking(move || auth::signup(&store, &req.login, &req.name, &req.password)).await?;
     tracing::info!(login = %user.login, "アカウント作成");
+    audit::record(
+        &state,
+        &headers,
+        Entry::new("auth.signup").actor(&user.login),
+    );
     let token = auth::create_session(state.store(), &user.login)?;
     Ok(with_cookie(
         auth::session_cookie(&token, state.config.secure_cookies),
@@ -241,9 +249,31 @@ async fn signup(
     ))
 }
 
-async fn login(State(state): State<Arc<AppState>>, Json(req): Json<Login>) -> ApiResult<Response> {
+async fn login(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<Login>,
+) -> ApiResult<Response> {
     let store = state.store().clone();
-    let user = blocking(move || auth::check_login(&store, &req.login, &req.password)).await?;
+    let attempted = req.login.trim().to_ascii_lowercase();
+    let user = match blocking(move || auth::check_login(&store, &req.login, &req.password)).await {
+        Ok(u) => u,
+        Err(e) => {
+            if board_core::api::valid_login(&attempted) {
+                audit::record(
+                    &state,
+                    &headers,
+                    Entry::new("auth.login_failed").target(attempted),
+                );
+            }
+            return Err(e);
+        }
+    };
+    audit::record(
+        &state,
+        &headers,
+        Entry::new("auth.login").actor(&user.login),
+    );
     let token = auth::create_session(state.store(), &user.login)?;
     Ok(with_cookie(
         auth::session_cookie(&token, state.config.secure_cookies),
@@ -253,6 +283,9 @@ async fn login(State(state): State<Arc<AppState>>, Json(req): Json<Login>) -> Ap
 
 async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> ApiResult<Response> {
     if let Some(t) = session_token(&headers) {
+        if let Some(u) = auth::session_user(state.store(), t)? {
+            audit::record(&state, &headers, Entry::new("auth.logout").actor(&u.login));
+        }
         auth::delete_session(state.store(), t)?;
     }
     Ok(with_cookie(
@@ -262,7 +295,10 @@ async fn logout(State(state): State<Arc<AppState>>, headers: HeaderMap) -> ApiRe
 }
 
 async fn me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> ApiResult<Json<Me>> {
-    Ok(Json(require_user(&state, &headers)?.me()))
+    let user = require_user(&state, &headers)?;
+    let mut me = user.me();
+    me.admin = state.config.is_admin(&user.login);
+    Ok(Json(me))
 }
 
 // ---- ボード ----
@@ -290,6 +326,15 @@ async fn create_board(
     }
     let meta = boards::create(state.store(), &user.login, &req.title, req.team.as_deref())?;
     tracing::info!(board = %meta.id, owner = %user.login, "ボード作成");
+    audit::record(
+        &state,
+        &headers,
+        Entry::new("board.create")
+            .actor(&user.login)
+            .board(&meta.id)
+            .team(meta.team.as_deref())
+            .detail(&meta.title),
+    );
     Ok((StatusCode::CREATED, Json(meta.info(Role::Owner, None))))
 }
 
@@ -341,6 +386,15 @@ async fn rename_board(
     meta.title = boards::clean_title(&req.title);
     meta.updated = auth::now_ms();
     boards::put(state.store(), &meta)?;
+    audit::record(
+        &state,
+        &headers,
+        Entry::new("board.rename")
+            .actor(&user.login)
+            .board(&id)
+            .team(meta.team.as_deref())
+            .detail(&meta.title),
+    );
     Ok(Json(meta.info(role, q.key)))
 }
 
@@ -351,6 +405,15 @@ async fn delete_board(
 ) -> ApiResult<StatusCode> {
     let user = require_user(&state, &headers)?;
     let mut meta = owned_board(&state, &id, &user, None, Role::Owner)?;
+    audit::record(
+        &state,
+        &headers,
+        Entry::new("board.delete")
+            .actor(&user.login)
+            .board(&id)
+            .team(meta.team.as_deref())
+            .detail(&meta.title),
+    );
     meta.deleted = true;
     meta.members.clear();
     meta.link = None;
@@ -413,6 +476,16 @@ async fn set_member(
     }
     meta.updated = auth::now_ms();
     boards::put(state.store(), &meta)?;
+    audit::record(
+        &state,
+        &headers,
+        Entry::new("board.member")
+            .actor(&user.login)
+            .board(&id)
+            .team(meta.team.as_deref())
+            .target(&login)
+            .detail(req.role.map_or("removed", |r| r.min(Role::Editor).as_str())),
+    );
     // 権限が下がった人がいるかもしれないので、つなぎ直させて確かめ直す。
     state.hub.kick(&id);
     Ok(Json(meta.sharing()))
@@ -429,6 +502,20 @@ async fn set_link(
     boards::set_link(&mut meta, req.role, req.regenerate);
     meta.updated = auth::now_ms();
     boards::put(state.store(), &meta)?;
+    let detail = match &meta.link {
+        Some(l) if req.regenerate => format!("{} (鍵を再発行)", l.role.as_str()),
+        Some(l) => l.role.as_str().to_string(),
+        None => "disabled".into(),
+    };
+    audit::record(
+        &state,
+        &headers,
+        Entry::new("board.link")
+            .actor(&user.login)
+            .board(&id)
+            .team(meta.team.as_deref())
+            .detail(detail),
+    );
     state.hub.kick(&id);
     Ok(Json(meta.sharing()))
 }
@@ -460,6 +547,7 @@ async fn set_board_team(
     if let Some(team) = &req.team {
         crate::teams::member_team(state.store(), team, &user.login)?;
     }
+    let old_team = meta.team.clone();
     if meta.team != req.team {
         if let Some(old) = meta.team.take() {
             boards::detach(state.store(), &old, &id)?;
@@ -475,9 +563,53 @@ async fn set_board_team(
         .map(|r| r.min(Role::Editor));
     meta.updated = auth::now_ms();
     boards::put(state.store(), &meta)?;
+    // 元のチームと新しいチームの両方のログに残す。
+    let mut scopes: Vec<Option<String>> = [old_team, meta.team.clone()]
+        .into_iter()
+        .flatten()
+        .map(Some)
+        .collect();
+    scopes.dedup();
+    if scopes.is_empty() {
+        scopes.push(None);
+    }
+    let detail = match &meta.team {
+        Some(t) => format!("{t} ({})", meta.team_access().as_str()),
+        None => "personal".into(),
+    };
+    for team in scopes {
+        audit::record(
+            &state,
+            &headers,
+            Entry::new("board.team")
+                .actor(&user.login)
+                .board(&id)
+                .team(team)
+                .detail(&detail),
+        );
+    }
     state.hub.kick(&id);
     let (_, role) = board_access(&state, &id, Some(&user.login), None)?;
     Ok(Json(meta.info(role, None)))
+}
+
+async fn set_public(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(req): Json<SetPublic>,
+) -> ApiResult<Json<Sharing>> {
+    let user = require_user(&state, &headers)?;
+    let mut meta = owned_board(&state, &id, &user, None, Role::Owner)?;
+    let before = meta.public.clone();
+    boards::set_public(&mut meta, req.enabled, req.regenerate);
+    meta.updated = auth::now_ms();
+    boards::put(state.store(), &meta)?;
+    // 古い URL で見ている人は切る。
+    if before.is_some() && before != meta.public {
+        state.hub.kick(&id);
+    }
+    Ok(Json(meta.sharing()))
 }
 
 // ---- コメント ----
@@ -705,6 +837,13 @@ async fn restore_version(
         .map_err(|e| Error::from(StoreError::from(e.to_string())))?
         .map_err(|e| Error::bad_request(format!("戻せませんでした: {e}")))?;
     tracing::info!(board = %id, version = vid, "バージョンを復元");
+    let team = boards::get(state.store(), &id)?.and_then(|m| m.team);
+    let mut entry = Entry::new("board.restore")
+        .board(&id)
+        .team(team)
+        .target(vid.to_string());
+    entry.actor = user.as_ref().map(|u| u.login.clone());
+    audit::record(&state, &headers, entry);
     state.hub.refresh(&id, TOPIC_VERSIONS);
     let meta = boards::get(state.store(), &id)?;
     let who = user.as_ref().map(|u| u.name.as_str());
