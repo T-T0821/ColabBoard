@@ -9,9 +9,9 @@ use crate::arrange;
 use crate::board::Board;
 use crate::camera::Camera;
 use crate::color::{Rgba8, STICKY_COLORS};
-use crate::element::{Element, ElementId, Stroke};
+use crate::element::{Connector, Element, ElementId, Endpoint, PathStyle, Stroke};
 use crate::geom::Rect;
-use crate::shape::Shape;
+use crate::shape::{Shape, ShapeKind};
 
 /// 選択枠や範囲選択の色。
 pub const ACCENT: Rgba8 = Rgba8::hex(0x2f6fed);
@@ -20,31 +20,45 @@ pub const ACCENT: Rgba8 = Rgba8::hex(0x2f6fed);
 pub enum Tool {
     Select,
     Hand,
-    Rect,
-    Ellipse,
     Sticky,
+    /// 図形ライブラリの図形(種類は `Editor::shape_kind`)。
+    Shape,
+    Text,
+    Connector,
     Pen,
+    Highlighter,
+    Eraser,
+    Frame,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 6] = [
+    pub const ALL: [Tool; 10] = [
         Tool::Select,
         Tool::Hand,
-        Tool::Rect,
-        Tool::Ellipse,
         Tool::Sticky,
+        Tool::Shape,
+        Tool::Text,
+        Tool::Connector,
         Tool::Pen,
+        Tool::Highlighter,
+        Tool::Eraser,
+        Tool::Frame,
     ];
 
-    /// キーボードショートカット。
-    pub fn from_key(key: &str) -> Option<Tool> {
+    /// キーボードショートカット。図形の種類も決まるものは `Some(kind)` を返す。
+    pub fn from_key(key: &str) -> Option<(Tool, Option<ShapeKind>)> {
         Some(match key {
-            "v" | "V" => Tool::Select,
-            "h" | "H" => Tool::Hand,
-            "r" | "R" => Tool::Rect,
-            "o" | "O" => Tool::Ellipse,
-            "s" | "S" => Tool::Sticky,
-            "p" | "P" => Tool::Pen,
+            "v" | "V" => (Tool::Select, None),
+            "h" | "H" => (Tool::Hand, None),
+            "s" | "S" => (Tool::Sticky, None),
+            "r" | "R" => (Tool::Shape, Some(ShapeKind::Rect)),
+            "o" | "O" => (Tool::Shape, Some(ShapeKind::Ellipse)),
+            "t" | "T" => (Tool::Text, None),
+            "x" | "X" => (Tool::Connector, None),
+            "p" | "P" => (Tool::Pen, None),
+            "m" | "M" => (Tool::Highlighter, None),
+            "e" | "E" => (Tool::Eraser, None),
+            "f" | "F" => (Tool::Frame, None),
             _ => return None,
         })
     }
@@ -53,11 +67,23 @@ impl Tool {
         match self {
             Tool::Select => "select",
             Tool::Hand => "hand",
-            Tool::Rect => "rect",
-            Tool::Ellipse => "ellipse",
             Tool::Sticky => "sticky",
+            Tool::Shape => "shape",
+            Tool::Text => "text",
+            Tool::Connector => "connector",
             Tool::Pen => "pen",
+            Tool::Highlighter => "highlighter",
+            Tool::Eraser => "eraser",
+            Tool::Frame => "frame",
         }
+    }
+
+    /// 1 回使ったら選択ツールに戻るか。
+    fn one_shot(self) -> bool {
+        matches!(
+            self,
+            Tool::Sticky | Tool::Shape | Tool::Text | Tool::Connector | Tool::Frame
+        )
     }
 }
 
@@ -176,6 +202,13 @@ enum Drag {
     Draw {
         id: ElementId,
     },
+    /// コネクタの端をつかんで動かしている(新しく引いているときも)。
+    ConnectorEnd {
+        id: ElementId,
+        /// true なら終点。
+        end: bool,
+    },
+    Erase,
 }
 
 /// 点の下にある最前面の要素(ロック中の要素は素通りする)。
@@ -185,6 +218,34 @@ fn pick(board: &Board, world: Vec2, tolerance: f32) -> Option<&Element> {
         .iter()
         .rev()
         .find(|e| !e.is_locked() && e.hit(world, tolerance))
+}
+
+/// コネクタの端をつなげる相手(図形のみ、`except` 以外)。
+fn connect_target(
+    board: &Board,
+    world: Vec2,
+    camera: &Camera,
+    except: Option<ElementId>,
+) -> Option<ElementId> {
+    let tol = HIT_TOLERANCE_PX / camera.zoom;
+    board
+        .elements()
+        .iter()
+        .rev()
+        .filter(|e| matches!(e, Element::Shape(s) if s.kind != ShapeKind::Frame))
+        .find(|e| Some(e.id()) != except && e.hit(world, tol))
+        .map(Element::id)
+}
+
+/// 消しゴム: 点の近くの手書き線を消す。消したら true。
+fn erase_at(board: &mut Board, world: Vec2, tolerance: f32) -> bool {
+    let hit: Vec<ElementId> = board
+        .elements()
+        .iter()
+        .filter(|e| matches!(e, Element::Stroke(_)) && !e.is_locked() && e.hit(world, tolerance))
+        .map(Element::id)
+        .collect();
+    !hit.is_empty() && board.remove(&hit) > 0
 }
 
 /// 1 人分の編集状態。
@@ -199,6 +260,11 @@ pub struct Editor {
     pub sticky_color: Rgba8,
     pub pen_color: Rgba8,
     pub pen_width: f32,
+    pub highlighter_color: Rgba8,
+    pub shape_kind: ShapeKind,
+    pub connector_style: PathStyle,
+    /// コネクタを引いているときに、つながりそうな要素(強調表示用)。
+    hover_target: Option<ElementId>,
 }
 
 impl Default for Editor {
@@ -226,6 +292,10 @@ impl Editor {
             sticky_color: STICKY_COLORS[0],
             pen_color: Rgba8::BLACK,
             pen_width: 3.0,
+            highlighter_color: Rgba8([0xff, 0xe0, 0x33, 0x66]),
+            shape_kind: ShapeKind::Rect,
+            connector_style: PathStyle::default(),
+            hover_target: None,
         }
     }
 
@@ -237,6 +307,12 @@ impl Editor {
         self.tool = tool;
     }
 
+    /// 図形ツールにして種類を選ぶ。
+    pub fn set_shape_kind(&mut self, kind: ShapeKind) {
+        self.tool = Tool::Shape;
+        self.shape_kind = kind;
+    }
+
     pub fn selection(&self) -> &[ElementId] {
         &self.selection
     }
@@ -245,9 +321,12 @@ impl Editor {
         self.editing
     }
 
-    /// 文字編集を始める。図形(付箋・四角形・楕円)だけが対象。
+    /// 文字編集を始める。図形とコネクタ(ラベル)が対象。
     pub fn begin_edit(&mut self, board: &Board, id: ElementId) -> bool {
-        if board.get(id).and_then(Element::as_shape).is_none() {
+        if board
+            .get(id)
+            .is_none_or(|e| e.text_box().is_none() || e.is_locked())
+        {
             return false;
         }
         self.drag = None;
@@ -262,11 +341,15 @@ impl Editor {
             return;
         };
         if let Some(text) = text {
-            board.update(id, |e| {
-                if let Element::Shape(s) = e {
-                    s.text = text;
-                }
-            });
+            board.update(id, |e| e.set_text(text));
+        }
+        // 中身のない文字要素は残さない。
+        let empty_text = board.get(id).is_some_and(|e| {
+            matches!(e, Element::Shape(s) if s.kind == ShapeKind::Text && s.text.trim().is_empty())
+        });
+        if empty_text {
+            board.remove(&[id]);
+            self.selection.retain(|s| *s != id);
         }
     }
 
@@ -274,7 +357,7 @@ impl Editor {
     pub fn editable_at(&self, board: &Board, camera: &Camera, screen: Vec2) -> Option<ElementId> {
         let world = camera.screen_to_world(screen);
         pick(board, world, HIT_TOLERANCE_PX / camera.zoom)
-            .filter(|e| e.as_shape().is_some())
+            .filter(|e| e.text_box().is_some())
             .map(Element::id)
     }
 
@@ -336,9 +419,12 @@ impl Editor {
     pub fn apply_color(&mut self, board: &mut Board, c: Rgba8) {
         match self.tool {
             Tool::Pen => self.pen_color = c,
+            Tool::Highlighter => {
+                self.highlighter_color = Rgba8([c.0[0], c.0[1], c.0[2], 0x66]);
+            }
             Tool::Sticky => self.sticky_color = c,
-            Tool::Rect | Tool::Ellipse => self.shape_fill = c,
-            Tool::Select | Tool::Hand => {}
+            Tool::Shape => self.shape_fill = c,
+            _ => {}
         }
         for id in self.selection.clone() {
             board.update(id, |e| e.set_color(c));
@@ -349,7 +435,32 @@ impl Editor {
         board.bounds_of(&self.selection)
     }
 
+    /// 選択中のコネクタが 1 本だけならそれを返す(端のつまみを出す)。
+    fn single_connector<'a>(&self, board: &'a Board) -> Option<&'a Connector> {
+        match self.selection.as_slice() {
+            [id] => match board.get(*id) {
+                Some(Element::Connector(c)) => Some(c),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    /// コネクタの端のつまみ(true なら終点)。
+    fn connector_end_at(&self, board: &Board, camera: &Camera, screen: Vec2) -> Option<bool> {
+        let c = self.single_connector(board)?;
+        [(c.end(), true), (c.start(), false)]
+            .into_iter()
+            .find(|(p, _)| {
+                (camera.world_to_screen(*p) - screen).abs().max_element() <= HANDLE_HIT_PX
+            })
+            .map(|(_, end)| end)
+    }
+
     fn handle_at(&self, board: &Board, camera: &Camera, screen: Vec2) -> Option<(Handle, Rect)> {
+        if self.single_connector(board).is_some() {
+            return None;
+        }
         let r = self.selection_bounds(board)?;
         Handle::ALL.into_iter().find_map(|h| {
             let hs = camera.world_to_screen(h.position(&r));
@@ -361,10 +472,20 @@ impl Editor {
     pub fn cursor(&self, board: &Board, camera: &Camera, screen: Vec2) -> &'static str {
         match self.tool {
             Tool::Hand => "grab",
-            Tool::Rect | Tool::Ellipse | Tool::Sticky | Tool::Pen => "crosshair",
+            Tool::Text => "text",
+            Tool::Eraser => "cell",
+            Tool::Sticky
+            | Tool::Shape
+            | Tool::Connector
+            | Tool::Pen
+            | Tool::Highlighter
+            | Tool::Frame => "crosshair",
             Tool::Select => {
                 if let Some((h, _)) = self.handle_at(board, camera, screen) {
                     return h.cursor();
+                }
+                if self.connector_end_at(board, camera, screen).is_some() {
+                    return "crosshair";
                 }
                 if matches!(self.drag, Some(Drag::Move { .. })) {
                     return "move";
@@ -391,6 +512,11 @@ impl Editor {
         match self.tool {
             Tool::Hand => false,
             Tool::Select => {
+                if let Some(end) = self.connector_end_at(board, camera, screen) {
+                    let id = self.selection[0];
+                    self.drag = Some(Drag::ConnectorEnd { id, end });
+                    return true;
+                }
                 if let Some((handle, orig)) = self.handle_at(board, camera, screen) {
                     let snapshot = self
                         .selection
@@ -442,16 +568,49 @@ impl Editor {
                 }
                 true
             }
-            Tool::Rect | Tool::Ellipse => {
+            Tool::Shape | Tool::Frame | Tool::Text => {
                 let id = board.alloc_id();
-                let shape = if self.tool == Tool::Rect {
-                    Shape::rect(id, world, Vec2::ZERO, self.shape_fill)
-                } else {
-                    Shape::ellipse(id, world, Vec2::ZERO, self.shape_fill)
+                let shape = match self.tool {
+                    Tool::Frame => Shape::frame(id, world, Vec2::ZERO),
+                    Tool::Text => {
+                        let mut t = Shape::text(id, world, Vec2::ZERO);
+                        t.text_color = Rgba8::BLACK;
+                        t
+                    }
+                    _ => Shape::new(id, self.shape_kind, world, Vec2::ZERO, self.shape_fill),
                 };
-                board.push(shape);
+                if self.tool == Tool::Frame {
+                    // フレームは中身より後ろに置く。
+                    let (lo, _) = board.z_range();
+                    board.push(shape);
+                    board.set_z(&[(id, lo - 1.0)]);
+                } else {
+                    board.push(shape);
+                }
                 self.selection = vec![id];
                 self.drag = Some(Drag::Create { id, start: world });
+                true
+            }
+            Tool::Connector => {
+                let id = board.alloc_id();
+                let from = match connect_target(board, world, camera, None) {
+                    Some(t) => Endpoint::Attached {
+                        id: t,
+                        anchor: None,
+                    },
+                    None => Endpoint::Free(world),
+                };
+                let mut c = Connector::new(id, from, Endpoint::Free(world));
+                c.style = self.connector_style;
+                board.push(c);
+                self.selection = vec![id];
+                self.drag = Some(Drag::ConnectorEnd { id, end: true });
+                true
+            }
+            Tool::Eraser => {
+                self.selection.clear();
+                self.drag = Some(Drag::Erase);
+                erase_at(board, world, 8.0 / camera.zoom);
                 true
             }
             Tool::Sticky => {
@@ -469,9 +628,15 @@ impl Editor {
                 });
                 true
             }
-            Tool::Pen => {
+            Tool::Pen | Tool::Highlighter => {
                 let id = board.alloc_id();
-                board.push(Stroke::new(id, world, self.pen_color, self.pen_width));
+                let mut st = if self.tool == Tool::Pen {
+                    Stroke::new(id, world, self.pen_color, self.pen_width)
+                } else {
+                    Stroke::new(id, world, self.highlighter_color, 20.0)
+                };
+                st.highlighter = self.tool == Tool::Highlighter;
+                board.push(st);
                 self.selection.clear();
                 self.drag = Some(Drag::Draw { id });
                 true
@@ -546,6 +711,34 @@ impl Editor {
                     }
                 });
             }
+            Drag::ConnectorEnd { id, end } => {
+                let (id, end) = (*id, *end);
+                let other = board.get(id).and_then(|e| match e {
+                    Element::Connector(c) => if end { c.from } else { c.to }.attached_to(),
+                    _ => None,
+                });
+                self.hover_target = connect_target(board, world, camera, other);
+                let target = self.hover_target;
+                board.update(id, |e| {
+                    if let Element::Connector(c) = e {
+                        let ep = match target {
+                            Some(t) => Endpoint::Attached {
+                                id: t,
+                                anchor: None,
+                            },
+                            None => Endpoint::Free(world),
+                        };
+                        if end {
+                            c.to = ep;
+                        } else {
+                            c.from = ep;
+                        }
+                    }
+                });
+            }
+            Drag::Erase => {
+                return erase_at(board, world, 8.0 / camera.zoom);
+            }
             Drag::Draw { id } => {
                 let min_dist = 1.5 / camera.zoom;
                 let added = board
@@ -564,15 +757,50 @@ impl Editor {
         let world = camera.screen_to_world(screen);
         match self.drag.take() {
             Some(Drag::Create { id, start }) => {
-                // クリックだけなら既定の大きさで置く。
-                if (world - start).abs().max_element() * camera.zoom < CLICK_PX {
-                    board.update(id, |e| {
-                        if let Element::Shape(s) = e {
-                            s.set_bounds(Rect::new(start, start + Vec2::new(160.0, 100.0)));
+                let clicked = (world - start).abs().max_element() * camera.zoom < CLICK_PX;
+                let mut is_text = false;
+                board.update(id, |e| {
+                    if let Element::Shape(s) = e {
+                        is_text = s.kind == ShapeKind::Text;
+                        if clicked {
+                            // クリックだけなら既定の大きさで置く。
+                            let size = match s.kind {
+                                ShapeKind::Frame => Vec2::new(800.0, 600.0),
+                                ShapeKind::Text => Vec2::new(240.0, 40.0),
+                                _ => Vec2::new(160.0, 100.0),
+                            };
+                            s.set_bounds(Rect::new(start, start + size));
                         }
-                    });
+                        s.fit_text_height();
+                    }
+                });
+                if is_text {
+                    self.pending_edit = Some(id);
                 }
-                self.tool = Tool::Select;
+                if self.tool.one_shot() {
+                    self.tool = Tool::Select;
+                }
+                true
+            }
+            Some(Drag::ConnectorEnd { id, .. }) => {
+                self.hover_target = None;
+                // 長さのないコネクタ(クリックしただけ)は消す。
+                let tiny = match board.get(id) {
+                    Some(Element::Connector(c)) => {
+                        c.from
+                            .attached_to()
+                            .is_none_or(|a| c.to.attached_to() == Some(a))
+                            && c.start().distance(c.end()) * camera.zoom < CLICK_PX
+                    }
+                    _ => false,
+                };
+                if tiny {
+                    board.remove(&[id]);
+                    self.selection.clear();
+                }
+                if self.tool.one_shot() {
+                    self.tool = Tool::Select;
+                }
                 true
             }
             Some(Drag::Marquee { .. }) => true,
@@ -584,6 +812,9 @@ impl Editor {
     /// ドラッグを取り消す(2 本目の指が来てピンチに切り替わるときなど)。
     pub fn cancel(&mut self, board: &mut Board) {
         match self.drag.take() {
+            Some(Drag::ConnectorEnd { .. }) => {
+                self.hover_target = None;
+            }
             Some(Drag::Create { id, .. }) | Some(Drag::Draw { id }) => {
                 board.remove(&[id]);
                 self.selection.retain(|s| *s != id);
@@ -617,6 +848,25 @@ impl Editor {
                     out.push(outline(e.bounds(), 1.0));
                 }
             }
+        }
+        if let Some(t) = self.hover_target.and_then(|id| board.get(id)) {
+            out.push(outline(t.bounds(), 2.0));
+        }
+        if let Some(c) = self.single_connector(board) {
+            // コネクタは両端に丸いつまみを出す。
+            let r = 6.0 * px;
+            for p in [c.start(), c.end()] {
+                let mut s = Shape::ellipse(
+                    ElementId(0),
+                    p - Vec2::splat(r),
+                    Vec2::splat(2.0 * r),
+                    Rgba8::WHITE,
+                );
+                s.stroke = ACCENT;
+                s.stroke_width = 2.0 * px;
+                out.push(s);
+            }
+            return out;
         }
         let resizing = matches!(self.drag, Some(Drag::Resize { .. }));
         let show_handles = !matches!(self.drag, Some(Drag::Move { .. }) | Some(Drag::Draw { .. }));
@@ -679,7 +929,7 @@ mod tests {
     #[test]
     fn create_rect_by_drag_then_switch_to_select() {
         let (mut b, c, mut e) = setup();
-        e.set_tool(Tool::Rect);
+        e.set_shape_kind(ShapeKind::Rect);
         e.pointer_down(&mut b, &c, Vec2::new(10.0, 10.0), NO);
         e.pointer_move(&mut b, &c, Vec2::new(110.0, 60.0), NO);
         e.pointer_up(&mut b, &c, Vec2::new(110.0, 60.0));
@@ -693,7 +943,7 @@ mod tests {
     #[test]
     fn click_with_rect_tool_uses_default_size() {
         let (mut b, c, mut e) = setup();
-        e.set_tool(Tool::Ellipse);
+        e.set_shape_kind(ShapeKind::Ellipse);
         e.pointer_down(&mut b, &c, Vec2::new(10.0, 10.0), NO);
         e.pointer_up(&mut b, &c, Vec2::new(11.0, 10.0));
         assert_eq!(b.elements()[0].bounds().size(), Vec2::new(160.0, 100.0));
@@ -757,6 +1007,77 @@ mod tests {
         e.pointer_up(&mut b, &c, Vec2::new(500.0, 260.0));
         let s = b.get(a).unwrap().bounds().size();
         assert!((s.x / s.y - 200.0 / 150.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn connector_tool_attaches_both_ends() {
+        let (mut b, c, mut e) = setup();
+        let a = add_rect(&mut b, Vec2::ZERO, Vec2::splat(100.0));
+        let z = add_rect(&mut b, Vec2::new(300.0, 0.0), Vec2::splat(100.0));
+        e.set_tool(Tool::Connector);
+        e.pointer_down(&mut b, &c, Vec2::splat(50.0), NO);
+        e.pointer_move(&mut b, &c, Vec2::new(200.0, 50.0), NO);
+        assert!(e.overlay(&b, &c).len() >= 2);
+        e.pointer_move(&mut b, &c, Vec2::new(350.0, 50.0), NO);
+        e.pointer_up(&mut b, &c, Vec2::new(350.0, 50.0));
+        assert_eq!(e.tool(), Tool::Select);
+        let Some(Element::Connector(k)) = b.elements().last() else {
+            panic!("connector expected")
+        };
+        assert_eq!(k.from.attached_to(), Some(a));
+        assert_eq!(k.to.attached_to(), Some(z));
+        let kid = k.id;
+
+        // 終点のつまみをつかんで外すと自由な端になる。
+        let end = c.world_to_screen(k.end());
+        e.pointer_down(&mut b, &c, end, NO);
+        e.pointer_move(&mut b, &c, Vec2::new(200.0, 400.0), NO);
+        e.pointer_up(&mut b, &c, Vec2::new(200.0, 400.0));
+        let Some(Element::Connector(k)) = b.get(kid) else {
+            panic!()
+        };
+        assert_eq!(k.to, Endpoint::Free(Vec2::new(200.0, 400.0)));
+
+        // クリックだけのコネクタは残らない。
+        let n = b.len();
+        e.set_tool(Tool::Connector);
+        e.pointer_down(&mut b, &c, Vec2::new(600.0, 600.0), NO);
+        e.pointer_up(&mut b, &c, Vec2::new(600.0, 600.0));
+        assert_eq!(b.len(), n);
+    }
+
+    #[test]
+    fn text_tool_and_eraser() {
+        let (mut b, c, mut e) = setup();
+        e.set_tool(Tool::Text);
+        e.pointer_down(&mut b, &c, Vec2::new(10.0, 10.0), NO);
+        e.pointer_up(&mut b, &c, Vec2::new(10.0, 10.0));
+        let id = e.take_pending_edit().expect("文字入力に入る");
+        assert!(e.begin_edit(&b, id));
+        e.end_edit(&mut b, Some(String::new()));
+        assert!(b.is_empty(), "空の文字要素は消える");
+
+        e.set_tool(Tool::Highlighter);
+        e.pointer_down(&mut b, &c, Vec2::new(0.0, 100.0), NO);
+        e.pointer_move(&mut b, &c, Vec2::new(100.0, 100.0), NO);
+        e.pointer_up(&mut b, &c, Vec2::new(100.0, 100.0));
+        assert!(matches!(&b.elements()[0], Element::Stroke(s) if s.highlighter));
+        e.set_tool(Tool::Eraser);
+        e.pointer_down(&mut b, &c, Vec2::new(50.0, 300.0), NO);
+        e.pointer_move(&mut b, &c, Vec2::new(50.0, 100.0), NO);
+        e.pointer_up(&mut b, &c, Vec2::new(50.0, 100.0));
+        assert!(b.is_empty());
+    }
+
+    #[test]
+    fn frame_goes_behind() {
+        let (mut b, c, mut e) = setup();
+        let a = add_rect(&mut b, Vec2::splat(50.0), Vec2::splat(50.0));
+        e.set_tool(Tool::Frame);
+        e.pointer_down(&mut b, &c, Vec2::ZERO, NO);
+        e.pointer_move(&mut b, &c, Vec2::splat(300.0), NO);
+        e.pointer_up(&mut b, &c, Vec2::splat(300.0));
+        assert_eq!(b.elements().last().unwrap().id(), a);
     }
 
     #[test]
