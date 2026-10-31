@@ -314,7 +314,7 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 
 /* フォロー・プレゼン */
 .follow {
-  top: 64px;
+  top: 100px;
   left: 50%;
   transform: translateX(-50%);
   border-color: var(--accent);
