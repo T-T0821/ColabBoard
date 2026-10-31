@@ -120,6 +120,8 @@ struct App {
     syncs: u32,
     /// 指・ペンの操作(タップ・長押し・手のひらの無視)。
     touch: touch::Touch,
+    /// Web に公開したページから開いた(`&public`)。見るだけで、カーソルも送らない。
+    public_view: bool,
 }
 
 struct Hud {
@@ -258,6 +260,11 @@ pub async fn run() -> Result<(), String> {
         && let crate::home::Outcome::Shown = crate::home::run(&window, &document).await?
     {
         return Ok(());
+    }
+    // Web に公開したページから来た(`&public`)。編集用の UI を隠す。
+    let public_view = params.has("public");
+    if public_view && let Some(body) = document.body() {
+        let _ = body.class_list().add_1("public-view");
     }
     // 共有リンクの鍵(`&key=`)。
     let key = params.get("key").filter(|k| valid_room(k));
@@ -413,6 +420,7 @@ pub async fn run() -> Result<(), String> {
         access_slot: Rc::default(),
         syncs: 0,
         touch: touch::Touch::default(),
+        public_view,
     }));
     {
         let mut a = app.borrow_mut();
@@ -753,7 +761,8 @@ impl App {
             for u in self.board.take_outgoing() {
                 net.send(&Message::Update(u));
             }
-            if self.presence_sent != Some(self.cursor_world)
+            if !self.public_view
+                && self.presence_sent != Some(self.cursor_world)
                 && now - self.presence_sent_at >= PRESENCE_INTERVAL_MS
             {
                 let (x, y) = self

@@ -842,3 +842,115 @@ async fn client_ip_header_cannot_be_spoofed() {
     assert_eq!(events[0]["action"], "auth.signup");
     assert!(events[0].get("ip").is_none(), "{events}");
 }
+
+/// 生の応答(HTML や PNG を見るため)。
+async fn raw(server: &Server, path: &str) -> (StatusCode, String, Vec<u8>) {
+    let req = Request::builder()
+        .uri(path)
+        .header(header::HOST, "board.example")
+        .header("x-forwarded-proto", "https")
+        .body(Body::empty())
+        .unwrap();
+    let res = server.app.clone().oneshot(req).await.unwrap();
+    let status = res.status();
+    let ct = res
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .map(|v| v.to_str().unwrap().to_string())
+        .unwrap_or_default();
+    let bytes = res.into_body().collect().await.unwrap().to_bytes().to_vec();
+    (status, ct, bytes)
+}
+
+#[tokio::test]
+async fn public_pages_with_ogp() {
+    let server = start(Config::default()).await;
+    let alice = server.signup("alice").await;
+    let bob = server.signup("bob").await;
+    let (_, b, _) = server
+        .call(
+            "POST",
+            "/api/boards",
+            Some(&alice),
+            Some(json!({"title": "<企画> 会議"})),
+        )
+        .await;
+    let id = b["id"].as_str().unwrap().to_string();
+
+    // オーナー以外は公開できない。
+    let (status, _, _) = server
+        .call(
+            "PUT",
+            &format!("/api/boards/{id}/public"),
+            Some(&bob),
+            Some(json!({"enabled": true})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, sharing, _) = server
+        .call(
+            "PUT",
+            &format!("/api/boards/{id}/public"),
+            Some(&alice),
+            Some(json!({"enabled": true})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{sharing}");
+    let sharing: Sharing = serde_json::from_value(sharing).unwrap();
+    let slug = sharing.public.unwrap().slug;
+
+    // 公開ページ: OGP と、閲覧用のボードへの移動。
+    let (status, ct, body) = raw(&server, &format!("/p/{id}/{slug}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(ct.starts_with("text/html"));
+    let html = String::from_utf8(body).unwrap();
+    assert!(
+        html.contains(r#"<meta property="og:title" content="&lt;企画&gt; 会議">"#),
+        "{html}"
+    );
+    assert!(html.contains(&format!(
+        r#"<meta property="og:image" content="https://board.example/p/{id}/{slug}/og.png"#
+    )));
+    assert!(html.contains("summary_large_image"));
+    assert!(html.contains(&format!("/?room={id}&key={slug}&public")));
+
+    let (status, ct, png) = raw(&server, &format!("/p/{id}/{slug}/og.png")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(ct, "image/png");
+    assert_eq!(&png[1..4], b"PNG");
+
+    // 公開の鍵で、ログインなしで見られる(見るだけ)。
+    let (status, info, _) = server
+        .call("GET", &format!("/api/boards/{id}?key={slug}"), None, None)
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let info: BoardInfo = serde_json::from_value(info).unwrap();
+    assert_eq!(info.role, Role::Viewer);
+    assert!(server.connect(&id, None, Some(&slug)).await.is_some());
+
+    // 鍵が違えば 404。
+    assert_eq!(
+        raw(&server, &format!("/p/{id}/wrong")).await.0,
+        StatusCode::NOT_FOUND
+    );
+
+    // 公開をやめると見られなくなる。
+    let (status, _, _) = server
+        .call(
+            "PUT",
+            &format!("/api/boards/{id}/public"),
+            Some(&alice),
+            Some(json!({"enabled": false})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        raw(&server, &format!("/p/{id}/{slug}")).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        raw(&server, &format!("/p/{id}/{slug}/og.png")).await.0,
+        StatusCode::NOT_FOUND
+    );
+    assert!(server.connect(&id, None, Some(&slug)).await.is_none());
+}

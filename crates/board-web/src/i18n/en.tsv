@@ -861,3 +861,9 @@ ER 図	ER diagram
 ライフラインを複製(Ctrl/⌘+D)して名前を書き換える	Duplicate a lifeline (Ctrl/⌘+D) and rename it
 メッセージの矢印を複製して上下に並べる(スナップでそろう)	Duplicate message arrows and stack them (snapping lines them up)
 戻りは書式バーで破線、同期呼び出しは黒三角にする	Make replies dashed and synchronous calls a filled triangle in the format bar
+# Web に公開
+Web に公開	Publish to the web
+URL を知っている人は誰でも、ログインせずに見られます(編集・コメントはできません)。SNS やチャットに貼るとプレビュー画像が出ます。	Anyone with the URL can view it without signing in (no editing or comments). Pasting it into social media or chat shows a preview image.
+公開ページを開く	Open public page
+URL を作り直す	Regenerate URL
+オンにすると、ログインしていない人も見られる閲覧専用のページができます。	Turn on to create a view-only page that people can open without signing in.

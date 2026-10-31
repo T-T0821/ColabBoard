@@ -9,7 +9,7 @@
 
 use std::collections::BTreeMap;
 
-use board_core::api::{BoardInfo, LinkShare, Role, Sharing, TeamRole};
+use board_core::api::{BoardInfo, LinkShare, PublicShare, Role, Sharing, TeamRole};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::{now_ms, random_hex, random_id};
@@ -35,6 +35,9 @@ pub struct BoardMeta {
     /// Slack 通知の送り先。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slack: Option<crate::slack::SlackHook>,
+    /// Web に公開中か(公開ページの URL の鍵)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public: Option<PublicShare>,
     /// 削除済み。ID を使い回して誰でも開けるボードとして復活しないよう、印だけ残す。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deleted: bool,
@@ -53,6 +56,7 @@ impl BoardMeta {
             members: self.members.clone(),
             link: self.link.clone(),
             embed: self.embed.clone(),
+            public: self.public.clone(),
         }
     }
 
@@ -135,6 +139,12 @@ pub fn role_of(
     {
         best = best.max(Some(embed.role));
     }
+    // 公開ページの鍵なら見るだけ。
+    if let (Some(public), Some(key)) = (&meta.public, who.key)
+        && constant_time_eq(public.slug.as_bytes(), key.as_bytes())
+    {
+        best = best.max(Some(Role::Viewer));
+    }
     best
 }
 
@@ -197,6 +207,7 @@ pub fn create(
             link: None,
             embed: None,
             slack: None,
+            public: None,
             deleted: false,
             team: team.map(str::to_string),
             team_access: None,
@@ -349,6 +360,31 @@ fn next_share(old: Option<LinkShare>, role: Option<Role>, regenerate: bool) -> O
     }
 }
 
+/// Web への公開を設定する。
+pub fn set_public(meta: &mut BoardMeta, enabled: bool, regenerate: bool) {
+    meta.public = match (enabled, meta.public.take()) {
+        (false, _) => None,
+        (true, Some(p)) if !regenerate => Some(p),
+        (true, _) => Some(PublicShare {
+            slug: random_hex(12),
+            since: now_ms(),
+        }),
+    };
+}
+
+/// 公開ページの鍵が合っていれば、そのボードの情報。
+pub fn published(store: &Store, id: &str, slug: &str) -> Result<Option<BoardMeta>, StoreError> {
+    let Some(meta) = get(store, id)? else {
+        return Ok(None);
+    };
+    let ok = !meta.deleted
+        && meta
+            .public
+            .as_ref()
+            .is_some_and(|p| constant_time_eq(p.slug.as_bytes(), slug.as_bytes()));
+    Ok(ok.then_some(meta))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,6 +403,7 @@ mod tests {
             }),
             embed: None,
             slack: None,
+            public: None,
             deleted: false,
             team: None,
             team_access: None,
@@ -451,6 +488,34 @@ mod tests {
         assert_ne!(m.link.as_ref().unwrap().key, first.key);
         set_link(&mut m, None, false);
         assert!(m.link.is_none());
+    }
+
+    #[test]
+    fn public_pages() {
+        let mut m = meta();
+        set_public(&mut m, true, false);
+        let slug = m.public.clone().unwrap().slug;
+        assert_eq!(
+            role_of(Some(&m), who(None, Some(&slug)), None, true),
+            Some(Role::Viewer)
+        );
+        // 共有リンクの方が強ければそちら。
+        assert_eq!(
+            role_of(Some(&m), who(None, Some("secret")), None, true),
+            Some(Role::Commenter)
+        );
+        set_public(&mut m, true, false);
+        assert_eq!(m.public.as_ref().unwrap().slug, slug);
+        set_public(&mut m, true, true);
+        assert_ne!(m.public.as_ref().unwrap().slug, slug);
+        let store = Store::memory();
+        put(&store, &m).unwrap();
+        let new_slug = m.public.clone().unwrap().slug;
+        assert!(published(&store, "b", &new_slug).unwrap().is_some());
+        assert!(published(&store, "b", &slug).unwrap().is_none());
+        set_public(&mut m, false, false);
+        assert!(m.public.is_none());
+        assert_eq!(role_of(Some(&m), who(None, Some(&slug)), None, true), None);
     }
 
     #[test]
