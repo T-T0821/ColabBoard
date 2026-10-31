@@ -2,6 +2,10 @@
 
 #[cfg(target_arch = "wasm32")]
 mod app;
+#[cfg(target_arch = "wasm32")]
+mod net;
+#[cfg(target_arch = "wasm32")]
+mod presence;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;

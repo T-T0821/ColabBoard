@@ -1,3 +1,8 @@
 [build]
 target = "index.html"
 dist = "dist"
+
+# `trunk serve` で開発するときは、同期サーバー(`cargo run -p board-server`)へ中継する。
+[[proxy]]
+backend = "ws://127.0.0.1:8080/ws"
+ws = true

@@ -146,6 +146,7 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 
 @media (max-width: 1100px) {
   .help { display: none; }
+  .demo { top: 56px; }
 }
 
 @media (max-width: 720px) {
@@ -154,4 +155,52 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   .zoom { bottom: 76px; }
   .toolbar { left: 12px; right: 12px; transform: none; overflow-x: auto; }
   .swatches { grid-template-columns: repeat(10, 18px); }
+}
+
+/* 接続状態 */
+#hud-net { display: inline-flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+#hud-net::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f5a524;
+}
+#hud-net[data-status="online"]::before { background: #30a46c; }
+#hud-net[data-status="offline"]::before { background: #9b9b9b; }
+#share { white-space: nowrap; }
+
+/* 他の参加者のカーソル */
+#cursors {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.cursor {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: none;
+  will-change: transform;
+}
+.cursor svg {
+  display: block;
+  fill: var(--c, #2f6fed);
+  stroke: #fff;
+  stroke-width: 1.5;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.25));
+}
+.cursor-name {
+  position: absolute;
+  left: 14px;
+  top: 16px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--c, #2f6fed);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
 }
