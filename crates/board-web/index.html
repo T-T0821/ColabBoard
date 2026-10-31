@@ -101,6 +101,12 @@
     <button id="insert-image" class="tool" title="画像・PDF を挿入(貼り付け・ドロップでも置けます)">
       <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-9 9"/></svg>
     </button>
+    <div class="tool-group">
+      <button id="templates-button" class="tool" title="テンプレート" aria-haspopup="true">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><path d="M17.25 14v6.5M14 17.25h6.5"/></svg>
+      </button>
+      <div id="template-picker" class="popover template-picker" role="menu" aria-label="テンプレート"></div>
+    </div>
     <input id="image-file" type="file" accept="image/png,image/jpeg,application/pdf,.pdf" multiple hidden>
     <span class="sep"></span>
     <button id="tool-frame" class="tool" title="フレーム (F)" aria-pressed="false">
@@ -218,6 +224,13 @@
     <div id="diagram-samples" class="diagram-samples"></div>
   </section>
 
+  <div id="search-box" class="panel search-box" role="search" hidden>
+    <input id="search-input" type="search" placeholder="ボード内を検索" aria-label="ボード内を検索" autocomplete="off">
+    <span id="search-count" class="label"></span>
+    <button id="search-prev" title="前へ (Shift+Enter)" aria-label="前へ">↑</button>
+    <button id="search-next" title="次へ (Enter)" aria-label="次へ">↓</button>
+    <button id="search-close" title="閉じる (Esc)" aria-label="閉じる">✕</button>
+  </div>
   <div id="format-bar" class="panel format-bar" role="toolbar" aria-label="書式" hidden></div>
 
   <main id="home" hidden></main>
