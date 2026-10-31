@@ -1603,3 +1603,26 @@ body.slideshow #badges { display: none !important; }
 .slide-bar[data-state="notice"] button,
 .slide-bar[data-state="notice"] .slide-counter { display: none; }
 .slide-bar[data-state="notice"] .slide-title { white-space: normal; max-width: 80vw; font-weight: 500; }
+/* ---- 他のサイトへの埋め込み(?embed=1) ---- */
+.embed-code { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; }
+.embed-open {
+  top: 8px;
+  right: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text);
+  text-decoration: none;
+  z-index: 10;
+}
+.embed-open[hidden] { display: none; }
+body.embed-mode .hud,
+body.embed-mode .demo,
+body.embed-mode .help,
+body.embed-mode .collab,
+body.embed-mode .diagram-toggle,
+body.embed-mode .diagram-panel,
+body.embed-mode .share-panel,
+body.embed-mode .comments-panel,
+body.embed-mode #comment-pins,
+body.embed-mode .notif-menu,
+body.embed-mode .history-panel { display: none !important; }
