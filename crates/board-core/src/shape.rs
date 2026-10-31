@@ -510,6 +510,45 @@ impl TextAlign {
     }
 }
 
+/// 文字の縦方向の揃え。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum VAlign {
+    Top,
+    #[default]
+    Middle,
+    Bottom,
+}
+
+impl VAlign {
+    pub const ALL: [VAlign; 3] = [VAlign::Top, VAlign::Middle, VAlign::Bottom];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            VAlign::Top => "top",
+            VAlign::Middle => "middle",
+            VAlign::Bottom => "bottom",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Self {
+        match name {
+            "top" => VAlign::Top,
+            "bottom" => VAlign::Bottom,
+            _ => VAlign::Middle,
+        }
+    }
+
+    /// 高さ `avail` の枠に高さ `content` の中身を置くときの上の余白(はみ出すときは上詰め)。
+    pub fn offset(self, avail: f32, content: f32) -> f32 {
+        let free = (avail - content).max(0.0);
+        match self {
+            VAlign::Top => 0.0,
+            VAlign::Middle => free * 0.5,
+            VAlign::Bottom => free,
+        }
+    }
+}
+
 /// キャンバス上の 1 要素。座標はワールド座標(px 相当、y 下向き)。
 #[derive(Clone, Debug, PartialEq)]
 pub struct Shape {
@@ -527,6 +566,10 @@ pub struct Shape {
     /// 文字の大きさ(ワールド単位)。0 なら種類ごとの既定値。
     pub font_size: f32,
     pub align: TextAlign,
+    /// 文字の縦方向の揃え。
+    pub valign: VAlign,
+    /// 縦書き(右の列から左へ)。
+    pub vertical: bool,
     pub text_color: Rgba8,
     pub meta: Meta,
     /// 画像のバイト列(`ShapeKind::Image` のときだけ)。
@@ -577,8 +620,10 @@ pub struct TextBox {
     /// はみ出した文字を切り取る範囲。
     pub clip: Rect,
     pub style: TextStyle,
-    /// 縦方向も中央に寄せるか(文字だけの要素は上詰め)。
-    pub center_vertically: bool,
+    /// 縦方向の揃え。
+    pub valign: VAlign,
+    /// 縦書き。
+    pub vertical: bool,
 }
 
 /// 文字の幅の概算(全角 1em、半角 0.55em)。
@@ -656,6 +701,8 @@ impl Shape {
             text: String::new(),
             font_size: 0.0,
             align: TextAlign::Center,
+            valign: VAlign::Middle,
+            vertical: false,
             text_color: Rgba8::BLACK,
             meta: Meta::default(),
             image: None,
@@ -672,6 +719,7 @@ impl Shape {
             stroke_width: 0.0,
             corner_radius: 0.0,
             align: TextAlign::Left,
+            valign: VAlign::Top,
             ..Self::rect(id, pos, size, Rgba8::TRANSPARENT)
         }
     }
@@ -684,6 +732,7 @@ impl Shape {
             stroke_width: 1.0,
             corner_radius: 6.0,
             align: TextAlign::Left,
+            valign: VAlign::Top,
             text: "フレーム".into(),
             ..Self::rect(id, pos, size, Rgba8::WHITE)
         }
@@ -710,6 +759,8 @@ impl Shape {
             text: String::new(),
             font_size: 0.0,
             align: TextAlign::Center,
+            valign: VAlign::Middle,
+            vertical: false,
             text_color: Rgba8::BLACK,
             meta: Meta::default(),
             image: None,
@@ -882,7 +933,8 @@ impl Shape {
                 color: Rgba8([r, g, bl, 140]),
                 align: TextAlign::Left,
             },
-            center_vertically: false,
+            valign: VAlign::Top,
+            vertical: false,
         })
     }
 
@@ -891,13 +943,20 @@ impl Shape {
             rect: self.text_rect(),
             clip: self.text_clip(),
             style: self.text_style(),
-            center_vertically: !matches!(self.kind, ShapeKind::Text | ShapeKind::Frame),
+            // フレームの見出しは 1 行の横書きのまま。
+            valign: if self.kind == ShapeKind::Frame {
+                VAlign::Top
+            } else {
+                self.valign
+            },
+            vertical: self.vertical && self.kind != ShapeKind::Frame,
         }
     }
 
     /// 文字だけの要素の高さを中身に合わせる。
     pub fn fit_text_height(&mut self) {
-        if self.kind != ShapeKind::Text {
+        // 縦書きは幅が中身で決まらないので、大きさはそのまま。
+        if self.kind != ShapeKind::Text || self.vertical {
             return;
         }
         let style = self.text_style();
