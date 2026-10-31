@@ -1,4 +1,4 @@
-//! PNG / PDF の書き出し。GPU で白背景にオフスクリーン描画して読み戻し、
+//! PNG / PDF / マークダウンの書き出し。GPU で白背景にオフスクリーン描画して読み戻し、
 //! PNG は image クレート、PDF は JPEG を埋め込んだ 1 ページの PDF にする。
 
 use wasm_bindgen::JsCast;
@@ -25,6 +25,8 @@ const MAX_PX: u32 = 4096;
 pub enum ExportFormat {
     Png,
     Pdf,
+    /// 文字の内容だけ(フレームは見出し、付箋は箇条書き、表は表)。
+    Markdown,
 }
 
 /// バイト列をファイルとして保存させる。
@@ -74,6 +76,7 @@ fn encode(format: ExportFormat, rgba: Vec<u8>, w: u32, h: u32) -> Result<Vec<u8>
                 .map_err(|e| e.to_string())?;
             Ok(board_core::export::jpeg_pdf(&out.into_inner(), w, h))
         }
+        ExportFormat::Markdown => Err("マークダウンは画像から作れません".into()),
     }
 }
 
@@ -81,6 +84,18 @@ impl App {
     /// 選択中の要素(なければボード全体)を書き出す。
     pub(super) fn export(&mut self, format: ExportFormat) {
         let sel = self.editor.selection().to_vec();
+        if format == ExportFormat::Markdown {
+            let md = board_core::markdown::export(&self.board, &sel);
+            let result = if md.trim().is_empty() {
+                Err("書き出す文字がありません".to_string())
+            } else {
+                download("graboard.md", "text/markdown", md.as_bytes())
+            };
+            if let Err(e) = result {
+                super::show_error(&e);
+            }
+            return;
+        }
         let area = if sel.is_empty() {
             self.board.bounds().map(|r| r.expand(48.0))
         } else {
@@ -105,6 +120,7 @@ impl App {
                 .and_then(|bytes| match format {
                     ExportFormat::Png => download("graboard.png", "image/png", &bytes),
                     ExportFormat::Pdf => download("graboard.pdf", "application/pdf", &bytes),
+                    ExportFormat::Markdown => Ok(()),
                 });
             if let Err(e) = result {
                 log::warn!("書き出しに失敗しました: {e}");

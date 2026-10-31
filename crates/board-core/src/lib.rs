@@ -16,6 +16,7 @@ pub mod element;
 pub mod export;
 pub mod format;
 pub mod geom;
+pub mod markdown;
 pub mod navigation;
 pub mod protocol;
 pub mod search;
