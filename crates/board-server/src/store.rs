@@ -13,6 +13,9 @@
 //! | `version_info` | (ボード ID, バージョン ID) | [`VersionInfo`](board_core::api::VersionInfo)(JSON) |
 //! | `api_tokens` | トークン ID | [`TokenRecord`](crate::tokens::TokenRecord)(JSON) |
 //! | `user_tokens` | (ログイン名, トークン ID) | なし(一覧用の索引) |
+//! | `teams` | チーム ID | [`TeamRecord`](crate::teams::TeamRecord)(JSON) |
+//! | `user_teams` | (ログイン名, チーム ID) | 入った時刻(JSON) |
+//! | `team_boards` | (チーム ID, ボード ID) | 加わった時刻(JSON) |
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -37,6 +40,11 @@ pub(crate) const VERSION_INFO: TableDefinition<(&str, u64), &[u8]> =
 pub(crate) const API_TOKENS: TableDefinition<&str, &[u8]> = TableDefinition::new("api_tokens");
 pub(crate) const USER_TOKENS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("user_tokens");
+pub(crate) const TEAMS: TableDefinition<&str, &[u8]> = TableDefinition::new("teams");
+pub(crate) const USER_TEAMS: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("user_teams");
+pub(crate) const TEAM_BOARDS: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("team_boards");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
 pub fn next_id() -> u64 {
@@ -90,6 +98,9 @@ impl Store {
         txn.open_table(VERSION_INFO)?;
         txn.open_table(API_TOKENS)?;
         txn.open_table(USER_TOKENS)?;
+        txn.open_table(TEAMS)?;
+        txn.open_table(USER_TEAMS)?;
+        txn.open_table(TEAM_BOARDS)?;
         txn.commit()?;
         Ok(Self { db, persistent })
     }

@@ -30,6 +30,13 @@
 //! | `PUT` | `/api/boards/{id}/slack` | Slack 通知の設定を変える([`SetSlack`] → [`SlackSettings`]、オーナーのみ) |
 //! | `POST` | `/api/boards/{id}/slack/test` | Slack にテストのメッセージを送る(オーナーのみ) |
 //! | `POST` | `/api/boards/{id}/issues?key=` | GitHub・Jira の課題の状態を引く([`IssueQuery`] → [`IssueLookup`] の配列、編集者以上) |
+//! | `PUT` | `/api/boards/{id}/team` | チームへ移す・チームから外す([`SetBoardTeam`] → [`BoardInfo`]、オーナーのみ) |
+//! | `GET` | `/api/teams` | 自分の入っているチーム([`TeamInfo`] の配列) |
+//! | `POST` | `/api/teams` | チームを作る([`NewTeam`] → [`Team`]、作った人がオーナー) |
+//! | `GET` | `/api/teams/{tid}` | チームの詳細とメンバー([`Team`]、メンバーのみ) |
+//! | `PATCH` | `/api/teams/{tid}` | 名前の変更([`NewTeam`] → [`Team`]、管理者以上) |
+//! | `DELETE` | `/api/teams/{tid}` | チームを消す(オーナーのみ。ボードは作った人の個人ボードに戻る) |
+//! | `PUT` | `/api/teams/{tid}/members` | メンバーの追加・変更・削除([`SetTeamMember`] → [`Team`]) |
 //!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
 
@@ -125,11 +132,17 @@ pub struct BoardInfo {
     /// 共有リンクで開いたときの鍵(開き直すときに URL に付ける)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
+    /// 属しているチームの ID。個人のボードなら `None`。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct NewBoard {
     pub title: String,
+    /// チームのボードとして作るなら、そのチームの ID(メンバーである必要がある)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -168,6 +181,105 @@ pub struct SetLink {
     pub role: Option<Role>,
     #[serde(default)]
     pub regenerate: bool,
+}
+
+/// チーム(ワークスペース)での役割。下ほど強い。
+///
+/// - メンバー: チームのボードをチームの既定の権限で開ける。チームのボードを作れる。
+/// - 管理者: チームのボードすべてにオーナー権限を持ち、メンバーを追加・削除できる。
+/// - オーナー: 管理者の権限に加えて、管理者の任命・チームの削除ができる。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TeamRole {
+    Member,
+    Admin,
+    Owner,
+}
+
+impl TeamRole {
+    pub fn is_admin(self) -> bool {
+        self >= TeamRole::Admin
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TeamRole::Member => "メンバー",
+            TeamRole::Admin => "管理者",
+            TeamRole::Owner => "オーナー",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TeamRole::Member => "member",
+            TeamRole::Admin => "admin",
+            TeamRole::Owner => "owner",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Some(match s {
+            "member" => TeamRole::Member,
+            "admin" => TeamRole::Admin,
+            "owner" => TeamRole::Owner,
+            _ => return None,
+        })
+    }
+}
+
+/// 一覧に出すチームの概要。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TeamInfo {
+    pub id: String,
+    pub name: String,
+    /// 自分の役割。
+    pub role: TeamRole,
+    pub members: usize,
+    pub created: u64,
+}
+
+/// チームの詳細。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Team {
+    pub id: String,
+    pub name: String,
+    pub role: TeamRole,
+    /// ログイン名 → 役割。
+    pub members: BTreeMap<String, TeamRole>,
+    pub created: u64,
+}
+
+impl Team {
+    pub fn info(&self) -> TeamInfo {
+        TeamInfo {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            role: self.role,
+            members: self.members.len(),
+            created: self.created,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NewTeam {
+    pub name: String,
+}
+
+/// `role` が `None` ならチームから外す(自分を外すと退出)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetTeamMember {
+    pub login: String,
+    pub role: Option<TeamRole>,
+}
+
+/// `team` が `None` ならチームから外して個人のボードに戻す。
+/// `access` はチームのメンバーに与える権限(省略時は編集可)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetBoardTeam {
+    pub team: Option<String>,
+    #[serde(default)]
+    pub access: Option<Role>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
