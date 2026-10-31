@@ -1,11 +1,16 @@
 //! ColabBoard の同期サーバー。
 //!
-//! - `GET /ws/{room}`: WebSocket。メッセージ形式は [`board_core::protocol`]。
+//! - `GET /ws/{room}?key=`: WebSocket。メッセージ形式は [`board_core::protocol`]。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
 //! 他の参加者へ配る。状態は定期的に redb へ保存する。
+//! 接続時に権限([`boards::role_of`])を確かめ、編集権限のない人からの更新は捨てる。
 
+pub mod api;
+pub mod auth;
+pub mod boards;
 pub mod room;
 pub mod store;
 
@@ -15,10 +20,11 @@ use std::time::Duration;
 
 use axum::Router;
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::extract::{Path, Query, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use board_core::api::Role;
 use board_core::protocol::Message;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::broadcast::error::RecvError;
@@ -34,14 +40,43 @@ pub const FLUSH_INTERVAL: Duration = Duration::from_secs(2);
 
 pub struct Config {
     pub static_dir: Option<PathBuf>,
+    /// ログインせずに `?room=` で作る「誰でも編集できるボード」を許すか。
+    pub anonymous_boards: bool,
+    /// Cookie に `Secure` を付けるか(HTTPS で公開するとき)。
+    pub secure_cookies: bool,
 }
 
-pub fn router(hub: Arc<Hub>, config: Config) -> Router {
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            static_dir: None,
+            anonymous_boards: true,
+            secure_cookies: false,
+        }
+    }
+}
+
+/// ハンドラーから使う共有の状態。
+pub struct AppState {
+    pub hub: Arc<Hub>,
+    pub config: Config,
+}
+
+impl AppState {
+    pub fn store(&self) -> &Arc<Store> {
+        self.hub.store()
+    }
+}
+
+pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
+    let static_dir = config.static_dir.take();
+    let state = Arc::new(AppState { hub, config });
     let app = Router::new()
         .route("/ws/{room}", get(ws_handler))
         .route("/healthz", get(|| async { "ok" }))
-        .with_state(hub);
-    match config.static_dir {
+        .nest("/api", api::routes())
+        .with_state(state);
+    match static_dir {
         Some(dir) => app.fallback_service(ServeDir::new(dir)),
         None => app,
     }
@@ -71,20 +106,36 @@ pub fn valid_room_name(name: &str) -> bool {
 async fn ws_handler(
     ws: WebSocketUpgrade,
     Path(room): Path<String>,
-    State(hub): State<Arc<Hub>>,
+    Query(q): Query<api::KeyQuery>,
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
 ) -> Response {
     if !valid_room_name(&room) {
         return (StatusCode::BAD_REQUEST, "invalid room name").into_response();
     }
+    let user = match api::current_user(&state, &headers) {
+        Ok(u) => u,
+        Err(e) => return e.into_response(),
+    };
+    let role = match api::board_access(
+        &state,
+        &room,
+        user.as_ref().map(|u| u.login.as_str()),
+        q.key.as_deref(),
+    ) {
+        Ok((_, role)) => role,
+        Err(e) => return e.into_response(),
+    };
+    let hub = state.hub.clone();
     ws.max_message_size(MAX_MESSAGE_BYTES)
-        .on_upgrade(move |socket| session(socket, hub, room))
+        .on_upgrade(move |socket| session(socket, hub, room, role))
 }
 
-async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String) {
+async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String, role: Role) {
     let member = hub.join(&room_name);
     let room = member.room.clone();
     let me = member.peer;
-    tracing::info!(room = %room_name, peer = me, peers = room.peer_count(), "参加");
+    tracing::info!(room = %room_name, peer = me, peers = room.peer_count(), ?role, "参加");
 
     // 取りこぼさないよう、状態を写す前に購読を始める(重複は yrs が吸収する)。
     let mut rx = room.tx.subscribe();
@@ -113,6 +164,9 @@ async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String) {
                     _ => continue,
                 };
                 match Message::decode(&bytes) {
+                    Ok(Message::Update(_)) if !role.can_edit() => {
+                        tracing::debug!(peer = me, "編集権限のない更新を捨てました");
+                    }
                     Ok(Message::Update(u)) => match room.apply(&u) {
                         Ok(()) => room.broadcast(me, Arc::from(bytes.as_ref())),
                         Err(e) => tracing::warn!(peer = me, "不正な更新: {e}"),
@@ -128,6 +182,7 @@ async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String) {
                 }
             }
             out = rx.recv() => match out {
+                Ok(o) if o.is_kick() => break,
                 Ok(o) if o.from == me => {}
                 Ok(o) => {
                     if sink.send(binary(o.bytes.to_vec())).await.is_err() {
