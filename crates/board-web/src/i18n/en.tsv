@@ -85,6 +85,31 @@
 選択中の付箋({n} 枚以上)、なければボード上の全付箋が対象です	Uses the selected sticky notes ({n} or more), or all sticky notes on the board
 要約	Summarize
 グループ分け	Cluster
+図形に整形	Clean up shapes
+AI で整形	Clean up with AI
+手書きの線を四角・丸・矢印などの図形に整える	Turn hand-drawn lines into rectangles, circles, arrows and other shapes
+AI が手書きの図と文字を読んで整える	AI reads your hand-drawn shapes and writing and cleans them up
+整形する手書きの線を選んでください	Select the hand-drawn lines to clean up
+図形として読める線がありませんでした。「AI で整形」も試せます	No lines could be read as shapes. You can also try "Clean up with AI"
+{n} 個の図形に整えました。Ctrl/⌘+Z で戻せます	Turned into {n} shapes. Press Ctrl/⌘+Z to undo
+AI が {n} 本の線を読んでいます…	AI is reading {n} lines…
+AI にも図形として読めませんでした	AI could not read these lines as shapes either
+AI が {n} 個の図形と文字に整えました。Ctrl/⌘+Z で戻せます	AI turned them into {n} shapes and text. Press Ctrl/⌘+Z to undo
+議事録	Minutes
+選択中の要素、なければボード全体から議事録(概要・決定事項・アクション)を作って横に置きます	Writes minutes (summary, decisions, action items) from the selected elements, or the whole board, and places them alongside
+選択中の要素、なければボード全体の内容をもとに答えます	Answers based on the selected elements, or the whole board
+ボードについて質問(例: 決まったことは?)	Ask about the board (e.g. What did we decide?)
+ボードについて質問	Ask about the board
+質問する	Ask
+AI が議事録を書いています…(数十秒かかることがあります)	AI is writing the minutes… (this can take a few tens of seconds)
+議事録を作れませんでした	Could not create the minutes
+議事録をボードの右に置きました。Ctrl/⌘+Z で戻せます	Placed the minutes to the right of the board. Press Ctrl/⌘+Z to undo
+AI がボードを読んでいます…	AI is reading the board…
+答えをパネルに出しました	The answer is in the panel
+根拠をすべて表示	Show all sources
+根拠 {n} 件	{n} sources
+会話を消す	Clear conversation
+その要素はもうボードにありません	That element is no longer on the board
 ズーム	Zoom
 縮小	Zoom out
 拡大	Zoom in

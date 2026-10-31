@@ -57,6 +57,8 @@ pub struct Summary {
     pub width: Option<f32>,
     pub link: Option<String>,
     pub locked: bool,
+    /// 図形に整形できる手書きの線(蛍光ペン以外)があるか。
+    pub has_ink: bool,
 }
 
 /// 値がすべて同じなら `Some`。
@@ -122,6 +124,7 @@ pub fn summarize(board: &Board, ids: &[ElementId]) -> Summary {
                 merge(&mut w, c.width);
             }
             Element::Stroke(s) => {
+                out.has_ink |= !s.highlighter;
                 out.has_width = true;
                 merge(&mut w, s.width);
             }

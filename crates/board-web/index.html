@@ -240,7 +240,13 @@
       <span class="label">AI</span>
       <button id="ai-summarize">要約</button>
       <button id="ai-cluster">グループ分け</button>
+      <button id="ai-minutes" title="選択中の要素、なければボード全体から議事録(概要・決定事項・アクション)を作って横に置きます">議事録</button>
     </div>
+    <form id="ai-ask-form" class="collab-row ai-ask" title="選択中の要素、なければボード全体の内容をもとに答えます">
+      <input id="ai-ask-input" type="text" maxlength="2000" placeholder="ボードについて質問(例: 決まったことは?)" aria-label="ボードについて質問" autocomplete="off">
+      <button id="ai-ask" type="submit">質問する</button>
+    </form>
+    <div id="ai-answer" class="ai-answer" aria-live="polite" hidden></div>
     <p id="ai-status" class="collab-status" data-state="none"></p>
   </details>
 
@@ -271,7 +277,7 @@
       </select>
       <button id="ai-generate" class="primary">生成</button>
     </div>
-    <p id="ai-status" class="ai-status" role="status"></p>
+    <p id="ai-diagram-status" class="ai-status" role="status"></p>
     <hr />
     <div class="diagram-row">
       <label class="label" for="diagram-service">部品</label>
@@ -326,6 +332,7 @@
     <p class="muted">画面読み上げを使っているときは、見出し「ボードの要素」の一覧から要素を選ぶこともできます。</p>
   </section>
 
+  <div id="ai-toast" class="panel ai-toast" role="status" hidden></div>
   <div id="error" role="alert"></div>
 </body>
 </html>

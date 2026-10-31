@@ -20,6 +20,7 @@ pub mod element;
 pub mod export;
 pub mod format;
 pub mod geom;
+pub mod ink;
 pub mod issue;
 pub mod markdown;
 pub mod miro;

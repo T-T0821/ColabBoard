@@ -60,7 +60,7 @@ impl Action {
 
 /// API の URL。`?server=ws://host` ならそのホスト、なければページと同じ場所。
 /// 共有リンクの `?key=` はそのまま付ける。
-fn api_url(window: &web_sys::Window, room: &str, action: Action) -> Option<String> {
+pub(super) fn api_url(window: &web_sys::Window, room: &str, action: &str) -> Option<String> {
     let params = window
         .location()
         .search()
@@ -73,7 +73,7 @@ fn api_url(window: &web_sys::Window, room: &str, action: Action) -> Option<Strin
             .replacen("ws://", "http://", 1),
         None => String::new(),
     };
-    let mut url = format!("{base}/api/boards/{room}/ai/{}", action.path());
+    let mut url = format!("{base}/api/boards/{room}/ai/{action}");
     if let Some(key) = params.get("key") {
         url.push_str("?key=");
         url.push_str(&String::from(js_sys::encode_uri_component(&key)));
@@ -82,7 +82,11 @@ fn api_url(window: &web_sys::Window, room: &str, action: Action) -> Option<Strin
 }
 
 /// POST して JSON を受け取る。失敗したらサーバーのエラー文言を返す。
-async fn post_json(window: &web_sys::Window, url: &str, body: &str) -> Result<JsValue, String> {
+pub(super) async fn post_json(
+    window: &web_sys::Window,
+    url: &str,
+    body: &str,
+) -> Result<JsValue, String> {
     let init = RequestInit::new();
     init.set_method("POST");
     init.set_body(&JsValue::from_str(body));
@@ -238,7 +242,7 @@ pub(super) fn start(app: &Rc<RefCell<App>>, action: Action) {
             a.ai.set_status("付箋がありません", "error");
             return;
         }
-        let Some(url) = api_url(&a.window, &room, action) else {
+        let Some(url) = api_url(&a.window, &room, action.path()) else {
             return;
         };
         let ids: Vec<String> = targets.iter().map(|id| format!("\"{:x}\"", id.0)).collect();
