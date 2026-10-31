@@ -1,0 +1,12 @@
+{
+  "name": "colabboard-perf-gif",
+  "private": true,
+  "type": "module",
+  "description": "10 万要素のボードをパン・ズームする様子を実機の GPU で録画して GIF にする",
+  "scripts": {
+    "record": "node record.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
