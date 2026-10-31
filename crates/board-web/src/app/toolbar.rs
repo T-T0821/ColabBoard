@@ -45,6 +45,18 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
         })?;
     }
 
+    if let Some(btn) = library.query_selector("[data-table]").map_err(js_err)? {
+        let app = app.clone();
+        let library = library.clone();
+        listen(btn.as_ref(), "click", false, move |e: MouseEvent| {
+            e.stop_propagation();
+            let _ = library.remove_attribute("data-open");
+            let mut a = app.borrow_mut();
+            a.editor.set_tool(board_core::Tool::Select);
+            a.run_action(super::actions::Action::InsertTable);
+            a.dirty = true;
+        })?;
+    }
     popover(app, "tool-shape", library)?;
     Ok(())
 }

@@ -575,3 +575,4 @@ body.home-mode > :not(#home):not(#error) { display: none !important; }
   70% { opacity: 1; }
   100% { opacity: 0; transform: translate(-50%, -180%) scale(1); }
 }
+#context-menu [hidden] { display: none; }
