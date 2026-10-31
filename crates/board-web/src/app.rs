@@ -23,6 +23,7 @@ mod format_bar;
 mod history;
 mod media;
 mod reactions;
+mod search_ui;
 mod templates_ui;
 mod toolbar;
 
@@ -78,6 +79,7 @@ struct App {
     ai: ai::AiUi,
     follow: follow::Follow,
     format_bar: format_bar::FormatBar,
+    search: search_ui::Search,
     comments: comments::Comments,
     history: history::History,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
@@ -308,6 +310,7 @@ pub async fn run() -> Result<(), String> {
         ai: ai::AiUi::new(&document)?,
         follow: follow::Follow::new(&document)?,
         format_bar: format_bar::FormatBar::default(),
+        search: search_ui::Search::default(),
         comments: comments::Comments::new(&document)?,
         history: history::History::new(&document)?,
         live_board: None,
@@ -341,6 +344,7 @@ pub async fn run() -> Result<(), String> {
     reactions::install(&app)?;
     media::install(&app)?;
     templates_ui::install(&app)?;
+    search_ui::install(&app)?;
     start_loop(app);
     Ok(())
 }
@@ -991,6 +995,10 @@ impl App {
     // ---- キーボード ----
 
     fn on_key_down(&mut self, e: &KeyboardEvent) -> bool {
+        if (e.ctrl_key() || e.meta_key()) && e.code() == "KeyF" {
+            self.open_search();
+            return true;
+        }
         if let Some(a) = actions::action_for_key(e) {
             self.run_action(a);
             return true;
