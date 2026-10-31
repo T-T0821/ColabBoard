@@ -480,6 +480,9 @@ pub fn install_context_menu(app: &Rc<RefCell<App>>) -> Result<(), String> {
             move |e: MouseEvent| {
                 e.prevent_default();
                 let mut a = app.borrow_mut();
+                if a.slides_active() {
+                    return;
+                }
                 let p = a.css_to_physical(e.client_x() as f64, e.client_y() as f64);
                 let App {
                     editor,
