@@ -88,7 +88,12 @@ impl From<&Shape> for ShapeInstance {
             fill: s.fill.to_u32(),
             stroke: s.stroke.to_u32(),
             stroke_width: s.stroke_width,
-            radius: s.corner_radius,
+            radius: match s.kind {
+                // 角の丸みは大きさに合わせる(シェーダーが半分の大きさで頭打ちにする)。
+                ShapeKind::RoundRect => s.corner_radius.max(s.size.min_element() * 0.18),
+                ShapeKind::Pill => f32::MAX,
+                _ => s.corner_radius,
+            },
             kind: match s.kind {
                 ShapeKind::Rect | ShapeKind::Frame | ShapeKind::Text | ShapeKind::Image => {
                     KIND_RECT
@@ -101,6 +106,19 @@ impl From<&Shape> for ShapeInstance {
                 ShapeKind::Hexagon => KIND_HEXAGON,
                 ShapeKind::Parallelogram => KIND_PARALLELOGRAM,
                 ShapeKind::Stamp => KIND_STAMP,
+                ShapeKind::RoundRect | ShapeKind::Pill => KIND_RECT,
+                ShapeKind::Heart => KIND_HEART,
+                ShapeKind::Cloud => KIND_CLOUD,
+                ShapeKind::Speech => KIND_SPEECH,
+                ShapeKind::Cylinder => KIND_CYLINDER,
+                ShapeKind::Document => KIND_DOCUMENT,
+                ShapeKind::Delay => KIND_DELAY,
+                ShapeKind::PredefinedProcess => KIND_PREDEFINED,
+                ShapeKind::InternalStorage => KIND_STORAGE,
+                k => board_core::shape::POLYGONS
+                    .iter()
+                    .position(|p| p.0 == k)
+                    .map_or(KIND_RECT, |i| KIND_POLYGON + i as u32),
             },
             flags: if s.kind == ShapeKind::Frame {
                 FLAG_SURFACE
@@ -125,6 +143,16 @@ pub const KIND_HEXAGON: u32 = 7;
 pub const KIND_PARALLELOGRAM: u32 = 8;
 /// スタンプ: 影付きの丸。
 pub const KIND_STAMP: u32 = 9;
+pub const KIND_HEART: u32 = 10;
+pub const KIND_CLOUD: u32 = 11;
+pub const KIND_SPEECH: u32 = 12;
+pub const KIND_CYLINDER: u32 = 13;
+pub const KIND_DOCUMENT: u32 = 14;
+pub const KIND_DELAY: u32 = 15;
+pub const KIND_PREDEFINED: u32 = 16;
+pub const KIND_STORAGE: u32 = 17;
+/// 多角形の図形: `KIND_POLYGON + board_core::shape::POLYGONS での番号`。
+pub const KIND_POLYGON: u32 = 32;
 
 impl ShapeInstance {
     fn segment(a: [f32; 2], b: [f32; 2], s: &Stroke) -> Self {
@@ -323,7 +351,54 @@ pub fn changed_range(
 }
 
 pub const GRID_WGSL: &str = include_str!("grid.wgsl");
-pub const SHAPES_WGSL: &str = include_str!("shapes.wgsl");
+const SHAPES_WGSL_BASE: &str = include_str!("shapes.wgsl");
+
+/// 図形のシェーダー。多角形の頂点表(`board_core::shape::POLYGONS`)と雲の形を
+/// コアの定義から WGSL に書き出して足す(当たり判定と描画の形を一致させるため)。
+pub fn shapes_wgsl() -> String {
+    use std::fmt::Write;
+    let v = |p: [f32; 2]| format!("vec2f({:?}, {:?})", p[0], p[1]);
+    let mut s = String::from(SHAPES_WGSL_BASE);
+    s.push_str("\n// ---- 以下は board-render/src/lib.rs の shapes_wgsl() が生成 ----\n");
+    s.push_str("fn polygon_of(kind: u32) -> Polygon {\n    var out: Polygon;\n    switch kind {\n");
+    for (i, (_, pts)) in board_core::shape::POLYGONS.iter().enumerate() {
+        let mut arr: Vec<String> = pts.iter().map(|&p| v(p)).collect();
+        arr.resize(MAX_POLYGON, "vec2f(0.0, 0.0)".into());
+        let _ = writeln!(
+            s,
+            "        case {}u: {{ out.v = array<vec2f, {MAX_POLYGON}>({}); out.n = {}u; }}",
+            KIND_POLYGON + i as u32,
+            arr.join(", "),
+            pts.len()
+        );
+    }
+    s.push_str("        default: { out.n = 0u; }\n    }\n    return out;\n}\n");
+    s.push_str("fn sd_cloud(p: vec2f, half: vec2f) -> f32 {\n    var d = 1e9;\n");
+    for (c, r) in board_core::shape::CLOUD_LOBES {
+        let _ = writeln!(
+            s,
+            "    d = min(d, sd_ellipse(p - {} * half, {} * half));",
+            v(c),
+            v(r)
+        );
+    }
+    s.push_str("    return d;\n}\n");
+    let tail: Vec<String> = board_core::shape::SPEECH_TAIL
+        .iter()
+        .map(|&p| v(p))
+        .collect();
+    let _ = writeln!(
+        s,
+        "const SPEECH_BODY: f32 = {:?};\nfn speech_tail() -> Polygon {{\n    var out: Polygon;\n    out.v = array<vec2f, {MAX_POLYGON}>({}{});\n    out.n = 3u;\n    return out;\n}}",
+        board_core::shape::SPEECH_BODY,
+        tail.join(", "),
+        ", vec2f(0.0, 0.0)".repeat(MAX_POLYGON - 3)
+    );
+    s
+}
+
+/// シェーダーの多角形の頂点数の上限(shapes.wgsl の `Polygon` と同じ)。
+const MAX_POLYGON: usize = 12;
 
 #[cfg(test)]
 mod tests {
@@ -434,7 +509,7 @@ mod tests {
     fn shaders_validate() {
         for (name, src) in [
             ("grid", GRID_WGSL),
-            ("shapes", SHAPES_WGSL),
+            ("shapes", shapes_wgsl().as_str()),
             ("images", crate::images::IMAGES_WGSL),
         ] {
             let module = naga::front::wgsl::parse_str(src)

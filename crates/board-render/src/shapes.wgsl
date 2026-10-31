@@ -24,6 +24,22 @@ const KIND_STAR: u32 = 6u;
 const KIND_HEXAGON: u32 = 7u;
 const KIND_PARALLELOGRAM: u32 = 8u;
 const KIND_STAMP: u32 = 9u;
+const KIND_HEART: u32 = 10u;
+const KIND_CLOUD: u32 = 11u;
+const KIND_SPEECH: u32 = 12u;
+const KIND_CYLINDER: u32 = 13u;
+const KIND_DOCUMENT: u32 = 14u;
+const KIND_DELAY: u32 = 15u;
+const KIND_PREDEFINED: u32 = 16u;
+const KIND_STORAGE: u32 = 17u;
+// これ以上は多角形(頂点表は lib.rs の shapes_wgsl() が polygon_of として生成する)。
+const KIND_POLYGON: u32 = 32u;
+
+// 多角形の頂点(外接矩形を -1..1 にした座標、y 下向き)。
+struct Polygon {
+    v: array<vec2f, 12>,
+    n: u32,
+};
 
 // 下地になる面(フレームなど)。lib.rs の FLAG_SURFACE と同じ。
 const FLAG_SURFACE: u32 = 1u;
@@ -235,7 +251,100 @@ fn sd_parallelogram(p_in: vec2f, wi: f32, he: f32, sk: f32) -> f32 {
     return sqrt(d.x) * sign(-d.y);
 }
 
+// 任意の多角形(凹でもよい)の符号付き距離。頂点は外接矩形に合わせて伸ばしてから測るので正確。
+fn sd_polygon(p: vec2f, poly: Polygon, half: vec2f) -> f32 {
+    var v = poly.v;
+    let n = poly.n;
+    var d = dot(p - v[0] * half, p - v[0] * half);
+    var s = 1.0;
+    var j = n - 1u;
+    for (var i = 0u; i < n; i = i + 1u) {
+        let vi = v[i] * half;
+        let vj = v[j] * half;
+        let e = vj - vi;
+        let w = p - vi;
+        let b = w - e * clamp(dot(w, e) / dot(e, e), 0.0, 1.0);
+        d = min(d, dot(b, b));
+        let c = vec3<bool>((p.y >= vi.y), (p.y < vj.y), (e.x * w.y > e.y * w.x));
+        if (all(c) || !any(c)) {
+            s = -s;
+        }
+        j = i;
+    }
+    return s * sqrt(d);
+}
+
+// ハート(y は上向き、下の頂点が原点)。
+fn sd_heart(p_in: vec2f) -> f32 {
+    var p = vec2f(abs(p_in.x), p_in.y);
+    if (p.y + p.x > 1.0) {
+        return length(p - vec2f(0.25, 0.75)) - 0.35355339;
+    }
+    let a = p - vec2f(0.0, 1.0);
+    let b = p - 0.5 * max(p.x + p.y, 0.0);
+    return sqrt(min(dot(a, a), dot(b, b))) * sign(p.x - p.y);
+}
+
+// 円柱の上下の楕円の縦半径。
+fn cylinder_ry(half: vec2f) -> f32 {
+    return min(half.y * 0.3, half.x * 0.35);
+}
+
+// 内側に引く線(円柱の上の楕円、定義済み処理の縦線など)までの距離。線がなければ大きな値。
+fn detail_sdf(p: vec2f, half: vec2f, kind: u32) -> f32 {
+    if (kind == KIND_CYLINDER) {
+        let ry = cylinder_ry(half);
+        return abs(sd_ellipse(p - vec2f(0.0, -(half.y - ry)), vec2f(half.x, ry)));
+    }
+    if (kind == KIND_PREDEFINED) {
+        let inset = min(half.x * 0.12, 16.0);
+        return abs(abs(p.x) - (half.x - inset));
+    }
+    if (kind == KIND_STORAGE) {
+        let inset = min(min(half.x, half.y) * 0.25, 18.0);
+        return min(abs(p.x + half.x - inset), abs(p.y + half.y - inset));
+    }
+    return 1e9;
+}
+
 fn shape_sdf(p: vec2f, half: vec2f, kind: u32, radius: f32) -> f32 {
+    if (kind >= KIND_POLYGON) {
+        return sd_polygon(p, polygon_of(kind), half);
+    }
+    if (kind == KIND_HEART) {
+        // 単位のハート(幅 1.207、高さ 1.104)を外接矩形に合わせる。距離は近似。
+        let n = p / half;
+        let q = vec2f(n.x * 0.6036, (1.0 - n.y) * 0.5518);
+        return sd_heart(q) * min(half.x / 0.6036, half.y / 0.5518);
+    }
+    if (kind == KIND_CLOUD) {
+        return sd_cloud(p, half);
+    }
+    if (kind == KIND_SPEECH) {
+        // 本体(上 8 割の角丸四角形)としっぽ。
+        let top = -half.y;
+        let bottom = SPEECH_BODY * half.y;
+        let bh = vec2f(half.x, (bottom - top) * 0.5);
+        let body = sd_round_box(p - vec2f(0.0, top + bh.y), bh, min(radius + 12.0, min(bh.x, bh.y)));
+        return min(body, sd_polygon(p, speech_tail(), half));
+    }
+    if (kind == KIND_CYLINDER) {
+        let ry = cylinder_ry(half);
+        let body = sd_round_box(p, vec2f(half.x, half.y - ry), 0.0);
+        let top = sd_ellipse(p - vec2f(0.0, -(half.y - ry)), vec2f(half.x, ry));
+        let bottom = sd_ellipse(p - vec2f(0.0, half.y - ry), vec2f(half.x, ry));
+        return min(body, min(top, bottom));
+    }
+    if (kind == KIND_DOCUMENT) {
+        // 下辺が波打つ四角形。
+        let amp = half.y * 0.1;
+        let wave = half.y - amp - amp * sin(3.14159265 * p.x / half.x);
+        return max(sd_round_box(p, half, 0.0), p.y - wave);
+    }
+    if (kind == KIND_DELAY) {
+        let left = sd_round_box(p + vec2f(half.x * 0.5, 0.0), vec2f(half.x * 0.5, half.y), 0.0);
+        return min(left, sd_ellipse(p, half));
+    }
     if (kind == KIND_ELLIPSE || kind == KIND_STAMP) {
         return sd_ellipse(p, half);
     }
@@ -289,6 +398,14 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
         let inner = clamp(0.5 - (d + sw_eff) / px, 0.0, 1.0);
         let stroke = vec4f(to_output(in.stroke.rgb) * in.stroke.a, in.stroke.a);
         color = mix(stroke, fill, inner);
+    }
+
+    // 内側の線(円柱の楕円など)。
+    if (sw > 0.0 && in.stroke.a > 0.0) {
+        let dd = detail_sdf(in.local, in.half, in.kind);
+        let line = clamp(0.5 - (dd - max(sw, px) * 0.5) / px, 0.0, 1.0);
+        let stroke = vec4f(to_output(in.stroke.rgb) * in.stroke.a, in.stroke.a);
+        color = mix(color, stroke, line);
     }
 
     var out = color * coverage;

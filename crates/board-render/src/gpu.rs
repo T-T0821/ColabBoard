@@ -4,7 +4,7 @@ use board_core::{Board, Camera, ElementId, Shape, Vec2};
 
 use crate::cull::{VisibleBlocks, clip_ranges};
 use crate::text::TextLayer;
-use crate::{GRID_WGSL, Globals, Layer, SHAPES_WGSL, ShapeInstance, build_layers, changed_range};
+use crate::{GRID_WGSL, Globals, Layer, ShapeInstance, build_layers, changed_range, shapes_wgsl};
 
 #[derive(Debug)]
 pub enum RenderError {
@@ -180,7 +180,7 @@ impl Renderer {
             &layout,
             format,
             "shapes",
-            SHAPES_WGSL,
+            &shapes_wgsl(),
             &[Some(ShapeInstance::layout())],
             Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
         );
