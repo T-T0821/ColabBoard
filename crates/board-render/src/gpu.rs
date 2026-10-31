@@ -1,7 +1,8 @@
 use std::fmt;
 
-use board_core::{Board, Camera, Shape};
+use board_core::{Board, Camera, ElementId, Shape};
 
+use crate::text::TextLayer;
 use crate::{GRID_WGSL, Globals, SHAPES_WGSL, ShapeInstance, push_instances};
 
 #[derive(Debug)]
@@ -57,6 +58,8 @@ pub struct Renderer {
     overlay_buf: wgpu::Buffer,
     overlay_cap: u64,
     overlay_count: u32,
+
+    text: TextLayer,
 }
 
 impl Renderer {
@@ -165,6 +168,7 @@ impl Renderer {
         let instance_cap = 1024;
         let instance_buf = make_instance_buffer(&device, instance_cap);
         let overlay_buf = make_instance_buffer(&device, 64);
+        let text = TextLayer::new(&device, &queue, format);
 
         Ok(Self {
             device,
@@ -186,6 +190,7 @@ impl Renderer {
             overlay_buf,
             overlay_cap: 64,
             overlay_count: 0,
+            text,
         })
     }
 
@@ -201,6 +206,15 @@ impl Renderer {
     /// GPU アダプタ名(ブラウザが隠す場合は空)。
     pub fn adapter_name(&self) -> &str {
         &self.adapter_name
+    }
+
+    /// 文字描画用のフォント(TTF/OTF)を読み込む。
+    pub fn load_font(&mut self, data: Vec<u8>) {
+        self.text.load_font(data);
+    }
+
+    pub fn has_font(&self) -> bool {
+        self.text.has_font()
     }
 
     pub fn size(&self) -> (u32, u32) {
@@ -255,14 +269,18 @@ impl Renderer {
     }
 
     /// `overlay` は選択枠など、ボードの上に重ねる図形。
+    /// `text_skip` は文字を別の入力欄で表示している(編集中の)要素。
     pub fn render(
         &mut self,
         board: &Board,
         camera: &Camera,
         overlay: &[Shape],
+        text_skip: Option<ElementId>,
     ) -> Result<FrameStats, RenderError> {
         let uploaded = self.sync_instances(board);
         self.sync_overlay(overlay);
+        self.text
+            .prepare(&self.device, &self.queue, board, camera, text_skip);
 
         let globals = Globals {
             view_proj: camera.view_proj().to_cols_array_2d(),
@@ -330,7 +348,10 @@ impl Renderer {
                 pass.set_vertex_buffer(0, self.instance_buf.slice(..));
                 pass.draw(0..6, 0..self.instance_count);
             }
+            self.text.render(&mut pass);
             if self.overlay_count > 0 {
+                // 文字描画が bind group 0 を差し替えるので戻す。
+                pass.set_bind_group(0, &self.globals_bind, &[]);
                 pass.set_pipeline(&self.shape_pipeline);
                 pass.set_vertex_buffer(0, self.overlay_buf.slice(..));
                 pass.draw(0..6, 0..self.overlay_count);
@@ -338,6 +359,7 @@ impl Renderer {
         }
         self.queue.submit([encoder.finish()]);
         self.queue.present(frame);
+        self.text.trim();
 
         Ok(FrameStats {
             instances: self.instance_count,

@@ -8,6 +8,7 @@
 //! 「毎フレーム 96 バイトのカメラ情報を送る」ことだけ。
 
 mod gpu;
+mod text;
 
 pub use gpu::{FrameStats, RenderError, Renderer};
 pub use wgpu;
