@@ -441,6 +441,7 @@ async fn delete_board(
     boards::forget(state.store(), &user.login, &id)?;
     comments::delete_all(state.store(), &id)?;
     versions::delete_all(state.store(), &id)?;
+    crate::media::delete_all(state.store(), &id)?;
     state.hub.delete(&id)?;
     tracing::info!(board = %id, "ボード削除");
     Ok(StatusCode::NO_CONTENT)

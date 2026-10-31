@@ -2,6 +2,7 @@
 //!
 //! - `GET /ws/{room}?key=`: WebSocket。メッセージ形式は [`board_core::protocol`]。
 //! - `GET /p/{board}/{slug}`: Web に公開したボードのページと OGP 画像([`public`])。
+//! - `/api/boards/{id}/media`: 動画メモの保存と配信([`media`])。
 //! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
 //! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
@@ -23,6 +24,7 @@ pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
 pub mod issues;
+pub mod media;
 pub mod og;
 pub mod oidc;
 pub mod plugins;
@@ -180,6 +182,11 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/rtc", get(rtc_config))
         .route("/p/{id}/{slug}", get(public::page))
         .route("/p/{id}/{slug}/og.png", get(public::image))
+        .route(
+            "/api/boards/{id}/media",
+            post(media::upload).layer(axum::extract::DefaultBodyLimit::max(media::MAX_MEDIA_BYTES)),
+        )
+        .route("/api/boards/{id}/media/{mid}", get(media::download))
         .nest("/api/v1", rest::routes().merge(plugins::routes()))
         .nest(
             "/api",

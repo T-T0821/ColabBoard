@@ -326,7 +326,7 @@ impl VoiceCall {
             .dyn_into()
             .map_err(|_| "マイクを使えません".to_string())?;
         // ICE サーバー(STUN / TURN)はサーバーの設定から。取れなければ公開 STUN を使う。
-        let ice = match crate::http::get::<serde_json::Value>("/api/rtc").await {
+        let ice = match crate::http::get::<serde_json::Value>("/rtc").await {
             Ok(v) => v,
             Err(_) => {
                 serde_json::json!({ "iceServers": [{ "urls": "stun:stun.l.google.com:19302" }] })

@@ -894,3 +894,24 @@ URL を作り直す	Regenerate URL
 SSO で自動参加させるメールのドメイン(例 example.co.jp)	Email domains that auto-join via SSO (e.g. example.com)
 SSO 自動参加ドメイン	SSO auto-join domains
 SSO 自動参加	SSO auto-join
+動画メモを録って置く(最長 1 分)	Record a video memo and place it (up to 1 minute)
+動画メモ	Video memo
+キャンセル	Cancel
+撮り直す	Retake
+録画	Record
+停止	Stop
+ボードに置く	Place on board
+保存中…	Saving…
+保存できません	Cannot save
+動画を閉じる	Close video
+カメラを準備しています…	Getting the camera ready…
+動画メモはサーバーにつながっているボードで使えます	Video memos are available on boards connected to the server
+このブラウザは録画に対応していません	This browser cannot record video
+録画を始められません	Cannot start recording
+録画を保存できません	Cannot save the recording
+録画が空です	The recording is empty
+このブラウザではカメラを使えません(HTTPS か localhost で開いてください)	This browser cannot use the camera (open the page over HTTPS or on localhost)
+カメラとマイクの使用が許可されていません(アドレスバーから許可できます)	Camera and microphone access is blocked (you can allow it from the address bar)
+カメラが見つかりません	No camera found
+カメラを他のアプリが使っています	Another app is using the camera
+カメラを使えません	Cannot use the camera

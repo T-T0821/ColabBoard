@@ -38,6 +38,7 @@ mod slides;
 mod templates_ui;
 mod toolbar;
 mod touch;
+mod video_memo;
 mod workshop;
 
 use crate::bench::Bench;
@@ -108,6 +109,7 @@ struct App {
     /// 音声通話(サーバーにつながるボードだけ)。
     voice: Option<crate::voice::VoiceCall>,
     call_ui: call_ui::CallUi,
+    video: video_memo::VideoMemo,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
     live_board: Option<Board>,
     /// 付箋の作者名を出すか。
@@ -416,6 +418,7 @@ pub async fn run() -> Result<(), String> {
         history: history::History::new(&document)?,
         voice,
         call_ui: call_ui::CallUi::new(&document)?,
+        video: video_memo::VideoMemo::new(&document)?,
         live_board: None,
         show_authors: true,
         local_store,
@@ -984,6 +987,7 @@ impl App {
             self.layout_cursors();
         }
         if self.dirty {
+            self.layout_video_player();
             self.layout_collab();
             self.layout_format_bar();
             self.layout_mind_panel();
@@ -1390,7 +1394,9 @@ impl App {
                 }
             }
             "Enter" => {
-                if let [id] = self.editor.selection() {
+                if self.play_selected_video() {
+                    // 動画メモは文字を持たないので、Enter は再生。
+                } else if let [id] = self.editor.selection() {
                     let id = *id;
                     self.begin_text_edit(id);
                 } else {
@@ -1515,6 +1521,10 @@ fn install_pointer(app: &Rc<RefCell<App>>, canvas: &HtmlCanvasElement) -> Result
             let mut a = app.borrow_mut();
             let p = a.css_to_physical(e.client_x() as f64, e.client_y() as f64);
             if a.editor.tool() != Tool::Select || a.editor.editing().is_some() {
+                return;
+            }
+            if a.play_video_at(p) {
+                e.prevent_default();
                 return;
             }
             if let Some(id) = a.editor.editable_at(&a.board, &a.camera, p) {
@@ -1779,6 +1789,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     comments::install(app, doc)?;
     history::install(app)?;
     call_ui::install(app, doc)?;
+    video_memo::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;

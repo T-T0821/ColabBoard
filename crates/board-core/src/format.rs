@@ -78,6 +78,7 @@ fn convertible(kind: ShapeKind) -> bool {
             | ShapeKind::Frame
             | ShapeKind::Stamp
             | ShapeKind::Image
+            | ShapeKind::Video
     )
 }
 
@@ -97,7 +98,7 @@ pub fn summarize(board: &Board, ids: &[ElementId]) -> Summary {
         out.locked |= e.is_locked();
         merge(&mut link, e.meta().link.clone());
         match e {
-            Element::Shape(s) if matches!(s.kind, ShapeKind::Stamp | ShapeKind::Image) => {}
+            Element::Shape(s) if s.kind == ShapeKind::Stamp || s.kind.is_picture() => {}
             Element::Shape(s) => {
                 out.has_text = true;
                 let st = s.text_style();

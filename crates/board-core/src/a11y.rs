@@ -323,7 +323,7 @@ pub fn place_sibling(board: &mut Board, from: ElementId, dir: Dir) -> Option<Ele
     let Some(Element::Shape(src)) = board.get(from).cloned() else {
         return None;
     };
-    if matches!(src.kind, ShapeKind::Frame | ShapeKind::Image) {
+    if src.kind == ShapeKind::Frame || src.kind.is_picture() {
         return None;
     }
     const GAP: f32 = 80.0;

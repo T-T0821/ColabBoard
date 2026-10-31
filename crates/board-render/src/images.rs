@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use board_core::{Board, Camera, ElementId, Rect, ShapeKind};
+use board_core::{Board, Camera, ElementId, Rect};
 use bytemuck::{Pod, Zeroable};
 
 use crate::Layer;
@@ -269,7 +269,7 @@ impl ImageLayer {
         for (li, layer) in layers.iter().enumerate() {
             for e in &elements[layer.elements.clone()] {
                 let Some(s) = e.as_shape() else { continue };
-                if s.kind != ShapeKind::Image && s.icon.is_empty()
+                if !s.kind.is_picture() && s.icon.is_empty()
                     || hidden.contains(&s.id)
                     || s.meta.hidden
                 {
@@ -287,7 +287,7 @@ impl ImageLayer {
                         size: rect.size().to_array(),
                     });
                 }
-                if s.kind != ShapeKind::Image {
+                if !s.kind.is_picture() {
                     continue;
                 }
                 let Some(data) = &s.image else { continue };

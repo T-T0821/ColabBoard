@@ -100,9 +100,11 @@ impl From<&Shape> for ShapeInstance {
                 _ => s.corner_radius,
             },
             kind: match s.kind {
-                ShapeKind::Rect | ShapeKind::Frame | ShapeKind::Text | ShapeKind::Image => {
-                    KIND_RECT
-                }
+                ShapeKind::Rect
+                | ShapeKind::Frame
+                | ShapeKind::Text
+                | ShapeKind::Image
+                | ShapeKind::Video => KIND_RECT,
                 ShapeKind::Ellipse => KIND_ELLIPSE,
                 ShapeKind::Sticky => KIND_STICKY,
                 ShapeKind::Triangle => KIND_TRIANGLE,
@@ -190,7 +192,7 @@ pub fn push_instances(e: &Element, out: &mut Vec<ShapeInstance>) {
     match e {
         // 文字だけの要素は図形を描かない(文字は文字描画で出す)。
         // 画像は画像描画で出す。
-        Element::Shape(s) if matches!(s.kind, ShapeKind::Text | ShapeKind::Image) => {}
+        Element::Shape(s) if s.kind == ShapeKind::Text || s.kind.is_picture() => {}
         Element::Shape(s) => out.push(s.into()),
         Element::Connector(c) => {
             let line = |a: board_core::Vec2, b: board_core::Vec2| {
@@ -416,7 +418,7 @@ impl TextRegions {
 
 /// 画像の描画(画像要素かアイコン)があるか。
 pub fn is_image(e: &Element) -> bool {
-    matches!(e, Element::Shape(s) if s.kind == ShapeKind::Image || !s.icon.is_empty())
+    matches!(e, Element::Shape(s) if s.kind.is_picture() || !s.icon.is_empty())
 }
 
 /// インスタンス列を作りながら段を決める。
