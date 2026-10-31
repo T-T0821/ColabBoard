@@ -16,6 +16,7 @@ use crate::crdt;
 use crate::element::{Element, ElementId};
 use crate::geom::Rect;
 use crate::shape::{Shape, ShapeKind};
+use crate::spatial::SpatialIndex;
 
 /// 自分の操作(Undo の対象)。
 const ORIGIN_LOCAL: &str = "local";
@@ -35,6 +36,22 @@ struct Sync {
     outbox: Arc<Mutex<Vec<Vec<u8>>>>,
 }
 
+/// 追加・削除・並べ替えがこれより多いときは、1 個ずつではなくまとめて反映する。
+const BULK_THRESHOLD: usize = 16;
+/// 空間インデックスに登録する範囲の余白(ヒットテストの許容距離などを見込む)。
+const INDEX_SLOP: f32 = 8.0;
+
+/// 空間インデックスに登録する範囲。文字(コネクタのラベルなど)がはみ出す分も含める。
+fn index_bounds(e: &Element) -> Rect {
+    let mut r = e.bounds();
+    if !e.text().is_empty()
+        && let Some(tb) = e.text_box()
+    {
+        r = r.union(&tb.clip);
+    }
+    r.expand(INDEX_SLOP)
+}
+
 /// 監視コールバックの登録キー。
 const OBSERVER_KEY: &str = "colabboard";
 
@@ -48,6 +65,10 @@ pub struct Board {
     /// `elements` と同じ並びの重なり順キー。
     z: Vec<f64>,
     index: HashMap<ElementId, usize>,
+    /// 位置から要素を引くための空間インデックス。
+    spatial: SpatialIndex,
+    /// コネクタの ID(経路の計算し直しで全要素を見ないため)。
+    connectors: HashSet<ElementId>,
     /// 内容が変わるたびに増える。描画側がバッファ再転送の要否を判断する。
     revision: u64,
     /// 要素 ID の上位 32 ビット(参加者ごとに違う)。
@@ -138,6 +159,8 @@ impl Board {
             elements: Vec::new(),
             z: Vec::new(),
             index: HashMap::new(),
+            spatial: SpatialIndex::new(),
+            connectors: HashSet::new(),
             revision: 0,
             client,
             counter: 0,
@@ -157,6 +180,8 @@ impl Board {
             elements: Vec::new(),
             z: Vec::new(),
             index: HashMap::new(),
+            spatial: SpatialIndex::new(),
+            connectors: HashSet::new(),
             revision: 0,
             client: 0,
             counter: 0,
@@ -298,12 +323,7 @@ impl Board {
     /// 変更をドキュメント(なければビュー)に書く。`None` は削除。
     fn write(&mut self, origin: &str, changes: Vec<(ElementId, Option<(Element, f64)>)>) {
         let Some(sync) = self.sync.as_ref() else {
-            for (id, change) in changes {
-                match change {
-                    Some((e, z)) => self.upsert_view(e, z),
-                    None => self.remove_view(id),
-                }
-            }
+            self.apply_view(changes);
             self.refresh_routes();
             return;
         };
@@ -366,19 +386,107 @@ impl Board {
                 updates.push((id, decoded));
             }
         }
-        for (id, decoded) in updates {
-            match decoded {
-                Some((e, z)) => self.upsert_view(e, z),
-                None => self.remove_view(id),
+        self.apply_view(updates);
+        self.refresh_routes();
+    }
+
+    /// まとめて届いた変更をビューに反映する。
+    ///
+    /// 同じ重なり順のままの変更(移動・色変更など)はその場で置き換える。
+    /// 追加・削除・重なり順の変更が多いとき(初回同期や貼り付け)は、1 個ずつ挿入すると
+    /// 要素数の 2 乗の時間がかかるので、並べ直しを 1 回のマージで済ませる。
+    fn apply_view(&mut self, updates: Vec<(ElementId, Option<(Element, f64)>)>) {
+        let mut structural = Vec::new();
+        for (id, change) in updates {
+            match (change, self.index.get(&id).copied()) {
+                (Some((e, z)), Some(i)) if self.z[i] == z => self.upsert_view(e, z),
+                // 最前面への新規追加は末尾に足すだけなので速い。
+                (Some((e, z)), None) if self.z.last().is_none_or(|&last| z > last) => {
+                    self.upsert_view(e, z)
+                }
+                (None, None) => {}
+                (change, _) => structural.push((id, change)),
             }
         }
-        self.refresh_routes();
+        if structural.len() <= BULK_THRESHOLD {
+            for (id, change) in structural {
+                match change {
+                    Some((e, z)) => self.upsert_view(e, z),
+                    None => self.remove_view(id),
+                }
+            }
+            return;
+        }
+        self.bulk_apply(structural);
+    }
+
+    /// 多数の追加・削除・並べ替えを 1 回のマージで反映する。
+    fn bulk_apply(&mut self, changes: Vec<(ElementId, Option<(Element, f64)>)>) {
+        let affected: HashSet<ElementId> = changes.iter().map(|c| c.0).collect();
+        let mut added: Vec<(f64, Element)> = Vec::with_capacity(changes.len());
+        for (id, change) in changes {
+            match change {
+                Some((e, z)) => {
+                    if id.0 >> 32 == self.client {
+                        self.counter = self.counter.max(id.0 & 0xffff_ffff);
+                    }
+                    self.spatial.insert(id, index_bounds(&e));
+                    self.track_connector(&e);
+                    added.push((z, e));
+                }
+                None => {
+                    self.spatial.remove(id);
+                    self.connectors.remove(&id);
+                }
+            }
+        }
+        added.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.id().cmp(&b.1.id())));
+
+        let old_elements = std::mem::take(&mut self.elements);
+        let old_z = std::mem::take(&mut self.z);
+        let n = old_elements.len() + added.len();
+        self.elements.reserve(n);
+        self.z.reserve(n);
+        let mut old = old_elements
+            .into_iter()
+            .zip(old_z)
+            .filter(|(e, _)| !affected.contains(&e.id()))
+            .peekable();
+        let mut new = added.into_iter().peekable();
+        loop {
+            let take_old = match (old.peek(), new.peek()) {
+                (Some((oe, oz)), Some((nz, ne))) => (*oz, oe.id()) < (*nz, ne.id()),
+                (Some(_), None) => true,
+                (None, Some(_)) => false,
+                (None, None) => break,
+            };
+            let (e, z) = if take_old {
+                old.next().unwrap()
+            } else {
+                let (z, e) = new.next().unwrap();
+                (e, z)
+            };
+            self.elements.push(e);
+            self.z.push(z);
+        }
+        self.index.clear();
+        self.index.reserve(self.elements.len());
+        for (i, e) in self.elements.iter().enumerate() {
+            self.index.insert(e.id(), i);
+        }
+        self.revision += 1;
     }
 
     /// コネクタの経路を、つながった相手の現在位置から計算し直す。
     fn refresh_routes(&mut self) {
         let mut changed = false;
-        for i in 0..self.elements.len() {
+        let mut targets: Vec<usize> = self
+            .connectors
+            .iter()
+            .filter_map(|id| self.index.get(id).copied())
+            .collect();
+        targets.sort_unstable();
+        for i in targets {
             let Element::Connector(c) = &self.elements[i] else {
                 continue;
             };
@@ -392,7 +500,9 @@ impl Board {
                     .and_then(crate::connector::Target::of)
             };
             if c.route(lookup) {
-                self.elements[i] = Element::Connector(c);
+                let e = Element::Connector(c);
+                self.spatial.insert(e.id(), index_bounds(&e));
+                self.elements[i] = e;
                 changed = true;
             }
         }
@@ -408,12 +518,14 @@ impl Board {
             self.counter = self.counter.max(id.0 & 0xffff_ffff);
         }
         self.revision += 1;
+        self.spatial.insert(id, index_bounds(&e));
+        self.track_connector(&e);
         if let Some(&i) = self.index.get(&id) {
             if self.z[i] == z {
                 self.elements[i] = e;
                 return;
             }
-            self.remove_view(id);
+            self.remove_at(i);
         }
         // (z, id) の順に並べる。最前面への追加は末尾なので速い。
         let pos = if self.z.last().is_none_or(|&last| z > last) {
@@ -441,12 +553,28 @@ impl Board {
     }
 
     fn remove_view(&mut self, id: ElementId) {
-        if let Some(i) = self.index.remove(&id) {
-            self.elements.remove(i);
-            self.z.remove(i);
-            self.reindex_from(i);
+        if let Some(&i) = self.index.get(&id) {
+            self.spatial.remove(id);
+            self.connectors.remove(&id);
+            self.remove_at(i);
             self.revision += 1;
         }
+    }
+
+    fn track_connector(&mut self, e: &Element) {
+        if matches!(e, Element::Connector(_)) {
+            self.connectors.insert(e.id());
+        } else {
+            self.connectors.remove(&e.id());
+        }
+    }
+
+    /// ビューの `i` 番目を外す(空間インデックスはそのまま)。
+    fn remove_at(&mut self, i: usize) {
+        let e = self.elements.remove(i);
+        self.index.remove(&e.id());
+        self.z.remove(i);
+        self.reindex_from(i);
     }
 
     fn reindex_from(&mut self, start: usize) {
@@ -540,16 +668,71 @@ impl Board {
 
     /// 最前面から探して、点の下にある要素を返す。
     pub fn hit_test(&self, world: Vec2, tolerance: f32) -> Option<&Element> {
-        self.elements.iter().rev().find(|e| e.hit(world, tolerance))
+        // 登録範囲には `INDEX_SLOP` の余白があるので、それを超える許容距離だけ広げて探す。
+        let probe = Rect::new(world, world).expand((tolerance - INDEX_SLOP).max(0.0));
+        let mut best: Option<usize> = None;
+        let indexed = self.spatial.query(&probe, |id| {
+            if let Some(&i) = self.index.get(&id)
+                && best.is_none_or(|b| i > b)
+                && self.elements[i].hit(world, tolerance)
+            {
+                best = Some(i);
+            }
+        });
+        if !indexed {
+            return self.elements.iter().rev().find(|e| e.hit(world, tolerance));
+        }
+        best.map(|i| &self.elements[i])
     }
 
-    /// 矩形に完全に含まれる要素(範囲選択用)。
+    /// `r` と重なるかもしれない要素の位置(描画順・昇順・重複なし)。
+    ///
+    /// 外接矩形に加えて文字がはみ出す分(コネクタのラベルなど)も含めて広めに返すので、
+    /// 呼び出し側で正確に判定する。範囲が広すぎて全要素を見るほうが速いときは `None`。
+    pub fn query_candidates(&self, r: &Rect) -> Option<Vec<usize>> {
+        let mut out = Vec::new();
+        if !self.spatial.query(r, |id| {
+            if let Some(&i) = self.index.get(&id) {
+                out.push(i);
+            }
+        }) {
+            return None;
+        }
+        out.sort_unstable();
+        out.dedup();
+        Some(out)
+    }
+
+    /// 矩形に完全に含まれる要素(範囲選択用)。描画順。
     pub fn query_inside(&self, r: &Rect) -> Vec<ElementId> {
-        self.elements
-            .iter()
-            .filter(|e| r.contains_rect(&e.bounds()))
-            .map(Element::id)
-            .collect()
+        let inside = |e: &&Element| r.contains_rect(&e.bounds());
+        match self.query_candidates(r) {
+            Some(c) => c
+                .into_iter()
+                .map(|i| &self.elements[i])
+                .filter(inside)
+                .map(Element::id)
+                .collect(),
+            None => self
+                .elements
+                .iter()
+                .filter(inside)
+                .map(Element::id)
+                .collect(),
+        }
+    }
+
+    /// 矩形と重なる要素(外接矩形で判定)。描画順(奥から手前)。
+    pub fn query_visible(&self, r: &Rect) -> Vec<&Element> {
+        let hit = |e: &&Element| e.bounds().intersects(r);
+        match self.query_candidates(r) {
+            Some(c) => c
+                .into_iter()
+                .map(|i| &self.elements[i])
+                .filter(hit)
+                .collect(),
+            None => self.elements.iter().filter(hit).collect(),
+        }
     }
 
     /// 初回表示用の小さなボード。
@@ -639,6 +822,22 @@ impl Board {
         board.elements.reserve(n);
         board.z.reserve(n);
         board.index.reserve(n);
+        board.spatial.reserve(n);
+        board.fill_demo(n, ORIGIN_LOCAL);
+        board
+    }
+
+    /// `demo` と同じ要素を持つ共同編集用ボード(ベンチマーク・初回同期の計測用)。
+    /// 全要素を 1 つのトランザクションで書き込み、Undo の対象にはしない。
+    pub fn demo_shared(n: usize, client_id: u64) -> Self {
+        let mut board = Self::with_client_id(client_id);
+        board.fill_demo(n, ORIGIN_INIT);
+        board
+    }
+
+    fn fill_demo(&mut self, n: usize, origin: &str) {
+        let base = self.top_z();
+        let mut changes = Vec::with_capacity(n);
         let cols = (n as f32).sqrt().ceil().max(1.0) as usize;
         let cell = 260.0;
         let mut rng = SplitMix64(0x0005_eedc_01ab_0a2d);
@@ -649,7 +848,7 @@ impl Board {
             Rgba8::hex(0xe6f4ea),
         ];
         for i in 0..n {
-            let id = board.alloc_id();
+            let id = self.alloc_id();
             let pos = Vec2::new((i % cols) as f32, (i / cols) as f32) * cell;
             let r = rng.next();
             let shape = match r % 3 {
@@ -682,9 +881,9 @@ impl Board {
                     )
                 }
             };
-            board.push(shape);
+            changes.push((id, Some((Element::from(shape), base + 1.0 + i as f64))));
         }
-        board
+        self.write(origin, changes);
     }
 }
 
@@ -756,6 +955,145 @@ mod tests {
         b.apply_remote(&a.encode_diff(None).unwrap()).unwrap();
         assert_eq!(path(&b), path(&a));
         assert!(matches!(b.get(s2), Some(Element::Shape(s)) if s.kind == ShapeKind::Star));
+
+        // 経路が変わったコネクタも、新しい位置でヒットテストに当たる。
+        assert_eq!(
+            a.hit_test(Vec2::new(350.0, 50.0), 2.0).map(Element::id),
+            Some(cid)
+        );
+    }
+
+    /// 空間インデックスを使った検索が、全要素を見る素朴な方法と同じ結果になる。
+    #[test]
+    fn spatial_queries_match_linear_scan() {
+        use crate::element::Stroke;
+        let mut b = Board::demo_shared(2000, 7);
+        // 移動・削除・手書き線・コネクタ・巨大な要素・ラベル付きコネクタを混ぜる。
+        let ids: Vec<_> = b.elements().iter().map(Element::id).collect();
+        for (k, id) in ids.iter().enumerate().step_by(7) {
+            b.update(*id, |e| {
+                e.translate(Vec2::new(k as f32 * 0.37, -(k as f32) * 0.11))
+            });
+        }
+        b.remove(&ids[..ids.len() / 10]);
+        let sid = b.alloc_id();
+        let mut st = Stroke::new(sid, Vec2::new(100.0, 100.0), Rgba8::BLACK, 6.0);
+        for i in 0..50 {
+            st.push_point(
+                Vec2::new(100.0 + i as f32 * 40.0, 100.0 + (i % 5) as f32 * 30.0),
+                0.0,
+            );
+        }
+        b.push(st);
+        let cid = b.alloc_id();
+        let mut c = Connector::new(
+            cid,
+            Endpoint::Attached {
+                id: ids[500],
+                anchor: None,
+            },
+            Endpoint::Attached {
+                id: ids[1500],
+                anchor: None,
+            },
+        );
+        c.text = "とても長いラベルの文字がはみ出す".repeat(4);
+        b.push(c);
+        b.update(ids[1500], |e| e.translate(Vec2::new(-700.0, 900.0)));
+        let big = b.alloc_id();
+        b.push(Shape::rect(
+            big,
+            Vec2::splat(3000.0),
+            Vec2::splat(30000.0),
+            Rgba8::WHITE,
+        ));
+        // 重なり順の変更(並べ替え)。
+        let z = b.z_range().0 - 1.0;
+        let back: Vec<_> = ids[1000..1040].iter().map(|id| (*id, z)).collect();
+        b.set_z(&back);
+
+        let mut rng = SplitMix64(42);
+        let extent = b.bounds().unwrap();
+        let mut rand_point = || {
+            let r = rng.next();
+            let t = Vec2::new(
+                (r & 0xffff) as f32 / 65535.0,
+                (r >> 16 & 0xffff) as f32 / 65535.0,
+            );
+            extent.min + (extent.max - extent.min) * t
+        };
+        for k in 0..600 {
+            let p = rand_point();
+            let tol = [0.0, 4.0, 20.0][k % 3];
+            let linear = b
+                .elements()
+                .iter()
+                .rev()
+                .find(|e| e.hit(p, tol))
+                .map(Element::id);
+            assert_eq!(b.hit_test(p, tol).map(Element::id), linear, "hit {p:?}");
+
+            let r = Rect::from_points(p, rand_point()).expand(10.0);
+            let linear: Vec<_> = b
+                .elements()
+                .iter()
+                .filter(|e| r.contains_rect(&e.bounds()))
+                .map(Element::id)
+                .collect();
+            assert_eq!(b.query_inside(&r), linear);
+            let small = Rect::from_points(p, p + Vec2::new(900.0, 600.0));
+            let linear: Vec<_> = b
+                .elements()
+                .iter()
+                .filter(|e| e.bounds().intersects(&small))
+                .map(Element::id)
+                .collect();
+            let got: Vec<_> = b
+                .query_visible(&small)
+                .into_iter()
+                .map(Element::id)
+                .collect();
+            assert_eq!(got, linear);
+            // 文字の領域が重なる要素も漏れない。
+            for (i, e) in b.elements().iter().enumerate() {
+                if let Some(tb) = e.text_box()
+                    && !e.text().is_empty()
+                    && tb.clip.intersects(&small)
+                {
+                    assert!(b.query_candidates(&small).unwrap().contains(&i));
+                }
+            }
+        }
+    }
+
+    /// 大量の要素をまとめて取り込んでも、1 個ずつ取り込んだときと同じ並びになる。
+    #[test]
+    fn bulk_reconcile_matches_incremental() {
+        let src = Board::demo_shared(3000, 9);
+        let full = src.encode_diff(None).unwrap();
+        let mut a = Board::with_client_id(1);
+        a.apply_remote(&full).unwrap();
+        assert_eq!(a.elements(), src.elements());
+        // 既存のボードに後から大量に混ざる場合も、並びと ID の引き当てが正しい。
+        let mut b = Board::with_client_id(2);
+        b.seed_welcome();
+        b.apply_remote(&full).unwrap();
+        let mut zs: Vec<_> = b
+            .elements()
+            .iter()
+            .map(|e| b.z_of(e.id()).unwrap())
+            .collect();
+        let sorted = {
+            let mut v = zs.clone();
+            v.sort_by(f64::total_cmp);
+            v
+        };
+        assert_eq!(zs, sorted);
+        for (i, e) in b.elements().iter().enumerate() {
+            assert_eq!(b.get(e.id()).map(Element::id), Some(e.id()), "{i}");
+        }
+        zs.clear();
+        assert_eq!(b.len(), src.len() + Board::welcome().len());
     }
 
     #[test]

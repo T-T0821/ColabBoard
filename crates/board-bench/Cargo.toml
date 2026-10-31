@@ -1,0 +1,11 @@
+[package]
+name = "board-bench"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "ColabBoard の再現可能なベンチマーク(CPU 側の処理時間)"
+
+[dependencies]
+board-core.workspace = true
+board-render.workspace = true

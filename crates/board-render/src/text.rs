@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use board_core::{Board, Camera, ElementId, Rect, ShapeKind, TextBox};
+use board_core::{Board, Camera, Element, ElementId, Rect, ShapeKind, TextBox};
 
 use crate::Layer;
 use glyphon::{
@@ -115,10 +115,14 @@ impl TextLayer {
         let view = Rect::new(view_min, view_max);
 
         // 見えていて、文字があり、十分な大きさで表示される図形を集める(要素の並び順)。
-        let visible: Vec<(usize, Item<'_>)> = board
-            .elements()
-            .iter()
-            .enumerate()
+        // 空間インデックスで画面付近の要素だけに絞る(広すぎる範囲なら全要素を見る)。
+        let elements = board.elements();
+        let candidates = board.query_candidates(&view);
+        let near: Box<dyn Iterator<Item = (usize, &Element)>> = match &candidates {
+            Some(c) => Box::new(c.iter().map(|&i| (i, &elements[i]))),
+            None => Box::new(elements.iter().enumerate()),
+        };
+        let visible: Vec<(usize, Item<'_>)> = near
             .filter(|(_, e)| !e.text().is_empty() && Some(e.id()) != skip)
             .filter_map(|(i, e)| {
                 Some((
