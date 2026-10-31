@@ -22,6 +22,10 @@
 //! - `TRUST_PROXY`(既定 `0`): `1` でリバースプロキシの `X-Forwarded-For` を接続元として記録する。
 //! - `AUDIT_RETENTION_DAYS`(既定 `365`): 操作ログを残す日数。
 //! - `EMBED_ALLOWED_ORIGINS`(既定 `*`): ボードを iframe で埋め込んでよいサイト(空白区切り。例 `https://wiki.example.com`)。
+//! - `OIDC_ISSUER`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET`・`OIDC_REDIRECT_URL`: そろえると
+//!   OpenID Connect の SSO が有効になる。`OIDC_NAME`(ボタンの名前)・`OIDC_SCOPES`・
+//!   `OIDC_ALLOWED_DOMAINS`(ログインできるメールのドメイン、`,` 区切り)も設定できる。
+//! - `PASSWORD_LOGIN`(既定 `1`): `0` でパスワードのログインとアカウント作成を止める(SSO のみ)。
 //! - `RUST_LOG`(既定 `info`)
 //!
 //! `board-server healthcheck` は自分の `/healthz` を確かめて終了コードで返す(コンテナの死活監視用)。
@@ -138,7 +142,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .filter(|s| !s.is_empty())
             .collect(),
         trust_proxy: flag("TRUST_PROXY", false),
+        oidc: board_server::oidc::OidcConfig::from_env().map(|c| {
+            tracing::info!("SSO(OpenID Connect): 有効({})", c.issuer);
+            Arc::new(board_server::oidc::Oidc::new(c))
+        }),
+        password_login: flag("PASSWORD_LOGIN", true),
     };
+    if !config.password_login && config.oidc.is_none() {
+        tracing::warn!(
+            "PASSWORD_LOGIN=0 ですが SSO が設定されていないので、誰もログインできません"
+        );
+    }
     let retention_days: u64 = std::env::var("AUDIT_RETENTION_DAYS")
         .ok()
         .and_then(|d| d.parse().ok())

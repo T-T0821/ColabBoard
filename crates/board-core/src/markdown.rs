@@ -736,6 +736,8 @@ fn unit_md(board: &Board, u: &Unit) -> Option<(String, bool)> {
     match s.kind {
         ShapeKind::Image if s.meta.link.is_empty() => None,
         ShapeKind::Image => Some((format!("![]({})", s.meta.link), false)),
+        ShapeKind::Video if s.media.is_empty() => None,
+        ShapeKind::Video => Some((format!("[動画メモ]({})", s.media), false)),
         // 取り込んだときの画像の仮置き。
         ShapeKind::Rect
             if s.stroke == PLACEHOLDER_STROKE && !s.meta.link.is_empty() && s.meta.group == 0 =>

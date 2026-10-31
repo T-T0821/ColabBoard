@@ -142,6 +142,15 @@ pub async fn get_bytes(path: &str) -> Result<Vec<u8>, HttpError> {
     Ok(js_sys::Uint8Array::new(&buf).to_vec())
 }
 
+/// バイナリを POST して JSON を受け取る(動画メモの保存など)。
+pub async fn post_bytes<T: DeserializeOwned>(
+    path: &str,
+    content_type: &str,
+    bytes: &[u8],
+) -> Result<T, HttpError> {
+    send_bytes("POST", path, content_type, bytes).await
+}
+
 /// バイナリを送って JSON を受け取る(プラグインの `.wasm` など)。
 pub async fn send_bytes<T: DeserializeOwned>(
     method: &str,

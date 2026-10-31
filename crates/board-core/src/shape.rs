@@ -24,6 +24,8 @@ pub enum ShapeKind {
     Stamp,
     /// 画像。中身は `Shape::image`(PNG / JPEG のバイト列)。
     Image,
+    /// 動画メモ。`image` が表紙(再生ボタン入り)、`media` が動画の URL。描画は画像と同じ。
+    Video,
     // ---- 図形ライブラリで増やした種類 ----
     /// 角丸四角形(角の丸みは大きさに合わせる)。
     RoundRect,
@@ -108,6 +110,7 @@ const KINDS: &[(ShapeKind, &str, &str)] = &[
     (ShapeKind::Frame, "frame", "フレーム"),
     (ShapeKind::Stamp, "stamp", "スタンプ"),
     (ShapeKind::Image, "image", "画像"),
+    (ShapeKind::Video, "video", "動画メモ"),
     (ShapeKind::RoundRect, "round-rect", "角丸四角形"),
     (ShapeKind::Pill, "pill", "カプセル(端子)"),
     (ShapeKind::TriangleDown, "triangle-down", "逆三角形"),
@@ -223,6 +226,11 @@ impl ShapeKind {
             Cloud => Vec2::new(190.0, 130.0),
             _ => Vec2::new(160.0, 100.0),
         }
+    }
+
+    /// 画像として描く種類(画像・動画メモの表紙)。文字は持たない。
+    pub fn is_picture(self) -> bool {
+        matches!(self, ShapeKind::Image | ShapeKind::Video)
     }
 
     /// 図形ライブラリでの分類。
@@ -577,6 +585,8 @@ pub struct Shape {
     /// 図形の中に描くアイコンの名前(構成図の部品の種類。例: `ec2`、`group:vpc`)。
     /// 空ならアイコンなし。アイコンの画像は描画側が名前から探し、なければ描かない。
     pub icon: String,
+    /// 動画の URL(`ShapeKind::Video` のときだけ。例: `/api/boards/{id}/media/{mid}`)。
+    pub media: String,
 }
 
 /// 画像のバイト列(PNG / JPEG)。複製しても中身は共有する。
@@ -668,6 +678,15 @@ impl Shape {
         }
     }
 
+    /// 動画メモの図形を作る。`poster` は表紙の画像、`url` は動画の場所。
+    pub fn video(id: ElementId, pos: Vec2, size: Vec2, poster: ImageData, url: String) -> Self {
+        Self {
+            kind: ShapeKind::Video,
+            media: url,
+            ..Self::image(id, pos, size, poster)
+        }
+    }
+
     /// 種類に合わせた既定の見た目で作る。
     pub fn new(id: ElementId, kind: ShapeKind, pos: Vec2, size: Vec2, fill: Rgba8) -> Self {
         let base = Self::rect(id, pos, size, fill);
@@ -707,6 +726,7 @@ impl Shape {
             meta: Meta::default(),
             image: None,
             icon: String::new(),
+            media: String::new(),
         }
     }
 
@@ -765,6 +785,7 @@ impl Shape {
             meta: Meta::default(),
             image: None,
             icon: String::new(),
+            media: String::new(),
         }
     }
 
@@ -916,7 +937,7 @@ impl Shape {
     ///
     /// フレームは左上の角に、それ以外は左端に縦中央で置く。
     pub fn icon_rect(&self) -> Option<Rect> {
-        if self.icon.is_empty() || self.kind == ShapeKind::Image {
+        if self.icon.is_empty() || self.kind.is_picture() {
             return None;
         }
         let b = self.bounds();

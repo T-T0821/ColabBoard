@@ -514,6 +514,92 @@ input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px;
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (max-width: 720px) { .call-bar { bottom: 140px; left: 12px; } }
 
+/* 動画メモ */
+.video-recorder {
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 40;
+  width: min(520px, calc(100vw - 32px));
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  padding: 14px;
+  border-radius: var(--r-lg);
+  background: var(--panel-solid);
+  box-shadow: var(--shadow-lg);
+  user-select: auto;
+}
+.video-recorder[hidden] { display: none; }
+.video-head { display: flex; align-items: baseline; justify-content: space-between; }
+.video-title { font-weight: 700; }
+.video-time { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.video-recorder[data-stage="recording"] .video-time { color: var(--danger-text); font-weight: 600; }
+.video-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: #111318;
+}
+.video-frame video { width: 100%; height: 100%; object-fit: contain; display: block; }
+/* 自撮りは鏡写しで見せる(録れる動画はそのまま)。 */
+.video-recorder[data-stage="ready"] video,
+.video-recorder[data-stage="recording"] video { transform: scaleX(-1); }
+.video-rec {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+.video-rec::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--danger); animation: rec-blink 1s steps(2) infinite; }
+@keyframes rec-blink { 50% { opacity: 0.2; } }
+.video-recorder[data-stage="recording"] .video-rec { display: inline-flex; }
+.video-status { margin: 0; font-size: 12px; color: var(--muted); }
+.video-status[hidden] { display: none; }
+.video-status[data-state="error"] { color: var(--danger-text); }
+.video-actions { display: flex; align-items: center; gap: 8px; }
+.video-actions button[hidden] { display: none; }
+.video-spacer { flex: 1; }
+.video-record { background: var(--danger); color: #fff; border-radius: 999px; padding: 0 16px; display: inline-flex; align-items: center; gap: 6px; }
+.video-record::before { content: ""; width: 10px; height: 10px; border-radius: 50%; background: #fff; }
+.video-record[aria-pressed="true"]::before { border-radius: 2px; }
+.video-record:hover { background: color-mix(in srgb, var(--danger) 88%, #000); }
+.video-actions .primary { background: var(--accent); color: #fff; }
+.video-actions .primary:hover { background: var(--accent-hover); }
+.video-actions .primary:disabled { opacity: 0.7; cursor: progress; }
+.video-player {
+  position: fixed;
+  z-index: 15;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  background: #000;
+  box-shadow: var(--shadow-lg);
+}
+.video-player[hidden] { display: none; }
+.video-player video { width: 100%; height: 100%; display: block; object-fit: contain; }
+.video-player button {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+}
+.video-player button:hover { background: rgba(0, 0, 0, 0.75); }
+
 /* ファシリテーション(タイマー・投票) */
 .collab {
   top: 108px;
@@ -1803,3 +1889,8 @@ body.public-view .hud > .sep { display: none !important; }
 .mind-seg button { height: 26px; }
 body[data-role="viewer"] .mind-panel,
 body[data-role="commenter"] .mind-panel { display: none !important; }
+
+/* ---- SSO ---- */
+.home-card a.button.sso { display: flex; align-items: center; justify-content: center; gap: 6px; height: 42px; margin-top: 20px; border-radius: 10px; background: var(--accent-grad); color: #fff; font-weight: 600; text-decoration: none; }
+.home-card a.button.sso:hover { filter: brightness(1.06); }
+.home-card p.or { text-align: center; margin: 14px 0 -6px; font-size: 12px; }

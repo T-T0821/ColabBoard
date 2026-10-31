@@ -117,6 +117,9 @@
     <button id="insert-image" class="tool" title="画像・PDF・マークダウン・CSV・Excel・Mermaid・PlantUML・draw.io・Miro を挿入(貼り付け・ドロップでも置けます)">
       <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-9 9"/></svg>
     </button>
+    <button id="insert-video" class="tool" title="動画メモを録って置く(最長 1 分)">
+      <svg viewBox="0 0 24 24"><rect x="2.5" y="6" width="13" height="12" rx="2.5"/><path d="M15.5 10.5l5-3v9l-5-3z"/></svg>
+    </button>
     <div class="tool-group">
       <button id="templates-button" class="tool" title="テンプレート" aria-haspopup="true">
         <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><path d="M17.25 14v6.5M14 17.25h6.5"/></svg>
@@ -167,6 +170,29 @@
     <span id="slide-title" class="slide-title"></span>
     <button id="slide-next" class="icon" title="次へ (→ / Space)" aria-label="次のスライド">›</button>
     <button id="slide-exit" title="スライドを終了 (Esc)">終了</button>
+  </div>
+
+  <section id="video-recorder" class="panel video-recorder" aria-label="動画メモ" data-stage="closed" hidden>
+    <div class="video-head">
+      <span class="video-title">動画メモ</span>
+      <span id="video-time" class="video-time">0:00 / 1:00</span>
+    </div>
+    <div class="video-frame">
+      <video id="video-preview" playsinline muted></video>
+      <span class="video-rec" aria-hidden="true">REC</span>
+    </div>
+    <p id="video-status" class="video-status" role="status" hidden></p>
+    <div class="video-actions">
+      <button id="video-cancel">キャンセル</button>
+      <span class="video-spacer"></span>
+      <button id="video-retake" hidden>撮り直す</button>
+      <button id="video-record" class="video-record" aria-pressed="false" hidden>録画</button>
+      <button id="video-place" class="primary" hidden>ボードに置く</button>
+    </div>
+  </section>
+  <div id="video-player" class="video-player" hidden>
+    <video id="video-player-media" controls playsinline></video>
+    <button id="video-player-close" class="icon" title="閉じる (Esc)" aria-label="動画を閉じる">✕</button>
   </div>
 
   <section id="call-bar" class="panel call-bar" aria-label="音声通話" hidden>
