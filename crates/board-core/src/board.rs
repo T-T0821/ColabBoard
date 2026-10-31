@@ -389,14 +389,7 @@ impl Board {
                 index
                     .get(&id)
                     .map(|&j| &elements[j])
-                    .and_then(|e| match e {
-                        Element::Connector(_) => None,
-                        Element::Shape(s) => Some(crate::connector::Target {
-                            rect: s.bounds(),
-                            kind: Some(s.kind),
-                        }),
-                        e => Some(e.bounds().into()),
-                    })
+                    .and_then(crate::connector::Target::of)
             };
             if c.route(lookup) {
                 self.elements[i] = Element::Connector(c);

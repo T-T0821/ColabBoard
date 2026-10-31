@@ -239,7 +239,11 @@ pub fn build(
         c.width = EDGE_WIDTH;
         c.style = PathStyle::Elbow;
         c.text = e.label.trim().to_string();
-        let rect_of = |id: ElementId| out.iter().find(|el| el.id() == id).map(Element::bounds);
+        let rect_of = |id: ElementId| {
+            out.iter()
+                .find(|el| el.id() == id)
+                .and_then(crate::connector::Target::of)
+        };
         c.route(rect_of);
         out.push(c.into());
     }

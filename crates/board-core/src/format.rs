@@ -191,7 +191,9 @@ pub fn normalize_link(link: &str) -> Option<String> {
     // ほかのスキーム(javascript: など)は開かない。
     if let Some((scheme, _)) = lower.split_once(':')
         && !scheme.is_empty()
-        && scheme.chars().all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
+        && scheme
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "+-.".contains(c))
         && !scheme.contains('.')
     {
         return None;
@@ -258,8 +260,14 @@ mod tests {
         apply(&mut b, &ids, &Change::FontSize(32.0));
         assert_eq!(summarize(&b, &ids).font_size, Some(32.0));
         apply(&mut b, &ids, &Change::Kind(ShapeKind::Ellipse));
-        assert_eq!(b.get(r).unwrap().as_shape().unwrap().kind, ShapeKind::Ellipse);
-        assert_eq!(b.get(s).unwrap().as_shape().unwrap().kind, ShapeKind::Sticky);
+        assert_eq!(
+            b.get(r).unwrap().as_shape().unwrap().kind,
+            ShapeKind::Ellipse
+        );
+        assert_eq!(
+            b.get(s).unwrap().as_shape().unwrap().kind,
+            ShapeKind::Sticky
+        );
         apply(&mut b, &ids, &Change::EndCap(Cap::None));
         apply(&mut b, &ids, &Change::Path(PathStyle::Curved));
         let Some(Element::Connector(conn)) = b.get(c) else {

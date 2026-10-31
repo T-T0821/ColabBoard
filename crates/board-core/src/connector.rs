@@ -311,6 +311,21 @@ pub struct Target {
     pub kind: Option<crate::shape::ShapeKind>,
 }
 
+impl Target {
+    /// 要素をつなぐ相手として見たときの形(コネクタにはつながない)。
+    pub fn of(e: &crate::element::Element) -> Option<Self> {
+        use crate::element::Element;
+        match e {
+            Element::Connector(_) => None,
+            Element::Shape(s) => Some(Self {
+                rect: s.bounds(),
+                kind: Some(s.kind),
+            }),
+            e => Some(e.bounds().into()),
+        }
+    }
+}
+
 impl From<Rect> for Target {
     fn from(rect: Rect) -> Self {
         Self { rect, kind: None }
