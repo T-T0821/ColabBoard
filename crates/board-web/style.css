@@ -217,6 +217,8 @@ html, body {
 .zoom { bottom: 16px; right: 16px; gap: 2px; padding: 4px; border-radius: var(--r-md); }
 .zoom button { min-width: 30px; height: 30px; padding: 0 8px; background: transparent; font-size: 15px; }
 .zoom #zoom-fit { font-size: 12px; }
+.zoom #toggle-authors { font-size: 12px; color: var(--muted); }
+.zoom #toggle-authors[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
 #hud-zoom { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 12px; }
 #hud-fps, #hud-count { font-variant-numeric: tabular-nums; }
 

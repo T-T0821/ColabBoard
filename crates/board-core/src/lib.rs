@@ -6,6 +6,7 @@
 pub mod access;
 pub mod api;
 pub mod arrange;
+pub mod autolayout;
 pub mod board;
 pub mod camera;
 pub mod color;
