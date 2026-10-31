@@ -83,6 +83,8 @@ web-sys = { version = "0.3", features = [
     "BlobPropertyBag",
     "Url",
     "HtmlAnchorElement",
+    "VisualViewport",
+    "MouseEventInit",
 ] }
 # PDF の取り込み(Pure Rust のラスタライザ)。wasm が数 MB 増えるので機能で切れるようにする。
 hayro = { version = "0.8", default-features = false, optional = true }

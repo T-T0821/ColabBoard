@@ -270,6 +270,8 @@ pub struct Editor {
     pub stamp: crate::stamp::Stamp,
     /// コネクタを引いているときに、つながりそうな要素(強調表示用)。
     hover_target: Option<ElementId>,
+    /// 当たり判定を広げる倍率(指で触るときは大きくする)。
+    hit_scale: f32,
 }
 
 impl Default for Editor {
@@ -302,11 +304,41 @@ impl Editor {
             connector_style: PathStyle::default(),
             stamp: crate::stamp::STAMPS[0],
             hover_target: None,
+            hit_scale: 1.0,
         }
     }
 
     pub fn tool(&self) -> Tool {
         self.tool
+    }
+
+    /// 当たり判定(つまみ・要素・クリックとみなす距離)の倍率。指なら大きくする。
+    pub fn set_hit_scale(&mut self, scale: f32) {
+        self.hit_scale = scale.max(1.0);
+    }
+
+    fn handle_px(&self) -> f32 {
+        HANDLE_HIT_PX * self.hit_scale
+    }
+
+    fn hit_px(&self) -> f32 {
+        HIT_TOLERANCE_PX * self.hit_scale
+    }
+
+    fn click_px(&self) -> f32 {
+        CLICK_PX * self.hit_scale
+    }
+
+    /// その位置を押しても何もつかまない(空いている場所)か。選択ツール用。
+    pub fn hits_nothing(&self, board: &Board, camera: &Camera, screen: Vec2) -> bool {
+        self.connector_end_at(board, camera, screen).is_none()
+            && self.handle_at(board, camera, screen).is_none()
+            && pick(
+                board,
+                camera.screen_to_world(screen),
+                self.hit_px() / camera.zoom,
+            )
+            .is_none()
     }
 
     pub fn set_tool(&mut self, tool: Tool) {
@@ -369,7 +401,7 @@ impl Editor {
     /// ダブルクリックで編集できる要素。
     pub fn editable_at(&self, board: &Board, camera: &Camera, screen: Vec2) -> Option<ElementId> {
         let world = camera.screen_to_world(screen);
-        pick(board, world, HIT_TOLERANCE_PX / camera.zoom)
+        pick(board, world, self.hit_px() / camera.zoom)
             .filter(|e| e.text_box().is_some())
             .map(Element::id)
     }
@@ -404,7 +436,7 @@ impl Editor {
     /// 右クリックした位置の要素を選ぶ(選択中の要素ならそのまま)。何もなければ選択を外す。
     pub fn select_at(&mut self, board: &Board, camera: &Camera, screen: Vec2) {
         let world = camera.screen_to_world(screen);
-        match pick(board, world, HIT_TOLERANCE_PX / camera.zoom).map(Element::id) {
+        match pick(board, world, self.hit_px() / camera.zoom).map(Element::id) {
             Some(id) if self.selection.contains(&id) => {}
             Some(id) => self.selection = arrange::expand_groups(board, &[id]),
             None => self.selection.clear(),
@@ -465,7 +497,7 @@ impl Editor {
         [(c.end(), true), (c.start(), false)]
             .into_iter()
             .find(|(p, _)| {
-                (camera.world_to_screen(*p) - screen).abs().max_element() <= HANDLE_HIT_PX
+                (camera.world_to_screen(*p) - screen).abs().max_element() <= self.handle_px()
             })
             .map(|(_, end)| end)
     }
@@ -477,7 +509,7 @@ impl Editor {
         let r = self.selection_bounds(board)?;
         Handle::ALL.into_iter().find_map(|h| {
             let hs = camera.world_to_screen(h.position(&r));
-            ((hs - screen).abs().max_element() <= HANDLE_HIT_PX).then_some((h, r))
+            ((hs - screen).abs().max_element() <= self.handle_px()).then_some((h, r))
         })
     }
 
@@ -505,7 +537,7 @@ impl Editor {
                     return "move";
                 }
                 let world = camera.screen_to_world(screen);
-                match pick(board, world, HIT_TOLERANCE_PX / camera.zoom) {
+                match pick(board, world, self.hit_px() / camera.zoom) {
                     Some(e) if self.selection.contains(&e.id()) => "move",
                     Some(_) => "pointer",
                     None => "default",
@@ -544,7 +576,7 @@ impl Editor {
                     });
                     return true;
                 }
-                let hit = pick(board, world, HIT_TOLERANCE_PX / camera.zoom).map(Element::id);
+                let hit = pick(board, world, self.hit_px() / camera.zoom).map(Element::id);
                 match hit {
                     Some(id) => {
                         let selected = self.selection.contains(&id);
@@ -782,7 +814,7 @@ impl Editor {
         let world = camera.screen_to_world(screen);
         match self.drag.take() {
             Some(Drag::Create { id, start }) => {
-                let clicked = (world - start).abs().max_element() * camera.zoom < CLICK_PX;
+                let clicked = (world - start).abs().max_element() * camera.zoom < self.click_px();
                 let mut is_text = false;
                 board.update(id, |e| {
                     if let Element::Shape(s) = e {
@@ -811,7 +843,7 @@ impl Editor {
                         c.from
                             .attached_to()
                             .is_none_or(|a| c.to.attached_to() == Some(a))
-                            && c.start().distance(c.end()) * camera.zoom < CLICK_PX
+                            && c.start().distance(c.end()) * camera.zoom < self.click_px()
                     }
                     _ => false,
                 };
@@ -959,6 +991,27 @@ mod tests {
         assert_eq!(r, Rect::new(Vec2::new(10.0, 10.0), Vec2::new(110.0, 60.0)));
         assert_eq!(e.tool(), Tool::Select);
         assert_eq!(e.selection(), &[b.elements()[0].id()]);
+    }
+
+    #[test]
+    fn hit_scale_widens_handles_and_empty_test() {
+        let (mut b, c, mut e) = setup();
+        let a = add_rect(&mut b, Vec2::ZERO, Vec2::splat(100.0));
+        assert!(!e.hits_nothing(&b, &c, Vec2::splat(50.0)));
+        assert!(e.hits_nothing(&b, &c, Vec2::splat(120.0)));
+        e.set_selection(vec![a]);
+        // 右下のつまみから 20px 離れた所: 既定では空き、指(倍率 3)ならつまみ。
+        let near = Vec2::splat(120.0);
+        assert!(e.hits_nothing(&b, &c, near));
+        e.set_hit_scale(3.0);
+        assert!(!e.hits_nothing(&b, &c, near));
+        e.pointer_down(&mut b, &c, near, NO);
+        e.pointer_move(&mut b, &c, Vec2::splat(220.0), NO);
+        e.pointer_up(&mut b, &c, Vec2::splat(220.0));
+        // つまみをつかんで大きさが変わった(移動ではない)。
+        let r = b.get(a).unwrap().bounds();
+        assert_eq!(r.min, Vec2::ZERO);
+        assert!(r.max.x > 150.0);
     }
 
     #[test]
