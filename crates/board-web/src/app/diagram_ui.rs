@@ -16,12 +16,12 @@ const DIAGRAM_GAP: f32 = 200.0;
 
 impl App {
     /// 画面中央のワールド座標。
-    fn view_center(&self) -> Vec2 {
+    pub(super) fn view_center(&self) -> Vec2 {
         self.camera.screen_to_world(self.camera.viewport * 0.5)
     }
 
     /// 要素をまとめて追加し、1 回の Undo で消せるようにして選択する。
-    fn insert_elements(&mut self, elements: Vec<BoardElement>) {
+    pub(super) fn insert_elements(&mut self, elements: Vec<BoardElement>) {
         if elements.is_empty() {
             return;
         }

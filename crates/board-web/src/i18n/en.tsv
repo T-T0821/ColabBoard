@@ -813,3 +813,51 @@ SSO でログイン	Signed in with SSO
 API トークン作成	API token created
 API トークン失効	API token revoked
 付箋・縦書き	Sticky note (vertical)
+# 作図(UML・ER・自動整列)
+始点	Start
+終点	End
+始点の記号	Start marker
+終点の記号	End marker
+始点: 矢印	Start: Arrow
+終点: 矢印	End: Arrow
+始点: なし	Start: None
+終点: なし	End: None
+なし	None
+白三角(継承)	Hollow triangle (inheritance)
+黒三角	Filled triangle
+白ひし形(集約)	Hollow diamond (aggregation)
+黒ひし形(コンポジション)	Filled diamond (composition)
+丸	Circle
+多	many
+{n}..多	{n}..many
+UML・ER	UML & ER
+クラス	Class
+インターフェース	Interface
+エンティティ(ER)	Entity (ER)
+ライフライン	Lifeline
+実行中(活性区間)	Activation
+複合フラグメント(alt / loop)	Combined fragment (alt / loop)
+アクター	Actor
+ユースケース	Use case
+開始状態	Initial state
+終了状態	Final state
+ノート	Note
+図解(UML・ER)	Diagrams (UML & ER)
+UML クラス図	UML class diagram
+ER 図	ER diagram
+シーケンス図	Sequence diagram
+ユースケース図	Use case diagram
+状態遷移図	State machine diagram
+アクティビティ図	Activity diagram
+クラス・継承・実現・集約・コンポジション・依存	Classes, inheritance, realization, aggregation, composition and dependency
+テーブルと {n} 対多の関係(カラスの足)	Tables and one-to-many relationships (crow's foot)
+ライフライン・メッセージ・戻り・alt	Lifelines, messages, replies and alt
+アクター・システム境界・include	Actors, system boundary and include
+開始・状態・遷移・終了	Start, states, transitions and end
+スイムレーンと分岐のある流れ	A flow with swimlanes and branches
+部品を複製(Ctrl/⌘+D)して名前を書き換える。部品は図形パネルの「UML・ER」にもある	Duplicate a part (Ctrl/⌘+D) and rename it. Parts are also in the "UML & ER" section of the shape panel
+線を選び、書式バーで端の記号(継承・集約・カラスの足など)と破線を選ぶ	Select a line and pick end markers (inheritance, aggregation, crow's foot…) and dashes in the format bar
+右クリック → 図を自動整列 で並べ直す	Right-click → Auto-layout diagram to rearrange
+ライフラインを複製(Ctrl/⌘+D)して名前を書き換える	Duplicate a lifeline (Ctrl/⌘+D) and rename it
+メッセージの矢印を複製して上下に並べる(スナップでそろう)	Duplicate message arrows and stack them (snapping lines them up)
+戻りは書式バーで破線、同期呼び出しは黒三角にする	Make replies dashed and synchronous calls a filled triangle in the format bar
