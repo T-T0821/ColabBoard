@@ -1174,15 +1174,37 @@ body[data-preview="on"] #comment-pins { display: none !important; }
 body[data-preview="on"] #board { box-shadow: inset 0 0 0 3px var(--warning); }
 
 /* ---- テンプレート ---- */
-.template-picker { grid-template-columns: repeat(2, 200px); gap: 6px; }
+.template-picker[data-open] {
+  display: flex; flex-direction: column; gap: 8px;
+  width: min(680px, calc(100vw - 32px)); max-height: min(70vh, 640px); padding: 10px;
+}
+.template-search { width: 100%; height: 32px; padding: 0 10px; flex: none; }
+.template-list { overflow-y: auto; min-height: 0; padding-right: 2px; }
+.template-list section[hidden], .template-list button[hidden], .template-empty[hidden] { display: none; }
+.template-list h4 { margin: 10px 2px 6px; font-size: 12px; font-weight: 600; color: var(--muted); letter-spacing: 0.02em; }
+.template-list section:first-child h4 { margin-top: 2px; }
+.template-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: 6px; }
 .template-picker button {
-  width: 200px; height: auto; padding: 10px 12px;
+  width: auto; height: auto; padding: 9px 11px;
   display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
   text-align: left; background: var(--panel-solid); border: 1px solid var(--border); border-radius: var(--r-sm);
 }
 .template-picker button:hover { border-color: var(--accent-ring); background: var(--accent-soft); color: var(--text); }
 .template-picker strong { font-size: 13px; font-weight: 600; }
-.template-picker span { font-size: 11px; color: var(--muted); }
+.template-picker span { font-size: 11px; color: var(--muted); line-height: 1.4; }
+.template-empty { margin: 12px 4px; color: var(--muted); font-size: 12px; }
+
+/* ---- テンプレートの進め方(ファシリテーションのパネル) ---- */
+.template-guide { margin: 8px 0 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--accent-soft); }
+.template-guide[hidden] { display: none; }
+.template-guide-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.template-guide-head strong { font-size: 13px; }
+.template-guide-head button { min-width: 24px; height: 24px; padding: 0 6px; background: transparent; }
+.template-guide ol { margin: 6px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.template-guide li { font-size: 12px; }
+.template-guide li span { margin-right: 6px; }
+.template-guide li button { height: 24px; padding: 0 8px; font-size: 12px; }
+.template-guide li[data-done] span { color: var(--muted); text-decoration: line-through; }
 
 /* ---- 検索 ---- */
 .search-box { top: 64px; left: 50%; transform: translateX(-50%); z-index: 25; gap: 4px; padding: 5px; animation: pop-in var(--t-med) var(--ease); }
