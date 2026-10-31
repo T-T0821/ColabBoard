@@ -24,8 +24,15 @@
     <span class="sep"></span>
     <span id="hud-net" data-status="connecting">接続中…</span>
     <button id="share" title="このボードを共有">リンクをコピー</button>
+    <button id="comments-toggle" title="コメント" aria-pressed="false">コメント</button>
+    <button id="notif-button" class="icon" title="通知" aria-label="通知"></button>
     <span id="account"></span>
   </header>
+
+  <div id="comment-pins" aria-label="コメント"></div>
+  <section id="comment-popover" class="panel comment-popover" aria-label="コメント" hidden></section>
+  <section id="comments-panel" class="panel comments-panel" aria-label="コメント一覧" hidden></section>
+  <section id="notif-menu" class="panel notif-menu" aria-label="通知" hidden></section>
 
   <section id="share-panel" class="panel share-panel" aria-label="共有" hidden></section>
 

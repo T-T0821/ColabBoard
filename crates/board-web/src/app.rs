@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
-use board_core::protocol::{Message, Presence};
+use board_core::protocol::{Message, Presence, TOPIC_COMMENTS};
 use board_core::{
     Board, Camera, Editor, Element as BoardElement, ElementId, Modifiers, Navigator, Tool, Vec2,
 };
@@ -17,6 +17,7 @@ use web_sys::{
 mod actions;
 mod ai;
 mod collab;
+mod comments;
 mod follow;
 mod format_bar;
 mod reactions;
@@ -73,6 +74,7 @@ struct App {
     ai: ai::AiUi,
     follow: follow::Follow,
     format_bar: format_bar::FormatBar,
+    comments: comments::Comments,
     /// ボード名・権限・共有パネル(サーバーの API が使えるときだけ)。
     chrome: Option<SharedChrome>,
     /// 権限の確かめ直しの結果(非同期で届く)。
@@ -299,6 +301,7 @@ pub async fn run() -> Result<(), String> {
         ai: ai::AiUi::new(&document)?,
         follow: follow::Follow::new(&document)?,
         format_bar: format_bar::FormatBar::default(),
+        comments: comments::Comments::new(&document)?,
         chrome,
         access_slot: Rc::default(),
         syncs: 0,
@@ -483,6 +486,7 @@ impl App {
                     self.syncs += 1;
                     if self.syncs > 1 {
                         self.recheck_access();
+                        self.fetch_comments();
                     }
                     if let Err(e) = self.board.apply_remote(&state) {
                         log::error!("初回同期に失敗: {e}");
@@ -519,6 +523,8 @@ impl App {
                 }
                 NetEvent::Message(Message::View(v)) => self.on_view(v),
                 NetEvent::Message(Message::Reaction(r)) => self.on_reaction(r),
+                NetEvent::Message(Message::Refresh(TOPIC_COMMENTS)) => self.fetch_comments(),
+                NetEvent::Message(Message::Refresh(_)) => {}
                 NetEvent::Closed => {
                     self.cursors.clear();
                     self.follow_reset();
@@ -717,6 +723,7 @@ impl App {
         self.pump_net(now);
         self.collab_frame();
         self.follow_frame(now);
+        self.comments_frame(now);
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
         if (w, h) != self.renderer.size() {
@@ -742,6 +749,7 @@ impl App {
         if self.dirty {
             self.layout_collab();
             self.layout_format_bar();
+            self.layout_comments();
         }
         if !(self.dirty || self.continuous) {
             self.last_frame = None;
@@ -789,6 +797,10 @@ impl App {
         let p = self.css_to_physical(e.client_x() as f64, e.client_y() as f64);
         let id = e.pointer_id();
         self.pointers.insert(id, p);
+        if e.button() == 0 && self.pointers.len() == 1 && self.comment_pointer_down(p) {
+            self.pointers.remove(&id);
+            return;
+        }
 
         let wants_nav = e.button() == 1
             || !self.can_edit()
@@ -962,6 +974,9 @@ impl App {
         }
         let key = e.key();
         let ctrl = e.ctrl_key() || e.meta_key();
+        if key == "Escape" && self.comments_escape() {
+            return true;
+        }
         if key == "Escape"
             && let Some(c) = &self.chrome
             && c.borrow().share_open()
@@ -1326,6 +1341,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     collab::install(app, doc)?;
     ai::install(app, doc)?;
     follow::install(app, doc)?;
+    comments::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;

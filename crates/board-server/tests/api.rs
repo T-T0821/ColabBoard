@@ -360,3 +360,97 @@ async fn anonymous_boards_can_be_disabled() {
     .await;
     assert!(s.connect("free-room", None, None).await.is_none());
 }
+
+#[tokio::test]
+async fn comments_permissions_and_live_refresh() {
+    let s = start(Config::default()).await;
+    let alice = s.signup("alice").await;
+    let bob = s.signup("bob").await;
+    let (_, b, _) = s
+        .call(
+            "POST",
+            "/api/boards",
+            Some(&alice),
+            Some(json!({"title": "レビュー"})),
+        )
+        .await;
+    let id = b["id"].as_str().unwrap().to_string();
+    let path = format!("/api/boards/{id}");
+    s.call(
+        "PUT",
+        &format!("{path}/members"),
+        Some(&alice),
+        Some(json!({"login": "bob", "role": "viewer"})),
+    )
+    .await;
+
+    // 閲覧のみの bob はコメントできない。未ログインでも書けない。
+    let body = json!({"body": "@alice ここ確認して", "x": 10.0, "y": 20.0});
+    let (status, _, _) = s
+        .call(
+            "POST",
+            &format!("{path}/comments"),
+            Some(&bob),
+            Some(body.clone()),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = s
+        .call(
+            "POST",
+            &format!("{path}/comments"),
+            None,
+            Some(body.clone()),
+        )
+        .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    // コメント可にすると書ける。つないでいる人には Refresh が届く。
+    s.call(
+        "PUT",
+        &format!("{path}/members"),
+        Some(&alice),
+        Some(json!({"login": "bob", "role": "commenter"})),
+    )
+    .await;
+    let (mut ws_a, _) = s.connect(&id, Some(&alice), None).await.unwrap();
+    let (status, posted, _) = s
+        .call("POST", &format!("{path}/comments"), Some(&bob), Some(body))
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{posted}");
+    assert_eq!(posted["comment"]["mentions"], json!(["alice"]));
+    assert_eq!(
+        recv(&mut ws_a).await,
+        Some(Message::Refresh(board_core::protocol::TOPIC_COMMENTS))
+    );
+
+    let (_, list, _) = s
+        .call("GET", &format!("{path}/comments"), Some(&alice), None)
+        .await;
+    assert_eq!(list.as_array().unwrap().len(), 1);
+    let (_, notes, _) = s
+        .call("GET", "/api/notifications", Some(&alice), None)
+        .await;
+    assert_eq!(notes[0]["kind"], "mention");
+    assert_eq!(notes[0]["board_title"], "レビュー");
+    let (status, _, _) = s
+        .call(
+            "POST",
+            "/api/notifications/read",
+            Some(&alice),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, notes, _) = s
+        .call("GET", "/api/notifications", Some(&alice), None)
+        .await;
+    assert_eq!(notes[0]["read"], true);
+
+    // 開けない人には一覧も見せない。
+    let carol = s.signup("carol").await;
+    let (status, _, _) = s
+        .call("GET", &format!("{path}/comments"), Some(&carol), None)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
