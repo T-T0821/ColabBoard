@@ -343,6 +343,9 @@ impl App {
             return;
         }
         let ids = self.editor.selection().to_vec();
+        if let Change::Vertical(v) = change {
+            self.editor.note_vertical(&self.board, v);
+        }
         self.board.end_gesture();
         format::apply(&mut self.board, &ids, &change);
         self.board.end_gesture();

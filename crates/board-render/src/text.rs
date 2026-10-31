@@ -61,19 +61,147 @@ fn vertical_form(c: char) -> char {
     }
 }
 
-/// 縦書きの列に分ける。段落(改行)ごとに新しい列にし、`per_column` 文字で折り返す。
-fn split_columns(text: &str, per_column: usize) -> Vec<Vec<char>> {
+/// 列の頭に来てはいけない文字(句読点・閉じ括弧・長音・小書きのかななど)。
+/// 直前の文字と一緒に次の列へ送る(追い出し)。
+fn no_line_start(c: char) -> bool {
+    matches!(
+        c,
+        '、' | '。'
+            | '，'
+            | '．'
+            | ','
+            | '.'
+            | '」'
+            | '』'
+            | '）'
+            | ')'
+            | '】'
+            | '〕'
+            | '〉'
+            | '》'
+            | '└'
+            | 'ー'
+            | '～'
+            | '〜'
+            | '…'
+            | '‥'
+            | '・'
+            | '：'
+            | '；'
+            | '！'
+            | '？'
+            | '!'
+            | '?'
+            | 'ぁ'
+            | 'ぃ'
+            | 'ぅ'
+            | 'ぇ'
+            | 'ぉ'
+            | 'っ'
+            | 'ゃ'
+            | 'ゅ'
+            | 'ょ'
+            | 'ゎ'
+            | 'ゕ'
+            | 'ゖ'
+            | 'ァ'
+            | 'ィ'
+            | 'ゥ'
+            | 'ェ'
+            | 'ォ'
+            | 'ッ'
+            | 'ャ'
+            | 'ュ'
+            | 'ョ'
+            | 'ヮ'
+            | 'ヵ'
+            | 'ヶ'
+            | 'ゝ'
+            | 'ゞ'
+            | 'ヽ'
+            | 'ヾ'
+            | '々'
+    )
+}
+
+/// 列の最後に来てはいけない文字(開き括弧)。次の列の頭へ送る。
+fn no_line_end(c: &str) -> bool {
+    matches!(c, "┐" | "（" | "(" | "【" | "〔" | "〈" | "《")
+}
+
+/// 縦中横にする並び: 2 桁までの半角数字と `!!`・`!?`・`?!`・`??`。
+fn tate_chu_yoko(run: &[char]) -> bool {
+    match run {
+        [a] | [a, _] if a.is_ascii_digit() => run.iter().all(|c| c.is_ascii_digit()),
+        [a, b] => matches!((a, b), ('!', '!') | ('!', '?') | ('?', '!') | ('?', '?')),
+        _ => false,
+    }
+}
+
+/// 段落を縦書きの 1 マスずつに分ける。2 桁までの数字などは 1 マスに横に並べる(縦中横)。
+fn cells(para: &str) -> Vec<String> {
+    let chars: Vec<char> = para.chars().map(vertical_form).collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < chars.len() {
+        // 数字の並びを見る。3 桁以上は 1 文字ずつ。
+        let mut j = i;
+        while j < chars.len() && chars[j].is_ascii_digit() {
+            j += 1;
+        }
+        if j > i {
+            if tate_chu_yoko(&chars[i..j]) {
+                out.push(chars[i..j].iter().collect());
+            } else {
+                out.extend(chars[i..j].iter().map(|c| c.to_string()));
+            }
+            i = j;
+            continue;
+        }
+        if i + 1 < chars.len()
+            && tate_chu_yoko(&chars[i..i + 2])
+            && chars.get(i + 2).is_none_or(|c| !matches!(c, '!' | '?'))
+            && (i == 0 || !matches!(chars[i - 1], '!' | '?'))
+        {
+            out.push(chars[i..i + 2].iter().collect());
+            i += 2;
+            continue;
+        }
+        out.push(chars[i].to_string());
+        i += 1;
+    }
+    out
+}
+
+/// 縦書きの列に分ける。段落(改行)ごとに新しい列にし、`per_column` マスで折り返す。
+/// 禁則処理: 句読点などが列の頭に来ないよう前の文字ごと次の列へ送り、開き括弧も次の列へ送る。
+fn split_columns(text: &str, per_column: usize) -> Vec<Vec<String>> {
     let per_column = per_column.max(1);
     let mut out = Vec::new();
     for para in text.split('\n') {
-        let chars: Vec<char> = para.chars().map(vertical_form).collect();
-        if chars.is_empty() {
+        let cells = cells(para);
+        if cells.is_empty() {
             out.push(Vec::new());
             continue;
         }
-        for chunk in chars.chunks(per_column) {
-            out.push(chunk.to_vec());
+        let mut col: Vec<String> = Vec::new();
+        for cell in cells {
+            let first = cell.chars().next().unwrap_or(' ');
+            if col.len() >= per_column {
+                let mut next = Vec::new();
+                // 追い出し: 句読点などが列の頭に来るときは、前の文字と一緒に次の列へ送る。
+                // 開き括弧で終わる列も、その括弧を次の列へ送る。
+                if per_column > 1
+                    && (no_line_start(first) || col.last().is_some_and(|c| no_line_end(c)))
+                {
+                    next.extend(col.pop());
+                }
+                out.push(std::mem::take(&mut col));
+                col = next;
+            }
+            col.push(cell);
         }
+        out.push(col);
     }
     out
 }
@@ -286,16 +414,12 @@ impl TextLayer {
                 let cols = split_columns(s.text, per_column);
                 entry.columns = cols
                     .into_iter()
-                    .map(|chars| {
+                    .map(|cells| {
                         let mut b =
                             Buffer::new(font_system, Metrics::new(style.font_size, advance));
                         b.set_wrap(Wrap::None);
                         b.set_size(Some(style.line_height), None);
-                        let text: String = chars
-                            .iter()
-                            .map(|c| c.to_string())
-                            .collect::<Vec<_>>()
-                            .join("\n");
+                        let text = cells.join("\n");
                         b.set_text(
                             &text,
                             // 約物(「」ー など)はフォントの縦書き用の字形(OpenType の vert)にする。
@@ -308,7 +432,7 @@ impl TextLayer {
                         b.shape_until_scroll(font_system, false);
                         Column {
                             buffer: b,
-                            len: chars.len(),
+                            len: cells.len(),
                         }
                     })
                     .collect();
@@ -491,8 +615,31 @@ mod tests {
     #[test]
     fn columns_wrap_by_paragraph_and_length() {
         let cols = split_columns("あいうえお\n「ー」", 2);
-        let cols: Vec<String> = cols.iter().map(|c| c.iter().collect()).collect();
-        assert_eq!(cols, ["あい", "うえ", "お", "┐ー", "└"]);
+        let cols: Vec<String> = cols.iter().map(|c| c.concat()).collect();
+        assert_eq!(cols, ["あい", "うえ", "お", "┐", "ー└"]);
         assert_eq!(split_columns("", 3).len(), 1);
+    }
+
+    fn joined(text: &str, n: usize) -> Vec<String> {
+        split_columns(text, n).iter().map(|c| c.join("|")).collect()
+    }
+
+    #[test]
+    fn kinsoku_hangs_punctuation() {
+        // 「。」は列の頭に来ないよう、前の文字ごと次の列へ送る。
+        assert_eq!(joined("あいう。えお", 3), ["あ|い", "う|。|え", "お"]);
+        // 小書きのかな・長音も。
+        assert_eq!(joined("あいっこ", 2), ["あ", "い|っ", "こ"]);
+        // 開き括弧は列の最後に残さず次の列へ。
+        assert_eq!(joined("あい（う）", 3), ["あ|い", "（|う|）"]);
+    }
+
+    #[test]
+    fn tate_chu_yoko_digits() {
+        assert_eq!(joined("2杯", 5), ["2|杯"]);
+        assert_eq!(joined("12月", 5), ["12|月"]);
+        assert_eq!(joined("2026年", 9), ["2|0|2|6|年"]);
+        assert_eq!(joined("本当!?", 9), ["本|当|!?"]);
+        assert_eq!(joined("え!!!", 9), ["え|!|!|!"]);
     }
 }

@@ -1669,3 +1669,11 @@ table.audit .nowrap { white-space: nowrap; }
 table.audit tr[data-action-kind="auth"] td:nth-child(2) { color: var(--muted); }
 table.audit td:nth-child(2) { white-space: nowrap; }
 table.audit a { color: var(--accent); }
+/* 次の付箋が縦書きのときは、付箋ボタンに「縦」の印を付ける */
+#tool-sticky { position: relative; }
+#tool-sticky[data-vertical]::after {
+  content: "縦"; position: absolute; right: 2px; bottom: 2px;
+  font-size: 9px; font-weight: 700; line-height: 1; padding: 1px 2px;
+  border-radius: 3px; background: var(--accent); color: #fff;
+}
+:root[lang="en"] #tool-sticky[data-vertical]::after { content: "V"; }
