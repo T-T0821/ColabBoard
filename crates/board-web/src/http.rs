@@ -142,15 +142,25 @@ pub async fn get_bytes(path: &str) -> Result<Vec<u8>, HttpError> {
     Ok(js_sys::Uint8Array::new(&buf).to_vec())
 }
 
-/// バイナリを送って JSON を受け取る(動画メモの保存など)。
+/// バイナリを POST して JSON を受け取る(動画メモの保存など)。
 pub async fn post_bytes<T: DeserializeOwned>(
+    path: &str,
+    content_type: &str,
+    bytes: &[u8],
+) -> Result<T, HttpError> {
+    send_bytes("POST", path, content_type, bytes).await
+}
+
+/// バイナリを送って JSON を受け取る(プラグインの `.wasm` など)。
+pub async fn send_bytes<T: DeserializeOwned>(
+    method: &str,
     path: &str,
     content_type: &str,
     bytes: &[u8],
 ) -> Result<T, HttpError> {
     let window = web_sys::window().ok_or(HttpError::Unavailable)?;
     let init = RequestInit::new();
-    init.set_method("POST");
+    init.set_method(method);
     init.set_credentials(RequestCredentials::Include);
     let body = js_sys::Uint8Array::from(bytes);
     init.set_body(&body);
@@ -171,13 +181,13 @@ pub async fn post_bytes<T: DeserializeOwned>(
             .unwrap_or_default(),
         Err(_) => String::new(),
     };
-    if !(200..300).contains(&status) {
-        let msg = serde_json::from_str::<ApiError>(&text)
-            .map(|e| e.error)
-            .unwrap_or_else(|_| format!("エラー({status})"));
-        return Err(HttpError::Status(status, msg));
+    if (200..300).contains(&status) {
+        return parse(Some(text));
     }
-    parse(Some(text))
+    let msg = serde_json::from_str::<ApiError>(&text)
+        .map(|e| e.error)
+        .unwrap_or_else(|_| format!("エラー({status})"));
+    Err(HttpError::Status(status, msg))
 }
 
 /// 応答の中身を使わない呼び出し。

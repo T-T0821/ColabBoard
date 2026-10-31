@@ -31,6 +31,7 @@ mod issues;
 mod media;
 mod mindmap_ui;
 mod offline;
+mod plugins_ui;
 mod prefs;
 mod reactions;
 mod search_ui;
@@ -1788,6 +1789,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     slides::install(app, doc)?;
     comments::install(app, doc)?;
     history::install(app)?;
+    plugins_ui::install(app, doc)?;
     call_ui::install(app, doc)?;
     video_memo::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;

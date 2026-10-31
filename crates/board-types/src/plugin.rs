@@ -221,3 +221,38 @@ pub enum HostCall {
     /// ログに残す(実行結果と一緒に返る)。
     Log { message: String },
 }
+
+// ---- REST API(`/api/v1/plugins`)----
+
+/// 一覧に出すプラグイン。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PluginInfo {
+    #[serde(flatten)]
+    pub manifest: PluginManifest,
+    /// `server`(サーバーのプラグイン)か `user`(自分で入れたもの)。
+    pub source: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub installed: Option<u64>,
+    pub size: usize,
+}
+
+/// 実行のリクエスト。
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct RunRequest {
+    pub command: String,
+    #[serde(default)]
+    pub args: Value,
+    #[serde(default)]
+    pub selection: Vec<String>,
+}
+
+/// 実行の結果。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct RunResult {
+    pub output: RunOutput,
+    /// ボードに適用した操作の数。
+    pub ops: usize,
+    pub logs: Vec<String>,
+    /// 使った燃料(命令数の目安)。
+    pub fuel_used: u64,
+}
