@@ -3,6 +3,7 @@
 //! 描画にも同期にも依存しないデータモデル・座標変換・編集操作を持つ。
 //! クライアント(WASM)とサーバーの両方から使う。
 
+pub mod access;
 pub mod api;
 pub mod arrange;
 pub mod autolayout;
@@ -19,6 +20,7 @@ pub mod format;
 pub mod geom;
 pub mod markdown;
 pub mod navigation;
+pub mod ops;
 pub mod protocol;
 pub mod search;
 pub mod session;

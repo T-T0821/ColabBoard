@@ -82,6 +82,12 @@ impl Error {
     pub fn forbidden() -> Self {
         Self::new(StatusCode::FORBIDDEN, "この操作をする権限がありません")
     }
+    pub fn status(&self) -> StatusCode {
+        self.0
+    }
+    pub fn message(&self) -> &str {
+        &self.1
+    }
     pub fn not_found() -> Self {
         Self::new(
             StatusCode::NOT_FOUND,
