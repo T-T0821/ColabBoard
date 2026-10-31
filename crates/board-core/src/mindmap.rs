@@ -425,20 +425,22 @@ fn layout_tree(
             &mut out,
         ),
         MindLayout::Both => {
-            // 部分木の高さの合計が半分になるまで右へ、残りを左へ(左は下から上へ、時計回り)。
+            // 左右の高さの差がいちばん小さくなる所で分ける(前半を右、後半を左へ。左は下から上へ、時計回り)。
             let heights: Vec<f32> = kids
                 .iter()
                 .map(|k| subtree_height(f, sizes, *k, &mut memo))
                 .collect();
             let total: f32 = heights.iter().sum();
             let mut acc = 0.0;
-            let mut split = kids.len();
+            let mut split = kids.len().min(1);
+            let mut best = f32::INFINITY;
             for (i, h) in heights.iter().enumerate() {
-                if i > 0 && acc >= total * 0.5 {
-                    split = i;
-                    break;
-                }
                 acc += h;
+                let diff = (2.0 * acc - total).abs();
+                if diff < best - 0.5 {
+                    best = diff;
+                    split = i + 1;
+                }
             }
             let (right, left) = kids.split_at(split);
             let left: Vec<ElementId> = left.iter().rev().copied().collect();
@@ -466,7 +468,7 @@ fn layout_tree(
         MindLayout::Radial => {
             let total = leaves(f, root, &mut memo);
             // 葉 1 枚あたり 70 の弧の長さが取れる半径にする。
-            let r1 = (rs.x * 0.5 + 200.0).max(total * 70.0 / TAU);
+            let r1 = (rs.x * 0.5 + 150.0).max(total * 70.0 / TAU);
             let mut stack: Vec<(ElementId, f32, f32, usize)> = Vec::new();
             let mut a = -FRAC_PI_2;
             for k in kids {
@@ -477,7 +479,7 @@ fn layout_tree(
             while let Some((id, a0, a1, d)) = stack.pop() {
                 let mid = (a0 + a1) * 0.5;
                 let dir = Vec2::new(mid.cos(), mid.sin());
-                let r = r1 + (d - 1) as f32 * 240.0;
+                let r = r1 + (d - 1) as f32 * 190.0;
                 out.insert(
                     id,
                     Placed {

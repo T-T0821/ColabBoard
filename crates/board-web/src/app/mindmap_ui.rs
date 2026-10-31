@@ -285,12 +285,8 @@ impl App {
                 self.mind_add(!e.shift_key());
                 true
             }
-            "Enter" if !e.shift_key() => {
-                self.end_text_edit(true);
-                self.editor.set_selection(vec![id]);
-                self.dirty = true;
-                true
-            }
+            // 確定は呼び出し側が入力欄を外して(blur で)する。
+            "Enter" if !e.shift_key() => true,
             _ => false,
         }
     }

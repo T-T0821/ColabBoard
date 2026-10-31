@@ -732,7 +732,8 @@ impl Board {
 
     /// 全要素を囲む矩形。空なら `None`。
     pub fn bounds(&self) -> Option<Rect> {
-        Self::union_bounds(self.elements.iter())
+        // 折りたたまれて見えない要素は含めない(「全体を表示」で余白ができないように)。
+        Self::union_bounds(self.elements.iter().filter(|e| !e.meta().hidden))
     }
 
     /// 指定要素を囲む矩形。

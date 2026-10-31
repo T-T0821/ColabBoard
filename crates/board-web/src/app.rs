@@ -1591,9 +1591,16 @@ fn install_text_editor(app: &Rc<RefCell<App>>) -> Result<(), String> {
                 return;
             }
             // マインドマップのノードでは Tab で子を足し、Enter で確定する。
-            if matches!(e.key().as_str(), "Tab" | "Enter") && app.borrow_mut().mind_editor_key(&e) {
-                e.prevent_default();
-                return;
+            if matches!(e.key().as_str(), "Tab" | "Enter") {
+                let handled = app.borrow_mut().mind_editor_key(&e);
+                if handled {
+                    e.prevent_default();
+                    if e.key() == "Enter" {
+                        // blur で確定する(ノードは選ばれたまま)。
+                        let _ = el2.blur();
+                    }
+                    return;
+                }
             }
             // 表のセルでは Tab / Shift+Tab で隣のセルへ。
             if e.key() == "Tab" {
