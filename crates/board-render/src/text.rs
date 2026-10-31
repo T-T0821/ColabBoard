@@ -6,6 +6,8 @@
 use std::collections::HashMap;
 
 use board_core::{Board, Camera, ElementId, Rect, Shape};
+
+use crate::Layer;
 use glyphon::{
     Attrs, Buffer, Cache, Color, ColorMode, Family, FontSystem, Metrics, Resolution, Shaping,
     SwashCache, TextArea, TextAtlas, TextBounds, TextRenderer, Viewport, Wrap,
@@ -31,11 +33,13 @@ pub struct TextLayer {
     swash: SwashCache,
     _cache: Cache,
     atlas: TextAtlas,
-    renderer: TextRenderer,
+    /// 段ごとの描画器(段の数だけ増やし、使い回す)。
+    renderers: Vec<TextRenderer>,
+    /// 段ごとに準備できたか。
+    prepared: Vec<bool>,
     viewport: Viewport,
     buffers: HashMap<ElementId, Cached>,
     has_font: bool,
-    prepared_any: bool,
 }
 
 impl TextLayer {
@@ -49,20 +53,18 @@ impl TextLayer {
         } else {
             ColorMode::Web
         };
-        let mut atlas = TextAtlas::with_color_mode(device, queue, &cache, format, color_mode);
-        let renderer =
-            TextRenderer::new(&mut atlas, device, wgpu::MultisampleState::default(), None);
+        let atlas = TextAtlas::with_color_mode(device, queue, &cache, format, color_mode);
         let viewport = Viewport::new(device, &cache);
         Self {
             font_system,
             swash: SwashCache::new(),
             _cache: cache,
             atlas,
-            renderer,
+            renderers: Vec::new(),
+            prepared: Vec::new(),
             viewport,
             buffers: HashMap::new(),
             has_font: false,
-            prepared_any: false,
         }
     }
 
@@ -85,23 +87,26 @@ impl TextLayer {
         queue: &wgpu::Queue,
         board: &Board,
         camera: &Camera,
+        layers: &[Layer],
         skip: Option<ElementId>,
     ) -> usize {
-        self.prepared_any = false;
+        self.prepared.clear();
+        self.prepared.resize(layers.len(), false);
         if !self.has_font {
             return 0;
         }
         let (view_min, view_max) = camera.visible_world_rect();
         let view = Rect::new(view_min, view_max);
 
-        // 見えていて、文字があり、十分な大きさで表示される図形を集める。
-        let visible: Vec<&Shape> = board
+        // 見えていて、文字があり、十分な大きさで表示される図形を集める(要素の並び順)。
+        let visible: Vec<(usize, &Shape)> = board
             .elements()
             .iter()
-            .filter_map(|e| e.as_shape())
-            .filter(|s| !s.text.is_empty() && Some(s.id) != skip)
-            .filter(|s| s.text_style().font_size * camera.zoom >= MIN_SCREEN_FONT_PX)
-            .filter(|s| s.bounds().intersects(&view))
+            .enumerate()
+            .filter_map(|(i, e)| Some((i, e.as_shape()?)))
+            .filter(|(_, s)| !s.text.is_empty() && Some(s.id) != skip)
+            .filter(|(_, s)| s.text_style().font_size * camera.zoom >= MIN_SCREEN_FONT_PX)
+            .filter(|(_, s)| s.bounds().intersects(&view))
             .take(MAX_TEXT_AREAS + 1)
             .collect();
         if visible.is_empty() || visible.len() > MAX_TEXT_AREAS {
@@ -116,13 +121,14 @@ impl TextLayer {
             font_system,
             swash,
             atlas,
-            renderer,
+            renderers,
+            prepared,
             viewport,
             buffers,
             ..
         } = self;
 
-        for s in &visible {
+        for (_, s) in &visible {
             let style = s.text_style();
             let width = s.text_rect().size().x.max(1.0);
             let entry = buffers.entry(s.id).or_insert_with(|| Cached {
@@ -169,7 +175,7 @@ impl TextLayer {
             },
         );
 
-        let areas = visible.iter().filter_map(|s| {
+        let area = |s: &Shape| {
             let c = buffers.get(&s.id)?;
             let rect = s.text_rect();
             // 縦方向も中央に寄せる(はみ出す場合は上詰め)。
@@ -192,23 +198,46 @@ impl TextLayer {
                 default_color: Color::rgba(r, g, b, a),
                 custom_glyphs: &[],
             })
-        });
+        };
 
-        let count = visible.len();
-        match renderer.prepare(device, queue, font_system, atlas, viewport, areas, swash) {
-            Ok(()) => self.prepared_any = true,
-            Err(e) => log::warn!("文字の準備に失敗しました: {e}"),
+        // 段ごとに、その段の要素の文字だけを準備する。
+        let mut rest = visible.as_slice();
+        for (li, layer) in layers.iter().enumerate() {
+            let n = rest
+                .iter()
+                .take_while(|(i, _)| *i < layer.elements.end)
+                .count();
+            let (mine, tail) = rest.split_at(n);
+            rest = tail;
+            if mine.is_empty() {
+                continue;
+            }
+            while renderers.len() <= li {
+                renderers.push(TextRenderer::new(
+                    atlas,
+                    device,
+                    wgpu::MultisampleState::default(),
+                    None,
+                ));
+            }
+            let areas = mine.iter().filter_map(|(_, s)| area(s));
+            match renderers[li].prepare(device, queue, font_system, atlas, viewport, areas, swash) {
+                Ok(()) => prepared[li] = true,
+                Err(e) => log::warn!("文字の準備に失敗しました: {e}"),
+            }
         }
         // 使われなかった(画面外・削除済み)レイアウトを捨てる。
+        let count = visible.len();
         self.buffers.retain(|_, c| c.used);
         count
     }
 
-    pub fn render(&self, pass: &mut wgpu::RenderPass<'_>) {
-        if !self.prepared_any {
+    /// `layer` 段目の文字を描く。
+    pub fn render(&self, layer: usize, pass: &mut wgpu::RenderPass<'_>) {
+        if !self.prepared.get(layer).copied().unwrap_or(false) {
             return;
         }
-        if let Err(e) = self.renderer.render(&self.atlas, &self.viewport, pass) {
+        if let Err(e) = self.renderers[layer].render(&self.atlas, &self.viewport, pass) {
             log::warn!("文字の描画に失敗しました: {e}");
         }
     }

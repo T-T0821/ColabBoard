@@ -3,7 +3,7 @@ use std::fmt;
 use board_core::{Board, Camera, ElementId, Shape};
 
 use crate::text::TextLayer;
-use crate::{GRID_WGSL, Globals, SHAPES_WGSL, ShapeInstance, push_instances};
+use crate::{GRID_WGSL, Globals, Layer, SHAPES_WGSL, ShapeInstance, build_layers, changed_range};
 
 #[derive(Debug)]
 pub enum RenderError {
@@ -30,6 +30,10 @@ pub struct FrameStats {
     pub instances: u32,
     /// このフレームでインスタンスバッファを転送したか。
     pub uploaded: bool,
+    /// 転送したインスタンス数(変わった範囲だけ送る)。
+    pub uploaded_instances: usize,
+    /// 文字の重なり順のために分けた段の数。
+    pub layers: usize,
     /// 描画先が使えず描画を飛ばしたか。
     pub skipped: bool,
 }
@@ -52,7 +56,12 @@ pub struct Renderer {
     instance_cap: u64,
     instance_count: u32,
     uploaded_revision: Option<u64>,
+    /// GPU に送ってあるインスタンス列(差分転送のために覚えておく)。
+    uploaded: Vec<ShapeInstance>,
     staging: Vec<ShapeInstance>,
+    layers: Vec<Layer>,
+    /// 直近の転送量(インスタンス数)。
+    last_upload: usize,
 
     /// 選択枠など毎フレーム変わる少数の図形。
     overlay_buf: wgpu::Buffer,
@@ -186,7 +195,10 @@ impl Renderer {
             instance_cap,
             instance_count: 0,
             uploaded_revision: None,
+            uploaded: Vec::new(),
             staging: Vec::new(),
+            layers: Vec::new(),
+            last_upload: 0,
             overlay_buf,
             overlay_cap: 64,
             overlay_count: 0,
@@ -231,25 +243,34 @@ impl Renderer {
         self.surface.configure(&self.device, &self.config);
     }
 
-    /// ボードが前回から変わっていればインスタンスバッファを作り直して送る。
+    /// ボードが前回から変わっていればインスタンス列を作り直し、変わった範囲だけ送る。
     fn sync_instances(&mut self, board: &Board) -> bool {
         if self.uploaded_revision == Some(board.revision()) {
             return false;
         }
-        self.staging.clear();
-        for e in board.elements() {
-            push_instances(e, &mut self.staging);
-        }
+        self.layers = build_layers(board.elements(), &mut self.staging);
         let needed = self.staging.len() as u64;
-        if needed > self.instance_cap {
+        let range = if needed > self.instance_cap {
             self.instance_cap = needed.next_power_of_two();
             self.instance_buf = make_instance_buffer(&self.device, self.instance_cap);
+            Some(0..self.staging.len())
+        } else {
+            changed_range(&self.uploaded, &self.staging)
+        };
+        self.last_upload = 0;
+        if let Some(r) = range
+            && !r.is_empty()
+        {
+            let offset = (r.start * std::mem::size_of::<ShapeInstance>()) as u64;
+            self.last_upload = r.len();
+            self.queue.write_buffer(
+                &self.instance_buf,
+                offset,
+                bytemuck::cast_slice(&self.staging[r]),
+            );
         }
-        if !self.staging.is_empty() {
-            self.queue
-                .write_buffer(&self.instance_buf, 0, bytemuck::cast_slice(&self.staging));
-        }
-        self.instance_count = self.staging.len() as u32;
+        std::mem::swap(&mut self.uploaded, &mut self.staging);
+        self.instance_count = self.uploaded.len() as u32;
         self.uploaded_revision = Some(board.revision());
         true
     }
@@ -279,8 +300,14 @@ impl Renderer {
     ) -> Result<FrameStats, RenderError> {
         let uploaded = self.sync_instances(board);
         self.sync_overlay(overlay);
-        self.text
-            .prepare(&self.device, &self.queue, board, camera, text_skip);
+        self.text.prepare(
+            &self.device,
+            &self.queue,
+            board,
+            camera,
+            &self.layers,
+            text_skip,
+        );
 
         let globals = Globals {
             view_proj: camera.view_proj().to_cols_array_2d(),
@@ -343,14 +370,18 @@ impl Renderer {
             pass.set_pipeline(&self.grid_pipeline);
             pass.draw(0..3, 0..1);
 
-            if self.instance_count > 0 {
-                pass.set_pipeline(&self.shape_pipeline);
-                pass.set_vertex_buffer(0, self.instance_buf.slice(..));
-                pass.draw(0..6, 0..self.instance_count);
+            // 段ごとに「図形 → その段の文字」の順で描く(重なり順を保つ)。
+            for (i, layer) in self.layers.iter().enumerate() {
+                if !layer.instances.is_empty() {
+                    // 文字描画が bind group 0 を差し替えるので毎回戻す。
+                    pass.set_bind_group(0, &self.globals_bind, &[]);
+                    pass.set_pipeline(&self.shape_pipeline);
+                    pass.set_vertex_buffer(0, self.instance_buf.slice(..));
+                    pass.draw(0..6, layer.instances.clone());
+                }
+                self.text.render(i, &mut pass);
             }
-            self.text.render(&mut pass);
             if self.overlay_count > 0 {
-                // 文字描画が bind group 0 を差し替えるので戻す。
                 pass.set_bind_group(0, &self.globals_bind, &[]);
                 pass.set_pipeline(&self.shape_pipeline);
                 pass.set_vertex_buffer(0, self.overlay_buf.slice(..));
@@ -364,6 +395,8 @@ impl Renderer {
         Ok(FrameStats {
             instances: self.instance_count,
             uploaded,
+            uploaded_instances: if uploaded { self.last_upload } else { 0 },
+            layers: self.layers.len(),
             skipped: false,
         })
     }
