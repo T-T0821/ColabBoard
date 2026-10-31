@@ -6,6 +6,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use board_core::arrange::{self, Arrange};
 use board_core::session::{VoteSession, VoteTally, format_remaining};
 use board_core::{Board, Camera, ElementId, Vec2};
 use wasm_bindgen::JsCast;
@@ -328,6 +329,17 @@ impl App {
         self.dirty = true;
     }
 
+    /// 付箋を自動で並べ直す。
+    fn arrange(&mut self, mode: Arrange) {
+        if self.editor.is_dragging() {
+            return;
+        }
+        let ids = arrange::targets(&self.board, self.editor.selection());
+        if arrange::arrange(&mut self.board, &ids, mode) > 0 {
+            self.dirty = true;
+        }
+    }
+
     fn refresh_votes(&mut self) {
         let user = self.identity.id.clone();
         self.collab.update_votes(&self.board, &user, true);
@@ -379,6 +391,8 @@ pub(super) fn install(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), Stri
         a.board.clear_vote();
         a.refresh_votes();
     })?;
+    on_click(doc, "arrange-grid", app, |a| a.arrange(Arrange::Grid))?;
+    on_click(doc, "arrange-color", app, |a| a.arrange(Arrange::ByColor))?;
     {
         let results: HtmlElement = by_id(doc, "vote-results")?;
         let app = app.clone();
