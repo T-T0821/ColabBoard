@@ -5,7 +5,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use board_core::api::{BoardInfo, Login, Me, NewBoard, Role, Signup};
+use board_core::api::{
+    BoardInfo, Login, Me, NewBoard, NewTeam, Role, SetBoardTeam, SetTeamMember, Signup, Team,
+    TeamInfo, TeamRole,
+};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{Document, Element, HtmlElement, HtmlInputElement, Window};
@@ -38,6 +41,41 @@ struct Home {
     confirm_delete: Option<String>,
     /// ログイン後に戻る先(`?next=`)。
     next: Option<String>,
+    /// 入っているチーム(チーム機能のないサーバーなら空)。
+    teams: Vec<TeamInfo>,
+    /// 一覧の絞り込み。
+    filter: Filter,
+    /// 選んでいるチームの詳細(メンバーの一覧)。
+    team: Option<Team>,
+    /// チームを作る欄を開いているか。
+    creating_team: bool,
+    /// チームの削除の確認中か。
+    confirm_delete_team: bool,
+}
+
+/// ボード一覧の絞り込み。
+#[derive(Clone, PartialEq, Eq)]
+enum Filter {
+    All,
+    Personal,
+    Team(String),
+}
+
+impl Filter {
+    fn team(&self) -> Option<&str> {
+        match self {
+            Filter::Team(t) => Some(t),
+            _ => None,
+        }
+    }
+
+    fn matches(&self, b: &BoardInfo) -> bool {
+        match self {
+            Filter::All => true,
+            Filter::Personal => b.team.is_none(),
+            Filter::Team(t) => b.team.as_deref() == Some(t.as_str()),
+        }
+    }
 }
 
 type Shared = Rc<RefCell<Home>>;
@@ -80,6 +118,11 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         busy: false,
         confirm_delete: None,
         next,
+        teams: Vec::new(),
+        filter: Filter::All,
+        team: None,
+        creating_team: false,
+        confirm_delete_team: false,
     }));
     install(&home)?;
     if home.borrow().me.is_some() {
@@ -206,7 +249,7 @@ impl Home {
 
     fn render_list(&self, me: &Me) -> String {
         let mut rows = String::new();
-        for b in &self.boards {
+        for b in self.boards.iter().filter(|b| self.filter.matches(b)) {
             let url = board_url(&b.id, b.key.as_deref());
             let owner = match &b.owner {
                 Some(o) if o != &me.login => format!("@{}", escape(o)),
@@ -237,7 +280,7 @@ impl Home {
                 ago = ago(b.updated),
             ));
         }
-        if self.boards.is_empty() {
+        if rows.is_empty() {
             rows =
                 r#"<li class="empty muted">まだボードがありません。上の欄から作りましょう。</li>"#
                     .into();
@@ -249,17 +292,162 @@ impl Home {
     <span class="me">{name} <span class="muted">@{login}</span></span>
     <button type="button" class="quiet" data-action="logout">ログアウト</button>
   </header>
+  {tabs}
   <form data-form="create" class="create">
-    <input name="title" maxlength="80" placeholder="新しいボードの名前" autofocus />
+    <input name="title" maxlength="80" placeholder="{placeholder}" autofocus />
     <button type="submit" class="primary" {busy}>ボードを作る</button>
   </form>
   {err}
+  {team_panel}
   <ul class="boards">{rows}</ul>
 </div>"#,
             name = escape(&me.name),
             login = escape(&me.login),
             busy = if self.busy { "disabled" } else { "" },
             err = self.error_html(),
+            tabs = self.render_tabs(),
+            placeholder = match self.current_team() {
+                Some(t) => format!("「{}」の新しいボードの名前", escape(&t.name)),
+                None => "新しいボードの名前".into(),
+            },
+            team_panel = self.render_team_panel(me),
+        )
+    }
+
+    fn current_team(&self) -> Option<&TeamInfo> {
+        let id = self.filter.team()?;
+        self.teams.iter().find(|t| t.id == id)
+    }
+
+    /// 「すべて・個人・チーム…」の切り替えと、チームを作る欄。
+    fn render_tabs(&self) -> String {
+        let tab = |id: &str, label: &str, on: bool| {
+            format!(
+                r#"<button type="button" class="tab{cls}" data-action="tab" data-id="{id}" aria-pressed="{on}"{tr}>{label}</button>"#,
+                cls = if on { " on" } else { "" },
+                // チームの名前は訳さない。
+                tr = if id.is_empty() || id == "~" {
+                    ""
+                } else {
+                    r#" translate="no""#
+                },
+                id = escape(id),
+                label = escape(label),
+            )
+        };
+        let mut html = String::from(r#"<nav class="team-tabs" aria-label="チーム">"#);
+        html.push_str(&tab("", "すべて", self.filter == Filter::All));
+        html.push_str(&tab("~", "個人", self.filter == Filter::Personal));
+        for t in &self.teams {
+            html.push_str(&tab(
+                &t.id,
+                &t.name,
+                self.filter.team() == Some(t.id.as_str()),
+            ));
+        }
+        if self.creating_team {
+            html.push_str(
+                r#"<form data-form="team-create" class="team-create"><input name="name" maxlength="60" placeholder="チームの名前" autofocus /><button type="submit" class="primary">作る</button><button type="button" class="quiet" data-action="cancel-team">やめる</button></form>"#,
+            );
+        } else {
+            html.push_str(
+                r#"<button type="button" class="tab add" data-action="new-team" title="チームを作る">＋ チーム</button>"#,
+            );
+        }
+        html.push_str("</nav>");
+        html
+    }
+
+    /// 選んでいるチームのメンバーと設定。
+    fn render_team_panel(&self, me: &Me) -> String {
+        let Some(team) = self
+            .team
+            .as_ref()
+            .filter(|t| self.filter.team() == Some(t.id.as_str()))
+        else {
+            return String::new();
+        };
+        let admin = team.role.is_admin();
+        let owner = team.role == TeamRole::Owner;
+        let mut members = String::new();
+        for (login, role) in &team.members {
+            // 管理者以上が関わる変更はオーナーだけ。
+            let editable = login != &me.login && admin && (owner || !role.is_admin());
+            let role_html = if editable {
+                let opts: String = [TeamRole::Member, TeamRole::Admin, TeamRole::Owner]
+                    .iter()
+                    .filter(|r| owner || !r.is_admin())
+                    .map(|r| {
+                        format!(
+                            r#"<option value="{}"{}>{}</option>"#,
+                            r.as_str(),
+                            if r == role { " selected" } else { "" },
+                            r.label()
+                        )
+                    })
+                    .collect();
+                format!(
+                    r#"<select data-change="team-role" data-id="{l}" aria-label="@{l} の役割">{opts}</select><button type="button" class="quiet" data-action="remove-member" data-id="{l}">外す</button>"#,
+                    l = escape(login)
+                )
+            } else {
+                format!(
+                    r#"<span class="badge" data-role="{}">{}</span>"#,
+                    role.as_str(),
+                    role.label()
+                )
+            };
+            members.push_str(&format!(
+                r#"<li><span translate="no">@{}</span><span class="actions">{role_html}</span></li>"#,
+                escape(login)
+            ));
+        }
+        let add = if admin {
+            r#"<form data-form="team-member" class="inline"><input name="login" maxlength="33" placeholder="追加するログイン名" /><button type="submit">メンバーに追加</button></form>"#
+                .to_string()
+        } else {
+            String::new()
+        };
+        // 自分がオーナーの個人ボードをこのチームへ移す。
+        let movable: String = self
+            .boards
+            .iter()
+            .filter(|b| b.role == Role::Owner && b.team.is_none() && b.owner.is_some())
+            .map(|b| {
+                format!(
+                    r#"<option value="{}">{}</option>"#,
+                    escape(&b.id),
+                    escape(&b.title)
+                )
+            })
+            .collect();
+        let mv = if movable.is_empty() {
+            String::new()
+        } else {
+            format!(
+                r#"<form data-form="move-board" class="inline"><select name="board" aria-label="移すボード">{movable}</select><button type="submit">このチームへ移す</button></form>"#
+            )
+        };
+        let danger = if owner {
+            if self.confirm_delete_team {
+                r#"<button type="button" class="danger" data-action="delete-team">本当にチームを削除</button><button type="button" data-action="cancel-delete-team">やめる</button>"#
+            } else {
+                r#"<button type="button" class="quiet" data-action="ask-delete-team">チームを削除</button>"#
+            }
+        } else {
+            r#"<button type="button" class="quiet" data-action="leave-team">チームを抜ける</button>"#
+        };
+        format!(
+            r#"<section class="team-panel">
+  <header><h2 translate="no">{name}</h2><span class="badge" data-role="{rs}">{rl}</span><span class="muted">{n} 人</span><span class="spacer"></span>{danger}</header>
+  <ul class="team-members">{members}</ul>
+  {add}{mv}
+  <p class="muted small">チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。</p>
+</section>"#,
+            name = escape(&team.name),
+            rs = if admin { "owner" } else { "editor" },
+            rl = team.role.label(),
+            n = team.members.len(),
         )
     }
 }
@@ -275,7 +463,25 @@ fn form_value(form: &Element, name: &str) -> String {
 
 async fn reload(home: Shared) {
     let result = http::get::<Vec<BoardInfo>>("/boards").await;
+    // チーム機能のない古いサーバーなら空のまま。
+    let teams = http::get::<Vec<TeamInfo>>("/teams")
+        .await
+        .unwrap_or_default();
+    let selected = home.borrow().filter.team().map(str::to_string);
+    let detail = match &selected {
+        Some(t) if teams.iter().any(|x| &x.id == t) => {
+            http::get::<Team>(&format!("/teams/{}", http::encode(t)))
+                .await
+                .ok()
+        }
+        _ => None,
+    };
     let mut h = home.borrow_mut();
+    if selected.is_some() && detail.is_none() {
+        h.filter = Filter::All;
+    }
+    h.teams = teams;
+    h.team = detail;
     match result {
         Ok(list) => {
             h.boards = list;
@@ -364,7 +570,10 @@ fn install(home: &Shared) -> Result<(), String> {
                 }
                 "create" => {
                     let title = form_value(&form, "title");
-                    match http::send::<_, BoardInfo>("POST", "/boards", &NewBoard { title }).await {
+                    let team = h.borrow().filter.team().map(str::to_string);
+                    match http::send::<_, BoardInfo>("POST", "/boards", &NewBoard { title, team })
+                        .await
+                    {
                         Ok(b) => navigate(&h.borrow().window, &board_url(&b.id, None)),
                         Err(e) => {
                             let mut hm = h.borrow_mut();
@@ -373,6 +582,42 @@ fn install(home: &Shared) -> Result<(), String> {
                             hm.render();
                         }
                     }
+                }
+                "team-create" => {
+                    let name = form_value(&form, "name");
+                    let res = http::send::<_, Team>("POST", "/teams", &NewTeam { name }).await;
+                    after_team_call(
+                        &h,
+                        res.map(|t| {
+                            let mut hm = h.borrow_mut();
+                            hm.filter = Filter::Team(t.id);
+                            hm.creating_team = false;
+                        }),
+                    )
+                    .await;
+                }
+                "team-member" => {
+                    let login = form_value(&form, "login");
+                    let res = set_team_member(&h, login, Some(TeamRole::Member)).await;
+                    after_team_call(&h, res).await;
+                }
+                "move-board" => {
+                    let board = form
+                        .query_selector("[name=board]")
+                        .ok()
+                        .flatten()
+                        .and_then(|e| e.dyn_into::<web_sys::HtmlSelectElement>().ok())
+                        .map(|s| s.value())
+                        .unwrap_or_default();
+                    let team = h.borrow().filter.team().map(str::to_string);
+                    let res = http::send::<_, BoardInfo>(
+                        "PUT",
+                        &http::board_path(&board, None, "/team"),
+                        &SetBoardTeam { team, access: None },
+                    )
+                    .await
+                    .map(|_| ());
+                    after_team_call(&h, res).await;
                 }
                 _ => h.borrow_mut().busy = false,
             }
@@ -428,6 +673,62 @@ fn install(home: &Shared) -> Result<(), String> {
                 hm.confirm_delete = None;
                 hm.render();
             }
+            "tab" => {
+                let mut hm = h.borrow_mut();
+                hm.filter = match id.as_deref() {
+                    None | Some("") => Filter::All,
+                    Some("~") => Filter::Personal,
+                    Some(t) => Filter::Team(t.to_string()),
+                };
+                hm.confirm_delete_team = false;
+                let load = hm.filter.team().is_some();
+                drop(hm);
+                if load {
+                    wasm_bindgen_futures::spawn_local(reload(h.clone()));
+                } else {
+                    h.borrow().render();
+                }
+            }
+            "new-team" | "cancel-team" => {
+                let mut hm = h.borrow_mut();
+                hm.creating_team = action == "new-team";
+                hm.render();
+            }
+            "ask-delete-team" | "cancel-delete-team" => {
+                let mut hm = h.borrow_mut();
+                hm.confirm_delete_team = action == "ask-delete-team";
+                hm.render();
+            }
+            "remove-member" | "leave-team" => {
+                let login = if action == "leave-team" {
+                    h.borrow().me.as_ref().map(|m| m.login.clone())
+                } else {
+                    id
+                };
+                let Some(login) = login else { return };
+                let h = h.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let res = set_team_member(&h, login, None).await;
+                    after_team_call(&h, res).await;
+                });
+            }
+            "delete-team" => {
+                let Some(team) = h.borrow().filter.team().map(str::to_string) else {
+                    return;
+                };
+                let h = h.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let res =
+                        http::send_empty("DELETE", &format!("/teams/{}", http::encode(&team)))
+                            .await;
+                    {
+                        let mut hm = h.borrow_mut();
+                        hm.confirm_delete_team = false;
+                        hm.filter = Filter::All;
+                    }
+                    after_team_call(&h, res).await;
+                });
+            }
             "delete" => {
                 let Some(id) = id else { return };
                 let h = h.clone();
@@ -446,5 +747,63 @@ fn install(home: &Shared) -> Result<(), String> {
     root.add_event_listener_with_callback("click", on_click.as_ref().unchecked_ref())
         .map_err(|_| "click を登録できません")?;
     on_click.forget();
+
+    // メンバーの役割の変更。
+    let h = home.clone();
+    let on_change = Closure::<dyn FnMut(web_sys::Event)>::new(move |e: web_sys::Event| {
+        let Some(sel) = e
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::HtmlSelectElement>().ok())
+        else {
+            return;
+        };
+        if sel.get_attribute("data-change").as_deref() != Some("team-role") {
+            return;
+        }
+        let (Some(login), Some(role)) =
+            (sel.get_attribute("data-id"), TeamRole::parse(&sel.value()))
+        else {
+            return;
+        };
+        let h = h.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let res = set_team_member(&h, login, Some(role)).await;
+            after_team_call(&h, res).await;
+        });
+    });
+    root.add_event_listener_with_callback("change", on_change.as_ref().unchecked_ref())
+        .map_err(|_| "change を登録できません")?;
+    on_change.forget();
     Ok(())
+}
+
+async fn set_team_member(
+    h: &Shared,
+    login: String,
+    role: Option<TeamRole>,
+) -> Result<(), HttpError> {
+    let Some(team) = h.borrow().filter.team().map(str::to_string) else {
+        return Ok(());
+    };
+    http::send::<_, Team>(
+        "PUT",
+        &format!("/teams/{}/members", http::encode(&team)),
+        &SetTeamMember { login, role },
+    )
+    .await
+    .map(|_| ())
+}
+
+/// チームの操作のあと: 失敗なら理由を出し、どちらでも一覧を読み直す。
+async fn after_team_call(h: &Shared, res: Result<(), HttpError>) {
+    {
+        let mut hm = h.borrow_mut();
+        hm.busy = false;
+        if let Err(e) = res {
+            hm.error = Some(e.message());
+            hm.render();
+            return;
+        }
+    }
+    reload(h.clone()).await;
 }

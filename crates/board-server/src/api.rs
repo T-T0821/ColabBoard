@@ -11,8 +11,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use board_core::api::{
     ApiError, BoardInfo, Comment, EditComment, Login, MarkRead, Me, NewBoard, NewComment,
-    NewVersion, Notification, Posted, RenameBoard, Role, SetLink, SetMember, Sharing, Signup,
-    VersionInfo,
+    NewVersion, Notification, Posted, RenameBoard, Role, SetBoardTeam, SetLink, SetMember, Sharing,
+    Signup, VersionInfo,
 };
 use board_core::protocol::{TOPIC_COMMENTS, TOPIC_VERSIONS};
 use serde::Deserialize;
@@ -40,6 +40,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/boards/{id}/members", put(set_member))
         .route("/boards/{id}/link", put(set_link))
         .route("/boards/{id}/embed", put(set_embed))
+        .route("/boards/{id}/team", put(set_board_team))
         .route(
             "/boards/{id}/slack",
             get(slack::get_settings).put(slack::set_settings),
@@ -153,7 +154,7 @@ pub fn current_user(state: &AppState, headers: &HeaderMap) -> ApiResult<Option<U
     }
 }
 
-fn require_user(state: &AppState, headers: &HeaderMap) -> ApiResult<UserRecord> {
+pub fn require_user(state: &AppState, headers: &HeaderMap) -> ApiResult<UserRecord> {
     current_user(state, headers)?.ok_or_else(Error::unauthorized)
 }
 
@@ -168,11 +169,12 @@ pub fn board_access(
         return Err(Error::not_found());
     }
     let meta = boards::get(state.store(), id)?;
-    let role = boards::role_of(
+    let role = boards::role_for(
+        state.store(),
         meta.as_ref(),
         Visitor { login, key },
         state.config.anonymous_boards,
-    )
+    )?
     .ok_or_else(Error::not_found)?;
     Ok((meta, role))
 }
@@ -283,7 +285,10 @@ async fn create_board(
     Json(req): Json<NewBoard>,
 ) -> ApiResult<(StatusCode, Json<BoardInfo>)> {
     let user = require_user(&state, &headers)?;
-    let meta = boards::create(state.store(), &user.login, &req.title)?;
+    if let Some(team) = &req.team {
+        crate::teams::member_team(state.store(), team, &user.login)?;
+    }
+    let meta = boards::create(state.store(), &user.login, &req.title, req.team.as_deref())?;
     tracing::info!(board = %meta.id, owner = %user.login, "ボード作成");
     Ok((StatusCode::CREATED, Json(meta.info(Role::Owner, None))))
 }
@@ -311,6 +316,7 @@ async fn board_info(
             created: 0,
             updated: 0,
             key: None,
+            team: None,
         },
     }))
 }
@@ -350,6 +356,10 @@ async fn delete_board(
     meta.link = None;
     meta.embed = None;
     meta.slack = None;
+    if let Some(team) = meta.team.take() {
+        boards::detach(state.store(), &team, &id)?;
+    }
+    meta.team_access = None;
     meta.updated = auth::now_ms();
     boards::put(state.store(), &meta)?;
     boards::forget(state.store(), &user.login, &id)?;
@@ -437,6 +447,37 @@ async fn set_embed(
     boards::put(state.store(), &meta)?;
     state.hub.kick(&id);
     Ok(Json(meta.sharing()))
+}
+
+async fn set_board_team(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(req): Json<SetBoardTeam>,
+) -> ApiResult<Json<BoardInfo>> {
+    let user = require_user(&state, &headers)?;
+    let mut meta = owned_board(&state, &id, &user, None, Role::Owner)?;
+    if let Some(team) = &req.team {
+        crate::teams::member_team(state.store(), team, &user.login)?;
+    }
+    if meta.team != req.team {
+        if let Some(old) = meta.team.take() {
+            boards::detach(state.store(), &old, &id)?;
+        }
+        if let Some(new) = &req.team {
+            boards::attach(state.store(), new, &id)?;
+        }
+        meta.team = req.team.clone();
+    }
+    meta.team_access = req
+        .access
+        .filter(|_| meta.team.is_some())
+        .map(|r| r.min(Role::Editor));
+    meta.updated = auth::now_ms();
+    boards::put(state.store(), &meta)?;
+    state.hub.kick(&id);
+    let (_, role) = board_access(&state, &id, Some(&user.login), None)?;
+    Ok(Json(meta.info(role, None)))
 }
 
 // ---- コメント ----
