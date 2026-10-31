@@ -7,7 +7,7 @@ use std::rc::Rc;
 
 use board_core::api::{
     AuditEvent, BoardInfo, Login, Me, NewBoard, NewTeam, Role, SetBoardTeam, SetTeamMember, Signup,
-    Team, TeamInfo, TeamRole,
+    SsoStatus, Team, TeamInfo, TeamRole, TeamSso,
 };
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -53,6 +53,8 @@ struct Home {
     confirm_delete_team: bool,
     /// 開いている操作ログ。
     audit: Option<AuditView>,
+    /// サーバーが受け付けるログイン方法。
+    sso: SsoStatus,
 }
 
 /// 操作ログの表示。
@@ -128,7 +130,20 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         .search()
         .ok()
         .and_then(|q| web_sys::UrlSearchParams::new_with_str(&q).ok());
-    let next = safe_next(params.and_then(|p| p.get("next")));
+    let next = safe_next(params.as_ref().and_then(|p| p.get("next")));
+    // SSO から戻ってきたときの失敗の理由。
+    let sso_error = params.as_ref().and_then(|p| p.get("sso_error"));
+    let sso = if me.is_none() {
+        http::get::<SsoStatus>("/sso").await.unwrap_or(SsoStatus {
+            password_login: true,
+            oidc: None,
+        })
+    } else {
+        SsoStatus {
+            password_login: true,
+            oidc: None,
+        }
+    };
 
     let home: Shared = Rc::new(RefCell::new(Home {
         window: window.clone(),
@@ -136,7 +151,7 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         me,
         boards: Vec::new(),
         mode: AuthMode::Login,
-        error: None,
+        error: sso_error,
         busy: false,
         confirm_delete: None,
         next,
@@ -146,6 +161,7 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         creating_team: false,
         confirm_delete_team: false,
         audit: None,
+        sso,
     }));
     install(&home)?;
     if home.borrow().me.is_some() {
@@ -237,18 +253,70 @@ impl Home {
         } else {
             ""
         };
-        format!(
-            r#"<div class="home-card auth">
-  <h1>グラボード</h1>
-  <p class="muted">{lead}</p>
-  <form data-form="auth">
+        let sso = match &self.sso.oidc {
+            Some(name) => {
+                let next = self
+                    .next
+                    .as_deref()
+                    .map(|n| format!("?next={}", http::encode(n)))
+                    .unwrap_or_default();
+                format!(
+                    r#"<a class="button sso" href="{base}/api/sso/oidc/start{next}"><span translate="no">{name}</span> でログイン</a>{or}"#,
+                    base = escape(&http::base()),
+                    next = escape(&next),
+                    name = escape(name),
+                    or = if self.sso.password_login {
+                        r#"<p class="or muted">または</p>"#
+                    } else {
+                        ""
+                    },
+                )
+            }
+            None => String::new(),
+        };
+        let password = if self.sso.password_login {
+            format!(
+                r#"<form data-form="auth">
     <label>ログイン名<input name="login" autocomplete="username" required autofocus maxlength="32" placeholder="英小文字・数字・-・_" /></label>
     {name_field}
     <label>パスワード<input name="password" type="password" autocomplete="{pw}" required minlength="{min}" /></label>
     {err}
     <button type="submit" class="primary" {busy}>{submit}</button>
   </form>
-  <p class="switch">{switch_lead} <button type="button" class="link" data-action="switch">{switch}</button></p>
+  <p class="switch">{switch_lead} <button type="button" class="link" data-action="switch">{switch}</button></p>"#,
+                pw = if signup {
+                    "new-password"
+                } else {
+                    "current-password"
+                },
+                min = if signup { 8 } else { 1 },
+                err = self.error_html(),
+                busy = if self.busy { "disabled" } else { "" },
+                submit = if signup {
+                    "アカウントを作る"
+                } else {
+                    "ログイン"
+                },
+                switch_lead = if signup {
+                    "アカウントをお持ちの方は"
+                } else {
+                    "はじめての方は"
+                },
+                switch = if signup {
+                    "ログイン"
+                } else {
+                    "アカウントを作る"
+                },
+            )
+        } else {
+            self.error_html()
+        };
+        format!(
+            r#"<div class="home-card auth">
+  <h1>グラボード</h1>
+  <p class="muted">{lead}</p>
+  {sso}
+  {password}
   <hr />
   <button type="button" data-action="anonymous">ログインせずに新しいボードを作る</button>
   <p class="muted small">ログインせずに作ったボードは、URL を知っている人なら誰でも編集できます。</p>
@@ -257,29 +325,6 @@ impl Home {
                 "アカウントを作ると、ボードの一覧・共有の設定・コメントが使えます。"
             } else {
                 "ログインしてボードを開きましょう。"
-            },
-            pw = if signup {
-                "new-password"
-            } else {
-                "current-password"
-            },
-            min = if signup { 8 } else { 1 },
-            err = self.error_html(),
-            busy = if self.busy { "disabled" } else { "" },
-            submit = if signup {
-                "アカウントを作る"
-            } else {
-                "ログイン"
-            },
-            switch_lead = if signup {
-                "アカウントをお持ちの方は"
-            } else {
-                "はじめての方は"
-            },
-            switch = if signup {
-                "ログイン"
-            } else {
-                "アカウントを作る"
             },
         )
     }
@@ -534,6 +579,20 @@ impl Home {
                 r#"<form data-form="move-board" class="inline"><select name="board" aria-label="移すボード">{movable}</select><button type="submit">このチームへ移す</button></form>"#
             )
         };
+        // SSO 自動参加ドメイン(サーバー管理者だけが設定できる)。
+        let sso = if me.admin {
+            format!(
+                r#"<form data-form="team-sso" class="inline"><span class="muted small nowrap">SSO 自動参加</span><input name="domains" value="{}" placeholder="SSO で自動参加させるメールのドメイン(例 example.co.jp)" aria-label="SSO 自動参加ドメイン" /><button type="submit">保存</button></form>"#,
+                escape(&team.sso_domains.join(", "))
+            )
+        } else if team.sso_domains.is_empty() {
+            String::new()
+        } else {
+            format!(
+                r#"<p class="muted small">SSO 自動参加: <span translate="no">{}</span></p>"#,
+                escape(&team.sso_domains.join(", "))
+            )
+        };
         let danger = if owner {
             if self.confirm_delete_team {
                 r#"<button type="button" class="danger" data-action="delete-team">本当にチームを削除</button><button type="button" data-action="cancel-delete-team">やめる</button>"#
@@ -547,7 +606,7 @@ impl Home {
             r#"<section class="team-panel">
   <header><h2 translate="no">{name}</h2><span class="badge" data-role="{rs}">{rl}</span><span class="muted">{n} 人</span><span class="spacer"></span>{log}{danger}</header>
   <ul class="team-members">{members}</ul>
-  {add}{mv}
+  {add}{mv}{sso}
   <p class="muted small">チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。</p>
 </section>"#,
             name = escape(&team.name),
@@ -713,6 +772,26 @@ fn install(home: &Shared) -> Result<(), String> {
                 "team-member" => {
                     let login = form_value(&form, "login");
                     let res = set_team_member(&h, login, Some(TeamRole::Member)).await;
+                    after_team_call(&h, res).await;
+                }
+                "team-sso" => {
+                    let domains = form_value(&form, "domains")
+                        .split([',', ' ', '、'])
+                        .map(str::trim)
+                        .filter(|d| !d.is_empty())
+                        .map(str::to_string)
+                        .collect();
+                    let team = h.borrow().filter.team().map(str::to_string);
+                    let res = match team {
+                        Some(t) => http::send::<_, Team>(
+                            "PUT",
+                            &format!("/teams/{}/sso", http::encode(&t)),
+                            &TeamSso { domains },
+                        )
+                        .await
+                        .map(|_| ()),
+                        None => Ok(()),
+                    };
                     after_team_call(&h, res).await;
                 }
                 "move-board" => {

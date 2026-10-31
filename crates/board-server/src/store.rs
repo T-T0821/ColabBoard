@@ -18,6 +18,7 @@
 //! | `teams` | チーム ID | [`TeamRecord`](crate::teams::TeamRecord)(JSON) |
 //! | `user_teams` | (ログイン名, チーム ID) | 入った時刻(JSON) |
 //! | `team_boards` | (チーム ID, ボード ID) | 加わった時刻(JSON) |
+//! | `sso_identities` | `{issuer}\n{sub}` | 結びついたログイン名(JSON) |
 //! | `audit` | (`*` か `team:{id}`, 記録 ID) | [`AuditEvent`](board_core::api::AuditEvent)(JSON) |
 
 use std::path::Path;
@@ -51,6 +52,8 @@ pub(crate) const USER_TEAMS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("user_teams");
 pub(crate) const TEAM_BOARDS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("team_boards");
+pub(crate) const SSO_IDENTITIES: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("sso_identities");
 pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
@@ -111,6 +114,7 @@ impl Store {
         txn.open_table(USER_TEAMS)?;
         txn.open_table(TEAM_BOARDS)?;
         txn.open_table(AUDIT)?;
+        txn.open_table(SSO_IDENTITIES)?;
         txn.commit()?;
         Ok(Self { db, persistent })
     }
@@ -175,6 +179,21 @@ impl Store {
         }
         txn.commit()?;
         Ok(())
+    }
+
+    /// テーブルの値を全部読む。
+    pub(crate) fn scan_all_json<T: DeserializeOwned>(
+        &self,
+        table: TableDefinition<&str, &[u8]>,
+    ) -> Result<Vec<T>, StoreError> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(table)?;
+        let mut out = Vec::new();
+        for entry in t.iter()? {
+            let (_, v) = entry?;
+            out.push(serde_json::from_slice(v.value())?);
+        }
+        Ok(out)
     }
 
     /// まだなければ書く。書いたら true(同じキーの同時作成を防ぐ)。

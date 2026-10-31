@@ -24,6 +24,7 @@ pub mod comments;
 mod embedded;
 pub mod issues;
 pub mod og;
+pub mod oidc;
 pub mod plugins;
 pub mod public;
 pub mod rest;
@@ -85,6 +86,10 @@ pub struct Config {
     pub admins: Vec<String>,
     /// リバースプロキシの `X-Forwarded-For` を接続元として信じるか。
     pub trust_proxy: bool,
+    /// OpenID Connect による SSO。`None` なら無効。
+    pub oidc: Option<Arc<oidc::Oidc>>,
+    /// パスワードでのログイン・アカウント作成を許すか(SSO だけにするなら false)。
+    pub password_login: bool,
 }
 
 impl Config {
@@ -128,6 +133,8 @@ impl Default for Config {
             embed_origins: "*".into(),
             admins: Vec::new(),
             trust_proxy: false,
+            oidc: None,
+            password_login: true,
         }
     }
 }
@@ -179,7 +186,8 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
             api::routes()
                 .merge(rest::token_routes())
                 .merge(teams::routes())
-                .merge(audit::routes()),
+                .merge(audit::routes())
+                .merge(oidc::routes()),
         )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

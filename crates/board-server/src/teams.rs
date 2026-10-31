@@ -11,7 +11,7 @@ use axum::Router;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, put};
-use board_core::api::{NewTeam, SetTeamMember, Team, TeamInfo, TeamRole};
+use board_core::api::{NewTeam, SetTeamMember, Team, TeamInfo, TeamRole, TeamSso};
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;
@@ -29,6 +29,9 @@ pub struct TeamRecord {
     pub name: String,
     pub created: u64,
     pub members: BTreeMap<String, TeamRole>,
+    /// SSO 自動参加ドメイン(サーバー管理者が設定する)。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sso_domains: Vec<String>,
 }
 
 impl TeamRecord {
@@ -39,6 +42,7 @@ impl TeamRecord {
             role,
             members: self.members.clone(),
             created: self.created,
+            sso_domains: self.sso_domains.clone(),
         }
     }
 
@@ -72,13 +76,18 @@ pub fn get_team(store: &Store, id: &str) -> Result<Option<TeamRecord>, StoreErro
     store.get_json(TEAMS, id)
 }
 
-fn put_team(store: &Store, team: &TeamRecord) -> Result<(), StoreError> {
+pub fn put_team(store: &Store, team: &TeamRecord) -> Result<(), StoreError> {
     store.put_json(TEAMS, &team.id, team)
 }
 
 /// チームでの役割。メンバーでなければ `None`。
 pub fn role_in(store: &Store, team: &str, login: &str) -> Result<Option<TeamRole>, StoreError> {
     Ok(get_team(store, team)?.and_then(|t| t.members.get(login).copied()))
+}
+
+/// すべてのチーム。
+pub fn all(store: &Store) -> Result<Vec<TeamRecord>, StoreError> {
+    store.scan_all_json(TEAMS)
 }
 
 /// 入っているチームの ID。
@@ -113,6 +122,7 @@ pub fn create(store: &Store, owner: &str, name: &str) -> Result<TeamRecord, Stor
             name: name.clone(),
             created: now_ms(),
             members: BTreeMap::from([(owner.to_string(), TeamRole::Owner)]),
+            sso_domains: Vec::new(),
         };
         if store.insert_new_json(TEAMS, &team.id, &team)? {
             store.put_pair(USER_TEAMS, owner, &team.id, &now_ms())?;
@@ -174,7 +184,7 @@ pub fn change_member(
 }
 
 /// メンバーの変更を保存する(一覧の索引も合わせる)。
-fn save_member_change(store: &Store, team: &TeamRecord, login: &str) -> Result<(), StoreError> {
+pub fn save_member_change(store: &Store, team: &TeamRecord, login: &str) -> Result<(), StoreError> {
     put_team(store, team)?;
     if team.members.contains_key(login) {
         store.put_pair(USER_TEAMS, login, &team.id, &now_ms())?;
@@ -214,6 +224,7 @@ pub fn routes() -> Router<Arc<AppState>> {
             get(team_detail).patch(rename_team).delete(delete_team),
         )
         .route("/teams/{tid}/members", put(set_member))
+        .route("/teams/{tid}/sso", put(set_sso))
 }
 
 fn team_not_found() -> Error {
@@ -369,6 +380,37 @@ async fn set_member(
         .copied()
         .unwrap_or(TeamRole::Member);
     Ok(Json(team.view(my_role)))
+}
+
+/// SSO 自動参加ドメイン。会社のドメインを勝手に名乗れないよう、サーバー管理者だけが設定できる。
+async fn set_sso(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(tid): Path<String>,
+    Json(req): Json<TeamSso>,
+) -> Result<Json<Team>, Error> {
+    let user = require_user(&state, &headers)?;
+    if !state.config.is_admin(&user.login) {
+        return Err(Error::forbidden());
+    }
+    let mut team = get_team(state.store(), &tid)?.ok_or_else(team_not_found)?;
+    team.sso_domains = crate::oidc::split_domains(&req.domains.join(","));
+    team.sso_domains.dedup();
+    put_team(state.store(), &team)?;
+    audit::record(
+        &state,
+        &headers,
+        Entry::new("team.settings")
+            .actor(&user.login)
+            .team(Some(&tid))
+            .detail(format!("SSO 自動参加: {}", team.sso_domains.join(", "))),
+    );
+    let role = team
+        .members
+        .get(&user.login)
+        .copied()
+        .unwrap_or(TeamRole::Member);
+    Ok(Json(team.view(role)))
 }
 
 #[cfg(test)]

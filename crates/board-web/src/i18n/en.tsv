@@ -889,3 +889,8 @@ URL を作り直す	Regenerate URL
 すべてたたむ	Collapse all
 すべての枝を開く	Expand all branches
 すべての枝をたたむ	Collapse all branches
+でログイン	Sign in
+または	or
+SSO で自動参加させるメールのドメイン(例 example.co.jp)	Email domains that auto-join via SSO (e.g. example.com)
+SSO 自動参加ドメイン	SSO auto-join domains
+SSO 自動参加	SSO auto-join
