@@ -454,3 +454,101 @@ async fn comments_permissions_and_live_refresh() {
         .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn versions_save_preview_and_restore() {
+    let s = start(Config::default()).await;
+    let alice = s.signup("alice").await;
+    let bob = s.signup("bob").await;
+    let (_, b, _) = s
+        .call(
+            "POST",
+            "/api/boards",
+            Some(&alice),
+            Some(json!({"title": "履歴"})),
+        )
+        .await;
+    let id = b["id"].as_str().unwrap().to_string();
+    let path = format!("/api/boards/{id}");
+    s.call(
+        "PUT",
+        &format!("{path}/members"),
+        Some(&alice),
+        Some(json!({"login": "bob", "role": "viewer"})),
+    )
+    .await;
+
+    let (mut ws, mut board) = s.connect(&id, Some(&alice), None).await.unwrap();
+    let before = board.len();
+    let (status, v1, _) = s
+        .call(
+            "POST",
+            &format!("{path}/versions"),
+            Some(&alice),
+            Some(json!({"label": "初稿"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{v1}");
+    assert_eq!(v1["elements"], before);
+    // 閲覧のみの人は保存も復元もできないが、一覧と中身は見られる。
+    let (status, _, _) = s
+        .call(
+            "POST",
+            &format!("{path}/versions"),
+            Some(&bob),
+            Some(json!({})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // 付箋を 2 枚足す。
+    for _ in 0..2 {
+        for u in add_sticky(&mut board) {
+            ws.send(WsMessage::Binary(Message::Update(u).encode().into()))
+                .await
+                .unwrap();
+        }
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let vid = v1["id"].as_u64().unwrap();
+    let (status, _, _) = s
+        .call(
+            "POST",
+            &format!("{path}/versions/{vid}/restore"),
+            Some(&bob),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, backup, _) = s
+        .call(
+            "POST",
+            &format!("{path}/versions/{vid}/restore"),
+            Some(&alice),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{backup}");
+    assert_eq!(backup["label"], "「初稿」に戻す前");
+    assert_eq!(backup["elements"], before + 2);
+
+    // つないでいる人に戻した更新が届く。
+    let mut got_update = false;
+    while let Some(m) = recv(&mut ws).await {
+        if let Message::Update(u) = m {
+            board.apply_remote(&u).unwrap();
+            got_update = true;
+        }
+    }
+    assert!(got_update);
+    assert_eq!(board.len(), before);
+    let (_, fresh) = s.connect(&id, Some(&bob), None).await.unwrap();
+    assert_eq!(fresh.len(), before);
+
+    let (_, list, _) = s
+        .call("GET", &format!("{path}/versions"), Some(&bob), None)
+        .await;
+    let list = list.as_array().unwrap();
+    assert!(list.len() >= 2);
+    assert_eq!(list[0]["label"], "「初稿」に戻す前", "新しい順");
+}

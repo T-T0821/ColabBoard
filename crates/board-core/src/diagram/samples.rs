@@ -6,6 +6,8 @@ use super::DiagramSpec;
 pub const SAMPLES: &[(&str, &str)] = &[
     ("AWS: Web 3 層構成", AWS_THREE_TIER),
     ("AWS: サーバーレス API", AWS_SERVERLESS),
+    ("Azure: Web アプリ", AZURE_WEB),
+    ("Google Cloud: コンテナ API", GCP_CONTAINER),
     ("フローチャート: 問い合わせ対応", FLOW_SUPPORT),
 ];
 
@@ -70,6 +72,66 @@ const AWS_SERVERLESS: &str = r#"{
     {"from": "queue", "to": "notify"},
     {"from": "notify", "to": "mail"},
     {"from": "fn", "to": "logs"}
+  ]
+}"#;
+
+const AZURE_WEB: &str = r#"{
+  "title": "Azure Web アプリ",
+  "direction": "right",
+  "groups": [
+    {"id": "sub", "kind": "azure_subscription", "label": ""},
+    {"id": "rg", "kind": "azure_resource_group", "label": "rg-web-prod", "parent": "sub"},
+    {"id": "vnet", "kind": "azure_vnet", "label": "vnet-web", "parent": "rg"},
+    {"id": "app", "kind": "azure_subnet", "label": "snet-app", "parent": "vnet"},
+    {"id": "data", "kind": "azure_subnet", "label": "snet-data", "parent": "vnet"}
+  ],
+  "nodes": [
+    {"id": "users", "kind": "users", "label": "利用者"},
+    {"id": "fd", "kind": "azure_front_door", "label": "", "group": "sub"},
+    {"id": "web", "kind": "azure_app_service", "label": "Web", "group": "app"},
+    {"id": "fn", "kind": "azure_functions", "label": "バッチ", "group": "app"},
+    {"id": "sql", "kind": "azure_sql", "label": "", "group": "data"},
+    {"id": "redis", "kind": "azure_redis", "label": "セッション", "group": "data"},
+    {"id": "kv", "kind": "azure_key_vault", "label": "", "group": "rg"},
+    {"id": "insights", "kind": "azure_app_insights", "label": "", "group": "rg"}
+  ],
+  "edges": [
+    {"from": "users", "to": "fd", "label": "HTTPS"},
+    {"from": "fd", "to": "web"},
+    {"from": "web", "to": "sql"},
+    {"from": "web", "to": "redis"},
+    {"from": "fn", "to": "sql"},
+    {"from": "web", "to": "kv"},
+    {"from": "web", "to": "insights"}
+  ]
+}"#;
+
+const GCP_CONTAINER: &str = r#"{
+  "title": "Google Cloud コンテナ API",
+  "direction": "right",
+  "groups": [
+    {"id": "proj", "kind": "gcp_project", "label": "my-project"},
+    {"id": "region", "kind": "gcp_region", "label": "asia-northeast1", "parent": "proj"},
+    {"id": "vpc", "kind": "gcp_vpc", "label": "", "parent": "region"}
+  ],
+  "nodes": [
+    {"id": "client", "kind": "mobile", "label": "アプリ"},
+    {"id": "lb", "kind": "gcp_load_balancing", "label": "", "group": "proj"},
+    {"id": "armor", "kind": "gcp_cloud_armor", "label": "", "group": "proj"},
+    {"id": "run", "kind": "gcp_cloud_run", "label": "API", "group": "region"},
+    {"id": "sql", "kind": "gcp_cloud_sql", "label": "PostgreSQL", "group": "vpc"},
+    {"id": "redis", "kind": "gcp_memorystore", "label": "キャッシュ", "group": "vpc"},
+    {"id": "topic", "kind": "gcp_pubsub", "label": "イベント", "group": "region"},
+    {"id": "bq", "kind": "gcp_bigquery", "label": "分析", "group": "proj"}
+  ],
+  "edges": [
+    {"from": "client", "to": "lb", "label": "HTTPS"},
+    {"from": "lb", "to": "armor"},
+    {"from": "armor", "to": "run"},
+    {"from": "run", "to": "sql"},
+    {"from": "run", "to": "redis"},
+    {"from": "run", "to": "topic"},
+    {"from": "topic", "to": "bq"}
   ]
 }"#;
 

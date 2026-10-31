@@ -84,7 +84,7 @@ impl Ai {
     }
 
     /// 呼びすぎを防ぐ。呼んでよければ時刻を記録して true。
-    fn try_acquire(&self, room: &str) -> bool {
+    pub(crate) fn try_acquire(&self, room: &str) -> bool {
         let mut map = self.last_call.lock().unwrap();
         let now = Instant::now();
         map.retain(|_, t| now.duration_since(*t) < ROOM_COOLDOWN);
@@ -96,7 +96,12 @@ impl Ai {
     }
 
     /// Messages API を呼び、構造化出力(JSON)を受け取る。
-    async fn call(&self, system: &str, user: String, schema: Value) -> Result<Value, AiError> {
+    pub(crate) async fn call(
+        &self,
+        system: &str,
+        user: String,
+        schema: Value,
+    ) -> Result<Value, AiError> {
         let body = json!({
             "model": self.config.model,
             "max_tokens": 16000,

@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     };
     if config.ai.is_none() {
         tracing::info!(
-            "AI 機能: 無効(ANTHROPIC_API_KEY を設定すると付箋の要約・グループ分けが使えます)"
+            "AI 機能: 無効(ANTHROPIC_API_KEY を設定すると付箋の要約・グループ分けと図の生成が使えます)"
         );
     }
     if !config.anonymous_boards {

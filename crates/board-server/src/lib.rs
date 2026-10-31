@@ -1,7 +1,7 @@
 //! ColabBoard の同期サーバー。
 //!
 //! - `GET /ws/{room}?key=`: WebSocket。メッセージ形式は [`board_core::protocol`]。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])と図の生成([`ai_diagram`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -9,12 +9,14 @@
 //! 接続時に権限([`boards::role_of`])を確かめ、編集権限のない人からの更新は捨てる。
 
 pub mod ai;
+pub mod ai_diagram;
 pub mod api;
 pub mod auth;
 pub mod boards;
 pub mod comments;
 pub mod room;
 pub mod store;
+pub mod versions;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -81,6 +83,8 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/healthz", get(|| async { "ok" }))
         .route("/api/boards/{id}/ai/summarize", post(ai::summarize))
         .route("/api/boards/{id}/ai/cluster", post(ai::cluster))
+        .route("/api/boards/{id}/ai/diagram", post(ai_diagram::generate))
+        .route("/api/ai/status", get(ai_diagram::status))
         .nest("/api", api::routes())
         .with_state(state);
     match static_dir {

@@ -1,9 +1,9 @@
 //! 図の自動レイアウト。
 //!
-//! 1. 矢印をたどって各ノードの段(ランク)を決める(最長経路。循環は無視)。
-//! 2. グループの中身を内側から順に並べる。中身(ノードと子グループ)は、含むノードの
-//!    最小ランクごとに列を作り、列の中では定義順に積む。グループの大きさは中身で決まる。
-//! 3. 外側から位置を確定し、矢印の経路(直線か、かぎ型)を引く。
+//! 1. グループの中身(ノードと子グループ)を内側から順に並べる。兄弟の項目どうしは、
+//!    中身のノードの間の矢印を「項目 → 項目」の矢印とみなして段(最長経路、循環は無視)
+//!    を決め、段ごとの列に定義順で積む。グループの大きさは中身で決まる。
+//! 2. 外側から位置を確定する。矢印はノードにつないだコネクタなので経路はボードが引く。
 
 use std::collections::HashMap;
 
@@ -61,7 +61,8 @@ enum Item {
 struct Ctx<'a> {
     dir: Direction,
     spec: &'a DiagramSpec,
-    node_rank: Vec<usize>,
+    /// 矢印(ノードの添字の組)。
+    edges: Vec<(usize, usize)>,
     node_size: Vec<Vec2>,
     group_children: Vec<Vec<Item>>,
     /// グループの大きさと、中身の(グループ左上からの)位置。
@@ -98,21 +99,45 @@ impl Ctx<'_> {
         }
     }
 
-    /// 中身の最小ランク(空のグループは 0)。
-    fn rank(&self, item: Item) -> usize {
+    /// 項目に含まれるノード。
+    fn collect_nodes(&self, item: Item, out: &mut Vec<usize>) {
         match item {
-            Item::Node(i) => self.node_rank[i],
-            Item::Group(g) => self.group_children[g]
-                .iter()
-                .map(|c| self.rank(*c))
-                .min()
-                .unwrap_or(0),
+            Item::Node(i) => out.push(i),
+            Item::Group(g) => {
+                for c in &self.group_children[g] {
+                    self.collect_nodes(*c, out);
+                }
+            }
         }
+    }
+
+    /// 兄弟の項目どうしの段。中身のノードの間に矢印があれば「項目 → 項目」の矢印とみなし、
+    /// 最長経路で決める(グループの外から入ってくる矢印は外側の段で考慮済み)。
+    fn sibling_ranks(&self, items: &[Item]) -> Vec<usize> {
+        let mut owner: HashMap<usize, usize> = HashMap::new();
+        for (k, item) in items.iter().enumerate() {
+            let mut nodes = Vec::new();
+            self.collect_nodes(*item, &mut nodes);
+            for n in nodes {
+                owner.insert(n, k);
+            }
+        }
+        let mut edges: Vec<(usize, usize)> = self
+            .edges
+            .iter()
+            .filter_map(|(a, b)| {
+                let (ia, ib) = (*owner.get(a)?, *owner.get(b)?);
+                (ia != ib).then_some((ia, ib))
+            })
+            .collect();
+        edges.sort_unstable();
+        edges.dedup();
+        ranks(items.len(), &edges)
     }
 
     /// 項目を列に並べる。返り値は各項目の左上位置と全体の大きさ。
     fn arrange(&self, items: &[Item]) -> (Vec<Vec2>, Vec2) {
-        let mut ranks: Vec<usize> = items.iter().map(|i| self.rank(*i)).collect();
+        let mut ranks = self.sibling_ranks(items);
         let mut cols: Vec<usize> = ranks.clone();
         cols.sort_unstable();
         cols.dedup();
@@ -266,8 +291,6 @@ impl Layout {
                 (a != b).then_some((a, b, e.label.as_str()))
             })
             .collect();
-        let node_rank = ranks(spec.nodes.len(), &edges);
-
         let node_shapes: Vec<Shape> = spec
             .nodes
             .iter()
@@ -284,7 +307,7 @@ impl Layout {
         let mut ctx = Ctx {
             dir: spec.direction,
             spec,
-            node_rank,
+            edges: edges.iter().map(|&(a, b, _)| (a, b)).collect(),
             node_size: node_shapes.iter().map(|s| s.size).collect(),
             group_children,
             group_size: vec![Vec2::ZERO; ng],
@@ -374,9 +397,9 @@ impl Layout {
 }
 
 /// 最長経路で段を決める。循環を作る矢印(深さ優先で見つかる後退辺)は無視する。
-fn ranks(n: usize, edges: &[(usize, usize, &str)]) -> Vec<usize> {
+fn ranks(n: usize, edges: &[(usize, usize)]) -> Vec<usize> {
     let mut out_edges: Vec<Vec<usize>> = vec![Vec::new(); n];
-    for &(a, b, _) in edges {
+    for &(a, b) in edges {
         out_edges[a].push(b);
     }
     // 0: 未訪問, 1: 訪問中, 2: 完了
@@ -443,7 +466,7 @@ mod tests {
 
     #[test]
     fn ranks_follow_edges_and_ignore_cycles() {
-        let e = [(0, 1, ""), (1, 2, ""), (2, 0, ""), (0, 2, "")];
+        let e = [(0, 1), (1, 2), (2, 0), (0, 2)];
         let r = ranks(3, &e);
         assert_eq!(r, vec![0, 1, 2]);
     }
@@ -513,6 +536,36 @@ mod tests {
                 assert!(!overlap, "{} / {}", a.id, b.id);
             }
         }
+    }
+
+    #[test]
+    fn isolated_nodes_do_not_pull_groups_upstream() {
+        // サブネットに矢印のない NAT Gateway があっても、VPC は利用者より右に来る。
+        let spec = DiagramSpec {
+            groups: vec![
+                GroupSpec {
+                    id: "vpc".into(),
+                    kind: "vpc".into(),
+                    ..Default::default()
+                },
+                GroupSpec {
+                    id: "pub".into(),
+                    kind: "public_subnet".into(),
+                    parent: Some("vpc".into()),
+                    ..Default::default()
+                },
+            ],
+            nodes: vec![
+                node("user", None),
+                node("nat", Some("pub")),
+                node("web", Some("vpc")),
+            ],
+            edges: vec![edge("user", "web")],
+            ..Default::default()
+        };
+        let l = Layout::compute(&spec);
+        let vpc = l.groups.iter().find(|g| g.depth == 0).unwrap().rect;
+        assert!(l.node("user").unwrap().bounds().max.x < vpc.min.x);
     }
 
     #[test]

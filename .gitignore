@@ -1,3 +1,5 @@
 /target
 dist/
 /data
+/crates/board-web/assets/cloud-icons/*
+!/crates/board-web/assets/cloud-icons/README.md

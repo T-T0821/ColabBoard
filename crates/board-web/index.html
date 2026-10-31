@@ -7,6 +7,7 @@
   <link data-trunk rel="rust" data-wasm-opt="s" />
   <link data-trunk rel="css" href="style.css" />
   <link data-trunk rel="copy-dir" href="assets/fonts" />
+  <link data-trunk rel="copy-dir" href="assets/cloud-icons" />
 </head>
 <body>
   <canvas id="board" tabindex="0" aria-label="ホワイトボード"></canvas>
@@ -25,6 +26,7 @@
     <span id="hud-net" data-status="connecting">接続中…</span>
     <button id="share" title="このボードを共有">リンクをコピー</button>
     <button id="comments-toggle" title="コメント" aria-pressed="false">コメント</button>
+    <button id="history-toggle" title="バージョン履歴" aria-pressed="false" hidden>履歴</button>
     <button id="notif-button" class="icon" title="通知" aria-label="通知"></button>
     <span id="account"></span>
   </header>
@@ -33,6 +35,8 @@
   <section id="comment-popover" class="panel comment-popover" aria-label="コメント" hidden></section>
   <section id="comments-panel" class="panel comments-panel" aria-label="コメント一覧" hidden></section>
   <section id="notif-menu" class="panel notif-menu" aria-label="通知" hidden></section>
+  <section id="history-panel" class="panel history-panel" aria-label="バージョン履歴" hidden></section>
+  <div id="preview-banner" class="panel preview-banner" role="status" hidden></div>
 
   <section id="share-panel" class="panel share-panel" aria-label="共有" hidden></section>
 
@@ -184,8 +188,22 @@
 
   <p class="panel help">スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ ダブルクリック/Enter: 文字入力 ・ Delete: 削除 ・ Ctrl/⌘+Z: 元に戻す</p>
 
-  <button id="diagram-toggle" class="panel diagram-toggle" aria-expanded="false" aria-controls="diagram-panel" title="AWS 構成図・フローチャート">構成図</button>
+  <button id="diagram-toggle" class="panel diagram-toggle" aria-expanded="false" aria-controls="diagram-panel" title="AWS 構成図・フローチャート・生成 AI">構成図・AI</button>
   <section id="diagram-panel" class="panel diagram-panel" aria-label="構成図" hidden>
+    <label class="label" for="ai-prompt">生成 AI で図を作る</label>
+    <textarea id="ai-prompt" rows="4" placeholder="例: ALB の後ろに EC2 を 2 台(マルチ AZ)、DB は Aurora。画像は S3 から CloudFront で配信"></textarea>
+    <div class="diagram-row">
+      <select id="ai-mode" aria-label="図の種類">
+        <option value="auto">おまかせ</option>
+        <option value="aws">AWS 構成図</option>
+        <option value="azure">Azure 構成図</option>
+        <option value="gcp">Google Cloud 構成図</option>
+        <option value="flowchart">フローチャート</option>
+      </select>
+      <button id="ai-generate" class="primary">生成</button>
+    </div>
+    <p id="ai-status" class="ai-status" role="status"></p>
+    <hr />
     <div class="diagram-row">
       <label class="label" for="diagram-service">部品</label>
       <select id="diagram-service"></select>
