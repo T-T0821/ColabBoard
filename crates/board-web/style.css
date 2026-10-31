@@ -1652,3 +1652,20 @@ body.embed-mode .history-panel { display: none !important; }
 .team-members .actions { display: flex; gap: 4px; align-items: center; }
 .home-card .team-members select { height: 28px; }
 .home-card .team-members button { height: 28px; padding: 0 10px; }
+
+/* ---- 操作ログ ---- */
+.audit-panel { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin: 0 0 16px; display: flex; flex-direction: column; gap: 10px; }
+.audit-panel header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.audit-panel h2 { margin: 0; font-size: 15px; }
+.audit-panel .spacer { flex: 1; }
+.audit-panel a.button { display: inline-flex; align-items: center; height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: 10px; color: inherit; text-decoration: none; font-size: 13px; }
+.audit-panel a.button:hover { border-color: var(--accent); color: var(--accent); }
+.home-card .audit-panel header button { height: 30px; }
+.audit-scroll { max-height: 360px; overflow: auto; }
+table.audit { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.audit th { position: sticky; top: 0; background: var(--panel-solid); text-align: left; font-weight: 600; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+table.audit td { padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+table.audit .nowrap { white-space: nowrap; }
+table.audit tr[data-action-kind="auth"] td:nth-child(2) { color: var(--muted); }
+table.audit td:nth-child(2) { white-space: nowrap; }
+table.audit a { color: var(--accent); }
