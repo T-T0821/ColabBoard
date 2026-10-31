@@ -13,6 +13,7 @@ mod crdt;
 pub mod diagram;
 pub mod editor;
 pub mod element;
+pub mod export;
 pub mod format;
 pub mod geom;
 pub mod navigation;

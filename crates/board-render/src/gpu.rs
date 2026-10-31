@@ -1,6 +1,6 @@
 use std::fmt;
 
-use board_core::{Board, Camera, ElementId, Shape};
+use board_core::{Board, Camera, ElementId, Shape, Vec2};
 
 use crate::text::TextLayer;
 use crate::{GRID_WGSL, Globals, Layer, SHAPES_WGSL, ShapeInstance, build_layers, changed_range};
@@ -332,17 +332,7 @@ impl Renderer {
             text_skip,
         );
 
-        let globals = Globals {
-            view_proj: camera.view_proj().to_cols_array_2d(),
-            origin: camera.origin.to_array(),
-            viewport: camera.viewport.to_array(),
-            zoom: camera.zoom,
-            srgb_output: self.srgb_output as u32,
-            dark: self.dark as u32,
-            _pad: 0,
-        };
-        self.queue
-            .write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
+        self.write_globals(camera, self.dark);
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(t)
@@ -394,18 +384,7 @@ impl Renderer {
             pass.set_pipeline(&self.grid_pipeline);
             pass.draw(0..3, 0..1);
 
-            // 段ごとに「図形 → その段の文字」の順で描く(重なり順を保つ)。
-            for (i, layer) in self.layers.iter().enumerate() {
-                if !layer.instances.is_empty() {
-                    // 文字描画が bind group 0 を差し替えるので毎回戻す。
-                    pass.set_bind_group(0, &self.globals_bind, &[]);
-                    pass.set_pipeline(&self.shape_pipeline);
-                    pass.set_vertex_buffer(0, self.instance_buf.slice(..));
-                    pass.draw(0..6, layer.instances.clone());
-                }
-                self.images.render(i, &self.globals_bind, &mut pass);
-                self.text.render(i, &mut pass);
-            }
+            self.draw_layers(&mut pass);
             if self.overlay_count > 0 {
                 pass.set_bind_group(0, &self.globals_bind, &[]);
                 pass.set_pipeline(&self.shape_pipeline);
@@ -424,6 +403,211 @@ impl Renderer {
             layers: self.layers.len(),
             skipped: false,
         })
+    }
+}
+
+impl Renderer {
+    /// 読み戻し待ちの処理を進める(書き出し中は毎フレーム呼ぶ)。
+    pub fn poll(&self) {
+        let _ = self.device.poll(wgpu::PollType::Poll);
+    }
+
+    fn write_globals(&self, camera: &Camera, dark: bool) {
+        let globals = Globals {
+            view_proj: camera.view_proj().to_cols_array_2d(),
+            origin: camera.origin.to_array(),
+            viewport: camera.viewport.to_array(),
+            zoom: camera.zoom,
+            srgb_output: self.srgb_output as u32,
+            dark: dark as u32,
+            _pad: 0,
+        };
+        self.queue
+            .write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));
+    }
+
+    /// 段ごとに「図形 → 画像 → その段の文字」の順で描く(重なり順を保つ)。
+    fn draw_layers(&self, pass: &mut wgpu::RenderPass<'_>) {
+        for (i, layer) in self.layers.iter().enumerate() {
+            if !layer.instances.is_empty() {
+                // 文字描画が bind group 0 を差し替えるので毎回戻す。
+                pass.set_bind_group(0, &self.globals_bind, &[]);
+                pass.set_pipeline(&self.shape_pipeline);
+                pass.set_vertex_buffer(0, self.instance_buf.slice(..));
+                pass.draw(0..6, layer.instances.clone());
+            }
+            self.images.render(i, &self.globals_bind, pass);
+            self.text.render(i, pass);
+        }
+    }
+
+    /// ボードのワールド座標の範囲 `area` を、長辺が `max_px` 以下の画像に描く(背景は白、
+    /// 方眼・選択枠なし)。結果は [`Capture::read`] で受け取る。
+    pub fn capture(&mut self, board: &Board, area: board_core::Rect, max_px: u32) -> Capture {
+        let limit = self.device.limits().max_texture_dimension_2d;
+        let max_px = max_px.min(limit).max(1) as f32;
+        let size = area.size().max(Vec2::splat(1.0));
+        // 拡大しすぎない(元の 2 倍まで)。
+        let scale = (max_px / size.max_element()).min(2.0);
+        let width = ((size.x * scale).ceil() as u32).clamp(1, max_px as u32);
+        let height = ((size.y * scale).ceil() as u32).clamp(1, max_px as u32);
+        let mut camera = Camera::new(Vec2::new(width as f32, height as f32));
+        camera.zoom = scale;
+        camera.origin = area.min;
+
+        self.sync_instances(board);
+        self.images
+            .prepare(&self.device, &self.queue, board, &camera, &self.layers);
+        self.text.set_dark(false);
+        self.text.prepare(
+            &self.device,
+            &self.queue,
+            board,
+            &camera,
+            &self.layers,
+            None,
+        );
+        self.text.set_dark(self.dark);
+        // 書き出しはダークモードでも白背景の見た目にする。
+        self.write_globals(&camera, false);
+
+        let format = self.config.format;
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("capture"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let padded_row = (width * 4).div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+            * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("capture"),
+            size: u64::from(padded_row) * u64::from(height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("capture"),
+            });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("capture"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                ..Default::default()
+            });
+            self.draw_layers(&mut pass);
+        }
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_row),
+                    rows_per_image: Some(height),
+                },
+            },
+            wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit([encoder.finish()]);
+        // 次の通常の描画で、画面用に文字などを準備し直させる。
+        self.uploaded_revision = None;
+        Capture {
+            device: self.device.clone(),
+            buffer,
+            width,
+            height,
+            padded_row,
+            bgra: matches!(
+                format,
+                wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+            ),
+        }
+    }
+}
+
+/// [`Renderer::capture`] の結果(GPU からの読み戻し待ち)。
+pub struct Capture {
+    device: wgpu::Device,
+    buffer: wgpu::Buffer,
+    pub width: u32,
+    pub height: u32,
+    padded_row: u32,
+    bgra: bool,
+}
+
+impl Capture {
+    /// 読み戻しが終わったら、RGBA(行の詰め物なし)を `done` に渡す。
+    pub fn read(self, done: impl FnOnce(Option<Vec<u8>>) + wgpu::WasmNotSend + 'static) {
+        let Capture {
+            device,
+            buffer,
+            width,
+            height,
+            padded_row,
+            bgra,
+        } = self;
+        let buf = buffer.clone();
+        buffer.map_async(wgpu::MapMode::Read, .., move |r| {
+            if r.is_err() {
+                done(None);
+                return;
+            }
+            let mut out = Vec::with_capacity((width * height * 4) as usize);
+            {
+                let Ok(data) = buf.slice(..).get_mapped_range() else {
+                    done(None);
+                    return;
+                };
+                for row in data.chunks(padded_row as usize).take(height as usize) {
+                    out.extend_from_slice(&row[..(width * 4) as usize]);
+                }
+            }
+            buf.unmap();
+            if bgra {
+                for px in out.chunks_exact_mut(4) {
+                    px.swap(0, 2);
+                }
+            }
+            done(Some(out));
+        });
+        // ネイティブではここで完了する。ブラウザでは待てないので、終わるまで
+        // `Renderer::poll` を呼び続ける(WebGPU ではイベントループから呼ばれる)。
+        #[cfg(not(target_arch = "wasm32"))]
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: None,
+        });
+        #[cfg(target_arch = "wasm32")]
+        let _ = device;
     }
 }
 
