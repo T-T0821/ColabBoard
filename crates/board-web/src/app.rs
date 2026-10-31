@@ -29,6 +29,7 @@ mod reactions;
 mod search_ui;
 mod templates_ui;
 mod toolbar;
+mod touch;
 
 use crate::bench::Bench;
 use crate::net::{Net, NetEvent, Status};
@@ -101,6 +102,8 @@ struct App {
     access_slot: Rc<RefCell<Option<Access>>>,
     /// 初回同期の回数(2 回目以降はつなぎ直し)。
     syncs: u32,
+    /// 指・ペンの操作(タップ・長押し・手のひらの無視)。
+    touch: touch::Touch,
 }
 
 struct Hud {
@@ -378,6 +381,7 @@ pub async fn run() -> Result<(), String> {
         chrome,
         access_slot: Rc::default(),
         syncs: 0,
+        touch: touch::Touch::default(),
     }));
     {
         let mut a = app.borrow_mut();
@@ -404,6 +408,7 @@ pub async fn run() -> Result<(), String> {
 
     install_pointer(&app, &canvas)?;
     install_text_editor(&app)?;
+    touch::install(&app)?;
     load_font(app.clone());
     install_keyboard(&app, &window)?;
     install_save_on_hide(&app, &window)?;
@@ -844,6 +849,7 @@ impl App {
         self.follow_frame(now);
         self.comments_frame(now);
         self.history_frame();
+        self.touch_frame(now);
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
         if (w, h) != self.renderer.size() {
@@ -1018,6 +1024,9 @@ impl App {
     fn on_pointer_down(&mut self, e: &PointerEvent) {
         let p = self.css_to_physical(e.client_x() as f64, e.client_y() as f64);
         let id = e.pointer_id();
+        if !self.touch_pointer_down(e, p) {
+            return;
+        }
         self.pointers.insert(id, p);
         if e.button() == 0 && self.pointers.len() == 1 && self.comment_pointer_down(p) {
             self.pointers.remove(&id);
@@ -1028,7 +1037,8 @@ impl App {
             || !self.can_edit()
             || self.space_down
             || self.editor.tool() == Tool::Hand
-            || self.pointers.len() > 1;
+            || self.pointers.len() > 1
+            || self.touch_wants_nav(e, p);
 
         if wants_nav && !self.navigating {
             // 編集中に 2 本目の指が来たら、編集を取り消してピンチに切り替える。
@@ -1048,6 +1058,7 @@ impl App {
         } else if e.button() == 0 {
             let mods = Modifiers {
                 shift: e.shift_key(),
+                alt: e.alt_key(),
             };
             self.editor
                 .pointer_down(&mut self.board, &self.camera, p, mods);
@@ -1075,17 +1086,22 @@ impl App {
     fn on_pointer_move(&mut self, e: &PointerEvent) {
         let p = self.css_to_physical(e.client_x() as f64, e.client_y() as f64);
         let id = e.pointer_id();
+        if self.touch_ignored(id) {
+            return;
+        }
         if let Some(slot) = self.pointers.get_mut(&id) {
             *slot = p;
         }
         self.cursor_world = Some(self.camera.screen_to_world(p));
+        let past_slop = self.touch_pointer_move(id, p);
         if self.navigating {
             if self.nav.pointer_move(&mut self.camera, id, p) {
                 self.dirty = true;
             }
-        } else if self.editor.is_dragging() {
+        } else if self.editor.is_dragging() && past_slop {
             let mods = Modifiers {
                 shift: e.shift_key(),
+                alt: e.alt_key(),
             };
             if self
                 .editor
@@ -1100,6 +1116,9 @@ impl App {
     fn on_pointer_up(&mut self, e: &PointerEvent) {
         let p = self.css_to_physical(e.client_x() as f64, e.client_y() as f64);
         let id = e.pointer_id();
+        if self.touch.ignored_remove(id) {
+            return;
+        }
         self.pointers.remove(&id);
         if self.navigating {
             self.nav.pointer_up(id);
@@ -1114,6 +1133,7 @@ impl App {
         if let Some(id) = self.editor.take_pending_edit() {
             self.begin_text_edit(id);
         }
+        self.touch_pointer_up(e, p);
         self.update_cursor(Some(p));
     }
 
@@ -1122,6 +1142,9 @@ impl App {
     fn begin_text_edit(&mut self, id: ElementId) {
         if !self.can_edit() || !self.editor.begin_edit(&self.board, id) {
             return;
+        }
+        if let Some(tb) = self.board.get(id).and_then(BoardElement::text_box) {
+            self.touch_before_edit(tb.rect.min, tb.rect.max);
         }
         let text = self.board.get(id).map(BoardElement::text).unwrap_or("");
         self.text_editor.set_value(text);
@@ -1361,7 +1384,7 @@ fn install_pointer(app: &Rc<RefCell<App>>, canvas: &HtmlCanvasElement) -> Result
         listen(target, "dblclick", false, move |e: web_sys::MouseEvent| {
             let mut a = app.borrow_mut();
             let p = a.css_to_physical(e.client_x() as f64, e.client_y() as f64);
-            if a.editor.tool() != Tool::Select {
+            if a.editor.tool() != Tool::Select || a.editor.editing().is_some() {
                 return;
             }
             if let Some(id) = a.editor.editable_at(&a.board, &a.camera, p) {
@@ -1637,6 +1660,7 @@ fn start_loop(app: Rc<RefCell<App>>) {
     let window2 = window.clone();
     *tick2.borrow_mut() = Some(Closure::new(move |now: f64| {
         app.borrow_mut().frame(now);
+        touch::open_pending_menu(&app);
         if let Some(cb) = tick.borrow().as_ref() {
             let _ = window2.request_animation_frame(cb.as_ref().unchecked_ref());
         }

@@ -37,7 +37,7 @@ pub struct Collab {
     tally_revision: u64,
 }
 
-fn now_ms() -> f64 {
+pub(super) fn now_ms() -> f64 {
     js_sys::Date::now()
 }
 
@@ -344,7 +344,7 @@ impl App {
         }
     }
 
-    fn refresh_votes(&mut self) {
+    pub(super) fn refresh_votes(&mut self) {
         let user = self.identity.id.clone();
         self.collab.update_votes(&self.board, &user, true);
         self.layout_collab();

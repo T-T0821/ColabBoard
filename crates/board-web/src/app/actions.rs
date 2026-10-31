@@ -271,13 +271,16 @@ pub fn install_clipboard(app: &Rc<RefCell<App>>) -> Result<(), String> {
             else {
                 return;
             };
-            let mut a = app.borrow_mut();
-            if a.paste_text(&text, None) {
+            if app.borrow_mut().paste_text(&text, None) {
                 e.prevent_default();
+            } else if board_core::markdown::looks_like_markdown(&text) {
+                // マークダウンはフレーム・付箋・表などに分けて並べる。
+                e.prevent_default();
+                super::media::insert_markdown(&app, &text, None);
             } else if !text.trim().is_empty() {
                 // ふつうの文字列は付箋にして貼る。
                 e.prevent_default();
-                a.paste_plain_text(text.trim());
+                app.borrow_mut().paste_plain_text(text.trim());
             }
         })?;
     }
@@ -370,6 +373,11 @@ fn menu_items() -> Vec<Item> {
             "PDF で書き出し(選択 / 全体)",
             "",
             Action::Export(super::export::ExportFormat::Pdf),
+        ),
+        A(
+            "マークダウンで書き出し(選択 / 全体)",
+            "",
+            Action::Export(super::export::ExportFormat::Markdown),
         ),
     ]
 }

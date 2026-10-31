@@ -18,7 +18,7 @@ const BORDER: Rgba8 = Rgba8::hex(0xb8bcc2);
 /// 位置を同じとみなす誤差(ワールド単位)。
 const EPS: f32 = 0.5;
 
-fn cell(id: ElementId, pos: Vec2, size: Vec2, header: bool, group: u64) -> Shape {
+pub(crate) fn cell(id: ElementId, pos: Vec2, size: Vec2, header: bool, group: u64) -> Shape {
     let fill = if header { HEADER_FILL } else { Rgba8::WHITE };
     let mut s = Shape::new(id, ShapeKind::Rect, pos, size, fill);
     s.stroke = BORDER;

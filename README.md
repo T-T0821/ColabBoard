@@ -47,6 +47,7 @@ Miro や FigJam のように、Web 上で複数人が同時に編集できるホ
 - 無限キャンバスのパン/ズーム(スクロール、Space+ドラッグ、Ctrl/⌘+スクロール、トラックパッド/タッチのピンチ)
 - 付箋、図形(四角形・楕円・三角形・ひし形・星・六角形・平行四辺形)、テキスト、コネクタ(要素どうしをつなぐ矢印。相手を動かすと経路が付いてくる)、ペン、蛍光ペン、消しゴム、フレームの作成
 - 選択(クリック、Shift で追加、範囲選択)、移動、8 方向リサイズ(Shift で縦横比固定)、削除、色変更
+- **スマートガイドとスナップ**: 動かしたりリサイズしたりすると、周りの図形の端・中心にそろう位置や、隣との間隔が等しくなる位置に吸い付き、赤いガイド線が出る(Alt / Option を押している間は吸い付かない)
 - コピー&ペースト・複製・グループ化・整列/等間隔・重なり順・ロック(右クリックメニューとショートカット)
 - 付箋・図形への文字入力(ダブルクリック / Enter、日本語 IME 対応)
 - Undo / Redo(自分の操作だけを取り消す。ドラッグ 1 回 = 1 単位)
@@ -57,7 +58,9 @@ Miro や FigJam のように、Web 上で複数人が同時に編集できるホ
 - **共有**: オーナーは「共有」から、ログイン名での招待と共有リンク(閲覧のみ / コメント可 / 編集可)を設定できる。権限のない人には「開けません」と表示し、閲覧のみの人には編集の道具を出さない
 - **コメントとメンション**: 「コメント」→「＋ 追加」でボード上(図形の上なら図形に付いていく)にコメントを置き、スレッドで返信・解決できる。`@ログイン名` でメンションすると相手のベルに通知が届く(返信もスレッドの参加者に通知)。コメントは「コメント可」以上の権限でログインした人が書ける
 - **バージョン履歴**: 編集すると 10 分ごと(と全員が抜けたとき)に自動で保存され、「履歴」から名前を付けて保存もできる。昔のバージョンを選ぶとその状態を表示し(同期は続く)、「このバージョンに戻す」で全員のボードを戻せる。戻す前の状態も履歴に残る
+- **Slack 通知**: オーナーは「共有」パネルで Slack の Incoming Webhook URL を登録すると、コメント・メンション・名前を付けたバージョンの保存(と復元)をチャンネルに流せる。送る出来事は選べて、「テスト送信」で届くか確かめられる。URL は保存後は末尾しか表示しない
 - **ファシリテーション**(右上のパネル): 全員に見えるタイマー(一時停止・延長、終了時に音)、付箋への投票(1 人あたりの票数を決めて開始 → 締め切ると結果と順位を表示)、付箋の自動整理(格子に整列・色でまとめる)、プレゼン(「プレゼン開始」で全員の画面が自分の表示に追従。参加者の名前を押すとその人をフォロー、自分で動かすと解除)
+- **テンプレート**(ツールバーのテンプレートボタン): 振り返り・ワークショップ・戦略・計画の 53 種を、分類と検索から選べる。振り返りは KPT・YWT・4L・Start/Stop/Continue・Mad/Sad/Glad・スターフィッシュ・DAKI・KALM・帆船・熱気球・タイムライン・ESVP など、ワークショップは Crazy 8s・How Might We・1-2-4-全体・リーンコーヒー・6 つの帽子・なぜなぜ分析・共感マップ・ペルソナなど、戦略・計画はリーンキャンバス・ビジネスモデルキャンバス・SWOT・PEST・プレモーテム・OKR・ストーリーマップ・MoSCoW など。置くとボードに見出しと進め方が入り、ファシリテーションのパネルに手順ごとのボタン(タイマー・投票開始・締め切り・AI でまとめる/要約)が出る。どれも普通の付箋・フレーム・表でできているので自由に編集できる
 - **AI**(サーバーに `ANTHROPIC_API_KEY` を設定したとき): 付箋の要約(結果を新しい付箋に)と、内容の近い付箋のグループ分け(グループごとに並べ直してフレームと見出しを付ける)。選択中の付箋、なければ全付箋が対象で、1 回の Undo で戻せる
 - **構成図**: 左上の「構成図」から AWS(約 70 種)・Azure(約 40 種)・Google Cloud(約 35 種)のサービスと、AWS Cloud / Region / VPC / AZ / サブネット、Azure のサブスクリプション / リソース グループ / VNet、Google Cloud のプロジェクト / VPC などの枠を置ける。サンプル(AWS の Web 3 層・サーバーレス、Azure の Web アプリ、Google Cloud のコンテナ API、フローチャート)は自動レイアウトして矢印でつないだ状態で挿入される。各社の公式アイコンは下の「クラウドの公式アイコン」で取り込める
 - **生成 AI で図を作る**(サーバーに `ANTHROPIC_API_KEY` を設定したとき): 「構成図・AI」パネルに作りたい構成や手順を書くと、Claude が AWS・Azure・Google Cloud の構成図やフローチャートを作り、自動レイアウトしてボードに置く。1 回の Undo で戻せる
@@ -117,6 +120,7 @@ tools/fetch-cloud-icons.sh --aws ~/Downloads/Icon-package.zip   # 手元の ZIP 
 | スクロール、Space+ドラッグ、中ボタンドラッグ | 移動 |
 | Ctrl/⌘ + スクロール、ピンチ | カーソル位置を中心にズーム |
 | Shift + クリック / ドラッグ | 追加選択 / 縦横比を保って変形・作成 |
+| Alt / Option + ドラッグ | スナップせずに移動・リサイズ |
 | ダブルクリック / `Enter` | 文字を入力(`Esc` か `Ctrl/⌘+Enter`、または外側クリックで確定) |
 | `Delete` / `Backspace` | 選択中の要素を削除 |
 | `Ctrl/⌘ + Z` / `Ctrl/⌘ + Shift + Z`(`Ctrl + Y`) | 元に戻す / やり直す |
@@ -128,6 +132,18 @@ tools/fetch-cloud-icons.sh --aws ~/Downloads/Icon-package.zip   # 手元の ZIP 
 | `Ctrl/⌘ + ]` `[`(Shift で最前面 / 最背面) | 重なり順を 1 つ前へ / 後ろへ |
 | `Ctrl/⌘ + Shift + L` | ロック / 解除 |
 | `Alt` + `A` `H` `D` / `W` `V` `S` | 左 / 左右中央 / 右、上 / 上下中央 / 下にそろえる |
+
+### スマホ・タブレット
+
+iOS Safari・Android Chrome で動く(WebGPU がなければ WebGL2 で描く)。画面が狭いとツールバーは横にスクロールでき、パネルは画面幅に広がる。
+
+| 操作 | 動作 |
+| --- | --- |
+| タップ / ドラッグ | 選択 / 移動・変形(選択ツールで何もない所をなぞると画面を移動、タップで選択解除) |
+| 2 本指ドラッグ / ピンチ | 画面を移動 / ズーム |
+| 長押し | 右クリックと同じメニュー |
+| ダブルタップ | 文字を入力(キーボードで隠れないよう画面が動く) |
+| ペン(Apple Pencil など) | ペンが触れている間の指は無視。ペンを使い始めたら、ペン・蛍光ペン・消しゴムでは指で画面を移動 |
 | `Alt + Shift + H` / `V` / `T` | 横 / 縦に等間隔、格子に整頓 |
 
 ### URL パラメータ
@@ -146,11 +162,22 @@ tools/fetch-cloud-icons.sh --aws ~/Downloads/Icon-package.zip   # 手元の ZIP 
 
 ## セルフホスト
 
-サーバーは `cargo build -p board-server --release` でできる単一のバイナリ(`target/release/board-server`)と、クライアントのビルド結果(`crates/board-web/dist`)だけで動く。データは `DATA_DIR/boards.redb` の 1 ファイルに保存される。
+詳しい手順(Docker / systemd / リバースプロキシ / バックアップ)は [docs/self-hosting.md](docs/self-hosting.md)。
 
 ```sh
-DATA_DIR=/var/lib/colabboard STATIC_DIR=/srv/colabboard/dist PORT=8080 ./board-server
+docker compose up -d          # → http://localhost:8080(データは colabboard-data ボリューム)
 ```
+
+Docker を使わない場合は、クライアントを埋め込んだ単一バイナリにできる。ファイル 1 つをコピーするだけで動き、データは `DATA_DIR/boards.redb` の 1 ファイルに保存される。
+
+```sh
+(cd crates/board-web && trunk build --release)
+cargo build -p board-server --release --features embed
+DATA_DIR=/var/lib/graboard PORT=8080 ./target/release/board-server
+./target/release/board-server healthcheck   # 死活監視(/healthz を確かめ、終了コードで返す)
+```
+
+`embed` なしでビルドした場合は `STATIC_DIR` でクライアントのディレクトリを指定する。
 
 PDF の取り込み(hayro)で wasm が数 MB 大きくなる。不要なら `trunk build --release --no-default-features` でクライアントから外せる。
 
@@ -160,12 +187,15 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | --- | --- | --- |
 | `PORT` | `8080` | 待ち受けポート |
 | `DATA_DIR` | `data` | 保存先(`boards.redb`)。空にすると保存しない |
-| `STATIC_DIR` | `crates/board-web/dist` | 配信するクライアント |
+| `STATIC_DIR` | `crates/board-web/dist` | 配信するクライアント。`embed` 版で埋め込みを使うなら指定しない |
+| `MAX_MESSAGE_MB` | `128` | WebSocket で受け取る 1 通の上限。数十万要素のボードを使うなら増やす |
 | `RUST_LOG` | `info` | ログの詳しさ |
 | `ANONYMOUS_BOARDS` | `1` | `0` にするとログインなしのボード(`?room=` で誰でも作れて誰でも編集できるもの)を禁止 |
 | `COOKIE_SECURE` | `0` | HTTPS で公開するときは `1`(ログイン Cookie に `Secure` を付ける) |
 | `ANTHROPIC_API_KEY` | なし | 設定すると AI 機能(付箋の要約・グループ分け、文章からの図の生成)が使える。使えるのはボードの編集権限がある人だけ |
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | AI 機能で使う Claude のモデル |
+| `PUBLIC_URL` | なし | 公開している URL(例 `https://board.example.com/`)。Slack 通知にボードへのリンクを付ける |
+| `SLACK_WEBHOOK_PREFIXES` | `https://hooks.slack.com/` | Slack 通知を送ってよい Webhook URL の先頭(カンマ区切り)。これ以外の URL は登録できない |
 
 ### アカウントと権限
 

@@ -20,6 +20,7 @@ use serde::Deserialize;
 use crate::auth::{self, AuthError, SESSION_COOKIE, UserRecord};
 use crate::boards::{self, BoardMeta, Visitor};
 use crate::comments::{self, CommentError};
+use crate::slack;
 use crate::store::StoreError;
 use crate::versions;
 use crate::{AppState, valid_room_name};
@@ -38,6 +39,11 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/boards/{id}/sharing", get(sharing))
         .route("/boards/{id}/members", put(set_member))
         .route("/boards/{id}/link", put(set_link))
+        .route(
+            "/boards/{id}/slack",
+            get(slack::get_settings).put(slack::set_settings),
+        )
+        .route("/boards/{id}/slack/test", post(slack::send_test))
         .route(
             "/boards/{id}/comments",
             get(list_comments).post(post_comment),
@@ -120,7 +126,7 @@ impl From<CommentError> for Error {
     }
 }
 
-type ApiResult<T> = Result<T, Error>;
+pub type ApiResult<T> = Result<T, Error>;
 
 // ---- ログイン状態 ----
 
@@ -179,6 +185,12 @@ fn owned_board(
         return Err(Error::forbidden());
     }
     Ok(meta)
+}
+
+/// ログイン中のオーナーだけが触れるボード(連携の設定など)。
+pub fn owner_board(state: &AppState, headers: &HeaderMap, id: &str) -> ApiResult<BoardMeta> {
+    let user = require_user(state, headers)?;
+    owned_board(state, id, &user, None, Role::Owner)
 }
 
 #[derive(Deserialize)]
@@ -329,6 +341,7 @@ async fn delete_board(
     meta.deleted = true;
     meta.members.clear();
     meta.link = None;
+    meta.slack = None;
     meta.updated = auth::now_ms();
     boards::put(state.store(), &meta)?;
     boards::forget(state.store(), &user.login, &id)?;
@@ -443,6 +456,9 @@ async fn post_comment(
     // コメントしたボードは一覧に載せる。
     boards::remember(state.store(), &user.login, &id, q.key.as_deref())?;
     state.hub.refresh(&id, TOPIC_COMMENTS);
+    slack::notify(&state, meta.as_ref(), |cfg, hook, m| {
+        slack::comment_text(cfg, hook, m, &posted.comment)
+    });
     Ok((StatusCode::CREATED, Json(posted)))
 }
 
@@ -546,6 +562,11 @@ async fn create_version(
     let label = req.label.unwrap_or_else(|| "名前のないバージョン".into());
     let info = versions::create(state.store(), &id, &current, Some(&label), user.as_ref())?;
     state.hub.refresh(&id, TOPIC_VERSIONS);
+    let meta = boards::get(state.store(), &id)?;
+    let who = user.as_ref().map(|u| u.name.as_str());
+    slack::notify(&state, meta.as_ref(), |cfg, hook, m| {
+        slack::version_text(cfg, hook, m, who, &label, false)
+    });
     Ok((StatusCode::CREATED, Json(info)))
 }
 
@@ -620,5 +641,11 @@ async fn restore_version(
         .map_err(|e| Error::bad_request(format!("戻せませんでした: {e}")))?;
     tracing::info!(board = %id, version = vid, "バージョンを復元");
     state.hub.refresh(&id, TOPIC_VERSIONS);
+    let meta = boards::get(state.store(), &id)?;
+    let who = user.as_ref().map(|u| u.name.as_str());
+    let label = target.label.clone().unwrap_or_else(|| "自動保存".into());
+    slack::notify(&state, meta.as_ref(), |cfg, hook, m| {
+        slack::version_text(cfg, hook, m, who, &label, true)
+    });
     Ok(Json(backup.unwrap_or(target)))
 }

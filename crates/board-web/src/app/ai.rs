@@ -44,7 +44,7 @@ impl AiUi {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Action {
+pub(super) enum Action {
     Summarize,
     Cluster,
 }
@@ -223,7 +223,7 @@ impl App {
     }
 }
 
-fn start(app: &Rc<RefCell<App>>, action: Action) {
+pub(super) fn start(app: &Rc<RefCell<App>>, action: Action) {
     let (window, url, targets, body) = {
         let a = app.borrow();
         if a.ai.busy {

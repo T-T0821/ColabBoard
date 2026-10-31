@@ -1,4 +1,4 @@
-//! 画像・PDF の挿入(貼り付け・ドロップ・ファイル選択)。
+//! 画像・PDF・マークダウンの挿入(貼り付け・ドロップ・ファイル選択)。
 //!
 //! 画像は image クレート(Pure Rust)でデコードし、大きすぎれば縮めて保存し直す。
 //! 保存した画像はボードの要素として同期される。
@@ -181,6 +181,30 @@ impl App {
         self.dirty = true;
     }
 
+    /// 取り込んだマークダウンの画像の仮置きを、読み込んだ画像に差し替える。
+    fn replace_placeholder(&mut self, placeholder: board_core::ElementId, bytes: &[u8]) {
+        let Some(rect) = self.board.get(placeholder).map(|e| e.bounds()) else {
+            return;
+        };
+        let Ok((data, w, h)) = prepare_image(bytes) else {
+            return;
+        };
+        let width = rect.size().x;
+        let size = Vec2::new(width, width * h as f32 / w as f32);
+        let id = self.board.alloc_id();
+        self.board.end_gesture();
+        self.board.remove(&[placeholder]);
+        self.board
+            .push(Shape::image(id, rect.min, size, ImageData::new(data)));
+        self.board.end_gesture();
+        let mut sel = self.editor.selection().to_vec();
+        if let Some(p) = sel.iter_mut().find(|p| **p == placeholder) {
+            *p = id;
+            self.editor.set_selection(sel);
+        }
+        self.dirty = true;
+    }
+
     /// 画面の中央(ワールド座標)。
     fn media_center(&self) -> Vec2 {
         self.camera.screen_to_world(self.camera.viewport * 0.5)
@@ -203,7 +227,10 @@ pub fn insert_files(app: &Rc<RefCell<App>>, files: Vec<File>, at: Option<Vec2>) 
             let mut a = app.borrow_mut();
             let base = at.unwrap_or_else(|| a.cursor_world.unwrap_or_else(|| a.media_center()));
             let base = base + Vec2::splat(32.0 * i as f32);
-            if is_pdf(&f) {
+            if is_markdown(&f) {
+                drop(a);
+                insert_markdown(&app, &String::from_utf8_lossy(&bytes), Some(base));
+            } else if is_pdf(&f) {
                 a.insert_pdf(bytes, base);
             } else {
                 a.insert_image(&bytes, base);
@@ -216,8 +243,69 @@ fn is_pdf(f: &File) -> bool {
     f.type_() == "application/pdf" || f.name().to_ascii_lowercase().ends_with(".pdf")
 }
 
+fn is_markdown(f: &File) -> bool {
+    let name = f.name().to_ascii_lowercase();
+    f.type_() == "text/markdown" || name.ends_with(".md") || name.ends_with(".markdown")
+}
+
 fn is_supported(f: &File) -> bool {
-    f.type_().starts_with("image/") || is_pdf(f)
+    f.type_().starts_with("image/") || is_pdf(f) || is_markdown(f)
+}
+
+/// マークダウンを読んで並べる(中心は `at`、なければカーソルか画面中央)。
+/// 画像のリンクは仮の四角形で置き、読み込めたものから画像に差し替える。
+pub fn insert_markdown(app: &Rc<RefCell<App>>, md: &str, at: Option<Vec2>) -> bool {
+    let images = {
+        let mut a = app.borrow_mut();
+        if !a.can_edit() {
+            return false;
+        }
+        let center = at.unwrap_or_else(|| a.cursor_world.unwrap_or_else(|| a.media_center()));
+        let sticky = a.editor.sticky_color;
+        a.board.end_gesture();
+        let Some(r) = board_core::markdown::insert(&mut a.board, md, center, sticky) else {
+            return false;
+        };
+        a.board.end_gesture();
+        a.editor.set_selection(r.ids);
+        a.dirty = true;
+        r.images
+    };
+    for img in images {
+        let app = app.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let Some(bytes) = fetch_bytes(&img.url).await else {
+                return;
+            };
+            app.borrow_mut()
+                .replace_placeholder(img.placeholder, &bytes);
+        });
+    }
+    true
+}
+
+/// URL の中身を読む(http(s) と data: だけ。相対パスは元のファイルの場所が分からないので読まない)。
+async fn fetch_bytes(url: &str) -> Option<Vec<u8>> {
+    use wasm_bindgen::JsCast;
+    let lower = url.to_ascii_lowercase();
+    if !["http://", "https://", "data:image/"]
+        .iter()
+        .any(|p| lower.starts_with(p))
+    {
+        return None;
+    }
+    let window = web_sys::window()?;
+    let res = wasm_bindgen_futures::JsFuture::from(window.fetch_with_str(url))
+        .await
+        .ok()?;
+    let res: web_sys::Response = res.dyn_into().ok()?;
+    if !res.ok() {
+        return None;
+    }
+    let buf = wasm_bindgen_futures::JsFuture::from(res.array_buffer().ok()?)
+        .await
+        .ok()?;
+    Some(js_sys::Uint8Array::new(&buf).to_vec())
 }
 
 fn file_list(list: Option<web_sys::FileList>) -> Vec<File> {
@@ -227,7 +315,7 @@ fn file_list(list: Option<web_sys::FileList>) -> Vec<File> {
     (0..list.length()).filter_map(|i| list.get(i)).collect()
 }
 
-/// 貼り付け・ドロップされたデータに画像・PDF のファイルがあれば取り出す。
+/// 貼り付け・ドロップされたデータに画像・PDF・マークダウンのファイルがあれば取り出す。
 pub fn image_files(dt: Option<web_sys::DataTransfer>) -> Vec<File> {
     file_list(dt.and_then(|d| d.files()))
         .into_iter()
@@ -268,16 +356,25 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
     {
         let app = app.clone();
         listen(canvas.as_ref(), "drop", false, move |e: DragEvent| {
-            let files = image_files(e.data_transfer());
-            if files.is_empty() {
-                return;
-            }
-            e.prevent_default();
             let at = {
                 let a = app.borrow();
                 let p = a.css_to_physical(e.client_x() as f64, e.client_y() as f64);
                 a.camera.screen_to_world(p)
             };
+            let files = image_files(e.data_transfer());
+            if files.is_empty() {
+                // ほかのアプリから引きずってきたマークダウンの文字列。
+                let text = e
+                    .data_transfer()
+                    .and_then(|d| d.get_data("text/plain").ok())
+                    .unwrap_or_default();
+                if board_core::markdown::looks_like_markdown(&text) {
+                    e.prevent_default();
+                    insert_markdown(&app, &text, Some(at));
+                }
+                return;
+            }
+            e.prevent_default();
             insert_files(&app, files, Some(at));
         })?;
     }
