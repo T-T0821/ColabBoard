@@ -15,6 +15,8 @@ mod presence;
 #[cfg(target_arch = "wasm32")]
 mod session;
 #[cfg(target_arch = "wasm32")]
+mod storage;
+#[cfg(target_arch = "wasm32")]
 mod theme;
 #[cfg(target_arch = "wasm32")]
 mod tooltip;

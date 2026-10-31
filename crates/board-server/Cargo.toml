@@ -3,7 +3,7 @@ name = "board-server"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
-description = "ColabBoard の同期サーバー(WebSocket + 永続化)"
+description = "グラボード の同期サーバー(WebSocket + 永続化)"
 
 [dependencies]
 board-core.workspace = true

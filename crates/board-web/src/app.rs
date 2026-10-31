@@ -23,6 +23,7 @@ mod follow;
 mod format_bar;
 mod history;
 mod media;
+mod offline;
 mod reactions;
 mod search_ui;
 mod templates_ui;
@@ -76,7 +77,7 @@ struct App {
     cursor_world: Option<Vec2>,
     presence_sent: Option<Option<Vec2>>,
     presence_sent_at: f64,
-    last_status: Option<(Status, usize)>,
+    last_status: Option<(Status, usize, bool)>,
     /// `?bench` の計測。
     bench: Option<Bench>,
     bench_done_at: Option<f64>,
@@ -91,6 +92,8 @@ struct App {
     history: history::History,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
     live_board: Option<Board>,
+    /// この端末への保存(共同編集のボードだけ)。
+    local_store: Option<offline::LocalStore>,
     /// ボード名・権限・共有パネル(サーバーの API が使えるときだけ)。
     chrome: Option<SharedChrome>,
     /// 権限の確かめ直しの結果(非同期で届く)。
@@ -266,6 +269,7 @@ pub async fn run() -> Result<(), String> {
 
     let (w, h) = renderer.size();
     let camera = Camera::new(Vec2::new(w as f32, h as f32));
+    let mut local_store = None;
     let (board, room, net) = match demo_count {
         Some(n) => (Board::demo(n), None, None),
         None if offline => (Board::welcome(), None, None),
@@ -273,8 +277,25 @@ pub async fn run() -> Result<(), String> {
             let room = ensure_room(&window, &params);
             let mut net = Net::new(server_url(&window, &params, &room, key.as_deref())?);
             net.connect();
-            // 共同編集のボードはサーバーから中身を受け取るまで空。
-            (Board::new(), Some(room), Some(net))
+            // 前回この端末に保存した内容があれば、サーバーを待たずに表示する。
+            let mut board = Board::new();
+            let mut store = offline::LocalStore::new(&room);
+            match crate::storage::load(store.key()).await {
+                Ok(Some(bytes)) => match board.apply_remote(&bytes) {
+                    Ok(()) => {
+                        log::info!("この端末に保存した内容から開きました({} 要素)", board.len());
+                        store.mark_saved(board.revision());
+                    }
+                    Err(e) => log::warn!("保存した内容を読めません: {e}"),
+                },
+                Ok(None) => {}
+                Err(e) => {
+                    log::warn!("この端末の保存領域を使えません: {e}");
+                    store.ok.set(false);
+                }
+            }
+            local_store = Some(store);
+            (board, Some(room), Some(net))
         }
     };
 
@@ -352,12 +373,17 @@ pub async fn run() -> Result<(), String> {
         comments: comments::Comments::new(&document)?,
         history: history::History::new(&document)?,
         live_board: None,
+        local_store,
         chrome,
         access_slot: Rc::default(),
         syncs: 0,
     }));
     {
         let mut a = app.borrow_mut();
+        if a.net.is_some() && !a.board.is_empty() {
+            // 端末に保存した内容から開いたときは、すぐに表示位置を決める。
+            a.initial_view();
+        }
         if a.net.is_none() {
             a.initial_view();
             let text = if a.board.is_collaborative() {
@@ -378,6 +404,7 @@ pub async fn run() -> Result<(), String> {
     install_text_editor(&app)?;
     load_font(app.clone());
     install_keyboard(&app, &window)?;
+    install_save_on_hide(&app, &window)?;
     install_controls(&app, &document)?;
     actions::install_clipboard(&app)?;
     actions::install_context_menu(&app)?;
@@ -562,11 +589,15 @@ impl App {
                         self.timings.synced = Some(now_ms(&self.window));
                         self.publish_timings();
                     }
-                    // 切断中の変更も含めて手元の全体を送る(重複は CRDT が吸収する)。
+                    // 切断中・オフライン中の変更のうち、サーバーにないものだけを送る
+                    // (CRDT なので、その間の他の人の変更ともマージされる)。
                     let _ = self.live_board_mut().take_outgoing();
                     let live = self.live_board.as_ref().unwrap_or(&self.board);
-                    if let (Some(net), Ok(full)) = (self.net.as_ref(), live.encode_diff(None)) {
-                        net.send(&Message::Update(full));
+                    let missing = live
+                        .encode_missing_from(&state)
+                        .or_else(|_| live.encode_diff(None));
+                    if let (Some(net), Ok(missing)) = (self.net.as_ref(), missing) {
+                        net.send(&Message::Update(missing));
                     }
                     self.cursors.clear();
                     self.presence_sent = None;
@@ -605,8 +636,16 @@ impl App {
                     }
                     let offline = self.net.as_ref().map(|n| n.status) == Some(Status::Offline);
                     if offline && self.board.is_empty() && !self.view_initialized {
-                        log::warn!("サーバーにつながらないので、このタブだけで動かします");
-                        self.board.seed_welcome();
+                        if self.local_store.is_some() {
+                            // 新しいボードはサーバーが初期の内容を入れるので、ここでは足さない
+                            // (足すと、つながったときに二重になる)。空のまま編集でき、端末に保存する。
+                            log::warn!(
+                                "サーバーにつながらないので、この端末に保存しながら動かします"
+                            );
+                        } else {
+                            log::warn!("サーバーにつながらないので、このタブだけで動かします");
+                            self.board.seed_welcome();
+                        }
                         self.initial_view();
                     }
                 }
@@ -638,15 +677,18 @@ impl App {
             }
         }
 
-        let status = (net.status, self.cursors.len());
+        let local = self.saves_locally();
+        let status = (net.status, self.cursors.len(), local);
         if self.last_status != Some(status) {
             self.last_status = Some(status);
-            let text = match status.0 {
-                Status::Connecting => "接続中…".to_string(),
-                Status::Online => format!("オンライン · {}人", status.1 + 1),
-                Status::Reconnecting => "再接続中…".to_string(),
-                Status::Offline => "オフライン(保存されません)".to_string(),
-                Status::Disabled => "ダミー表示中(同期なし)".to_string(),
+            let text = match (status.0, local) {
+                (Status::Connecting, _) => "接続中…".to_string(),
+                (Status::Online, _) => format!("オンライン · {}人", status.1 + 1),
+                (Status::Reconnecting, true) => "再接続中 · この端末に保存".to_string(),
+                (Status::Reconnecting, false) => "再接続中…".to_string(),
+                (Status::Offline, true) => "オフライン · この端末に保存".to_string(),
+                (Status::Offline, false) => "オフライン(保存されません)".to_string(),
+                (Status::Disabled, _) => "ダミー表示中(同期なし)".to_string(),
             };
             self.hud.net.set_text_content(Some(&text));
             let state = match status.0 {
@@ -794,6 +836,7 @@ impl App {
     fn frame(&mut self, now: f64) {
         export::pump(self);
         self.pump_net(now);
+        self.save_local(now, false);
         self.collab_frame();
         self.follow_frame(now);
         self.comments_frame(now);
@@ -1246,6 +1289,26 @@ impl App {
             });
         }
     }
+}
+
+/// タブを閉じる・隠すときに、未保存の変更を端末に保存する。
+fn install_save_on_hide(app: &Rc<RefCell<App>>, window: &Window) -> Result<(), String> {
+    for (target, name) in [
+        (window.as_ref() as &web_sys::EventTarget, "pagehide"),
+        (
+            window.document().ok_or("document がありません")?.as_ref(),
+            "visibilitychange",
+        ),
+    ] {
+        let app = app.clone();
+        listen(target, name, true, move |_: web_sys::Event| {
+            if let Ok(mut a) = app.try_borrow_mut() {
+                let now = now_ms(&a.window);
+                a.save_local(now, true);
+            }
+        })?;
+    }
+    Ok(())
 }
 
 fn listen<E: JsCast + wasm_bindgen::convert::FromWasmAbi + 'static>(

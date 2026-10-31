@@ -643,6 +643,19 @@ impl Board {
         Ok(sync.doc.transact().encode_state_as_update_v1(&sv))
     }
 
+    /// 相手から届いたボード全体(`update`)に含まれていない、手元だけの変更を作る。
+    ///
+    /// 再接続やオフライン編集の後、手元の全体ではなく相手が持っていない分だけを送るのに使う。
+    /// 削除の情報は常に全部入る(yrs の仕様)。
+    pub fn encode_missing_from(&self, update: &[u8]) -> Result<Vec<u8>, String> {
+        let sync = self.sync.as_ref().ok_or("共同編集できないボードです")?;
+        let theirs = Update::decode_v1(update).map_err(|e| e.to_string())?;
+        Ok(sync
+            .doc
+            .transact()
+            .encode_state_as_update_v1(&theirs.state_vector()))
+    }
+
     pub fn state_vector(&self) -> Vec<u8> {
         use yrs::updates::encoder::Encode;
         self.sync
@@ -751,7 +764,7 @@ impl Board {
             (Vec2::new(480.0, 0.0), STICKY_COLORS[2]),
         ];
         let texts = [
-            "ようこそ ColabBoard へ!\nダブルクリックで編集できます",
+            "ようこそ グラボード へ!\nダブルクリックで編集できます",
             "付箋・図形・ペンは下のツールバーから",
             "Ctrl/⌘ + スクロールでズーム",
         ];
@@ -1192,6 +1205,42 @@ mod tests {
         exchange(&mut a, &mut b);
         assert!(a.get(ia).is_none());
         assert_eq!(a.len(), 1);
+    }
+
+    /// オフライン中の変更だけを送れば、サーバー側と収束する。
+    #[test]
+    fn missing_changes_only() {
+        let mut server = Board::demo_shared(500, 1);
+        let snapshot = server.encode_diff(None).unwrap();
+        let mut client = Board::with_client_id(2);
+        client.apply_remote(&snapshot).unwrap();
+        // オフラインで 1 個追加・1 個移動。サーバー側でも別の変更。
+        let id = client.alloc_id();
+        client.push(Shape::sticky(id, Vec2::splat(-500.0), Rgba8::WHITE));
+        let moved = client.elements()[3].id();
+        client.update(moved, |e| e.translate(Vec2::new(7.0, 0.0)));
+        let sid = server.alloc_id();
+        server.push(Shape::rect(
+            sid,
+            Vec2::ZERO,
+            Vec2::splat(10.0),
+            Rgba8::WHITE,
+        ));
+        let _ = client.take_outgoing();
+        let _ = server.take_outgoing();
+
+        let now = server.encode_diff(None).unwrap();
+        client.apply_remote(&now).unwrap();
+        let missing = client.encode_missing_from(&now).unwrap();
+        assert!(
+            missing.len() < now.len() / 10,
+            "{} / {}",
+            missing.len(),
+            now.len()
+        );
+        server.apply_remote(&missing).unwrap();
+        assert_eq!(server.elements(), client.elements());
+        assert!(server.get(id).is_some() && client.get(sid).is_some());
     }
 
     #[test]

@@ -103,8 +103,8 @@ impl App {
                 .ok_or_else(|| "画像を読み戻せませんでした".to_string())
                 .and_then(|rgba| encode(format, rgba, w, h))
                 .and_then(|bytes| match format {
-                    ExportFormat::Png => download("colabboard.png", "image/png", &bytes),
-                    ExportFormat::Pdf => download("colabboard.pdf", "application/pdf", &bytes),
+                    ExportFormat::Png => download("graboard.png", "image/png", &bytes),
+                    ExportFormat::Pdf => download("graboard.pdf", "application/pdf", &bytes),
                 });
             if let Err(e) = result {
                 log::warn!("書き出しに失敗しました: {e}");
