@@ -227,7 +227,12 @@ pub fn insert_files(app: &Rc<RefCell<App>>, files: Vec<File>, at: Option<Vec2>) 
             let mut a = app.borrow_mut();
             let base = at.unwrap_or_else(|| a.cursor_world.unwrap_or_else(|| a.media_center()));
             let base = base + Vec2::splat(32.0 * i as f32);
-            if super::imports::is_csv(&f.name(), &f.type_()) {
+            if super::imports::is_diagram_file(&f.name()) {
+                let text = super::imports::decode_text(&bytes);
+                if !a.insert_diagram_text(&text) {
+                    super::show_error("Mermaid / PlantUML の図として読めませんでした");
+                }
+            } else if super::imports::is_csv(&f.name(), &f.type_()) {
                 a.insert_csv(&super::imports::decode_text(&bytes), base);
             } else if super::imports::is_spreadsheet(&f.name()) {
                 match super::imports::read_spreadsheet(bytes) {
@@ -265,6 +270,7 @@ fn is_supported(f: &File) -> bool {
         || is_markdown(f)
         || super::imports::is_csv(&f.name(), &f.type_())
         || super::imports::is_spreadsheet(&f.name())
+        || super::imports::is_diagram_file(&f.name())
 }
 
 /// マークダウンを読んで並べる(中心は `at`、なければカーソルか画面中央)。
