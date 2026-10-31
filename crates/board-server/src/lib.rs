@@ -8,7 +8,7 @@
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
 //! 他の参加者へ配る。状態は定期的に redb へ保存する。
-//! 接続時に権限([`boards::role_of`])を確かめ、編集権限のない人からの更新は捨てる。
+//! 接続時に権限([`boards::role_for`])を確かめ、編集権限のない人からの更新は捨てる。
 
 pub mod ai;
 pub mod ai_diagram;
@@ -24,6 +24,7 @@ pub mod rest;
 pub mod room;
 pub mod slack;
 pub mod store;
+pub mod teams;
 pub mod tokens;
 pub mod versions;
 
@@ -139,7 +140,12 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/boards/{id}/issues", post(issues::lookup))
         .route("/api/rtc", get(rtc_config))
         .nest("/api/v1", rest::routes().merge(plugins::routes()))
-        .nest("/api", api::routes().merge(rest::token_routes()))
+        .nest(
+            "/api",
+            api::routes()
+                .merge(rest::token_routes())
+                .merge(teams::routes()),
+        )
         .with_state(state);
     let app = match static_dir {
         Some(dir) => app.fallback_service(ServeDir::new(dir)),

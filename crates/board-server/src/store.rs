@@ -15,6 +15,9 @@
 //! | `user_tokens` | (ログイン名, トークン ID) | なし(一覧用の索引) |
 //! | `plugins` | (ログイン名, プラグイン ID) | [`PluginRecord`](crate::plugins::PluginRecord)(JSON) |
 //! | `plugin_wasm` | (ログイン名, プラグイン ID) | プラグインの WebAssembly モジュール |
+//! | `teams` | チーム ID | [`TeamRecord`](crate::teams::TeamRecord)(JSON) |
+//! | `user_teams` | (ログイン名, チーム ID) | 入った時刻(JSON) |
+//! | `team_boards` | (チーム ID, ボード ID) | 加わった時刻(JSON) |
 
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -42,6 +45,11 @@ pub(crate) const USER_TOKENS: TableDefinition<(&str, &str), &[u8]> =
 pub(crate) const PLUGINS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("plugins");
 pub(crate) const PLUGIN_WASM: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("plugin_wasm");
+pub(crate) const TEAMS: TableDefinition<&str, &[u8]> = TableDefinition::new("teams");
+pub(crate) const USER_TEAMS: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("user_teams");
+pub(crate) const TEAM_BOARDS: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("team_boards");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
 pub fn next_id() -> u64 {
@@ -97,6 +105,9 @@ impl Store {
         txn.open_table(USER_TOKENS)?;
         txn.open_table(PLUGINS)?;
         txn.open_table(PLUGIN_WASM)?;
+        txn.open_table(TEAMS)?;
+        txn.open_table(USER_TEAMS)?;
+        txn.open_table(TEAM_BOARDS)?;
         txn.commit()?;
         Ok(Self { db, persistent })
     }

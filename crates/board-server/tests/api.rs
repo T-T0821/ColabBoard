@@ -552,3 +552,151 @@ async fn versions_save_preview_and_restore() {
     assert!(list.len() >= 2);
     assert_eq!(list[0]["label"], "「初稿」に戻す前", "新しい順");
 }
+
+#[tokio::test]
+async fn teams_share_boards_with_members() {
+    let s = start(Config::default()).await;
+    let alice = s.signup("alice").await;
+    let bob = s.signup("bob").await;
+    let carol = s.signup("carol").await;
+
+    let (status, team, _) = s
+        .call(
+            "POST",
+            "/api/teams",
+            Some(&alice),
+            Some(json!({"name": "開発部"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let tid = team["id"].as_str().unwrap().to_string();
+    assert_eq!(team["role"], "owner");
+
+    // bob をメンバーにする。いない人は足せない。
+    let path = format!("/api/teams/{tid}/members");
+    let (status, team, _) = s
+        .call(
+            "PUT",
+            &path,
+            Some(&alice),
+            Some(json!({"login": "@Bob", "role": "member"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{team}");
+    assert_eq!(team["members"]["bob"], "member");
+    let (status, _, _) = s
+        .call(
+            "PUT",
+            &path,
+            Some(&alice),
+            Some(json!({"login": "nobody", "role": "member"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // メンバーは人を足せない。外の人はチームを見られない。
+    let (status, _, _) = s
+        .call(
+            "PUT",
+            &path,
+            Some(&bob),
+            Some(json!({"login": "carol", "role": "member"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _, _) = s
+        .call("GET", &format!("/api/teams/{tid}"), Some(&carol), None)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    // メンバーでないチームにはボードを作れない。
+    let (status, _, _) = s
+        .call(
+            "POST",
+            "/api/boards",
+            Some(&carol),
+            Some(json!({"title": "x", "team": tid})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // チームのボードを作ると、bob の一覧に出て編集できる。
+    let (status, b, _) = s
+        .call(
+            "POST",
+            "/api/boards",
+            Some(&alice),
+            Some(json!({"title": "計画", "team": tid})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED);
+    let b: BoardInfo = serde_json::from_value(b).unwrap();
+    assert_eq!(b.team.as_deref(), Some(tid.as_str()));
+    let (_, list, _) = s.call("GET", "/api/boards", Some(&bob), None).await;
+    let list: Vec<BoardInfo> = serde_json::from_value(list).unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].role, Role::Editor);
+    assert!(s.connect(&b.id, Some(&bob), None).await.is_some());
+    assert!(s.connect(&b.id, Some(&carol), None).await.is_none());
+
+    // チームの権限を閲覧のみにすると、bob の更新は捨てられる。
+    let (status, _, _) = s
+        .call(
+            "PUT",
+            &format!("/api/boards/{}/team", b.id),
+            Some(&alice),
+            Some(json!({"team": tid, "access": "viewer"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, info, _) = s
+        .call("GET", &format!("/api/boards/{}", b.id), Some(&bob), None)
+        .await;
+    assert_eq!(info["role"], "viewer");
+
+    // bob を管理者にすると、チームのボードのオーナー権限を持つ。
+    let (status, _, _) = s
+        .call(
+            "PUT",
+            &path,
+            Some(&alice),
+            Some(json!({"login": "bob", "role": "admin"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = s
+        .call(
+            "GET",
+            &format!("/api/boards/{}/sharing", b.id),
+            Some(&bob),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // bob が抜けると開けなくなる。
+    let (status, _, _) = s
+        .call(
+            "PUT",
+            &path,
+            Some(&bob),
+            Some(json!({"login": "bob", "role": null})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = s
+        .call("GET", &format!("/api/boards/{}", b.id), Some(&bob), None)
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (_, teams, _) = s.call("GET", "/api/teams", Some(&bob), None).await;
+    assert_eq!(teams.as_array().unwrap().len(), 0);
+
+    // チームを消すとボードは alice の個人ボードに戻る。
+    let (status, _, _) = s
+        .call("DELETE", &format!("/api/teams/{tid}"), Some(&alice), None)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, info, _) = s
+        .call("GET", &format!("/api/boards/{}", b.id), Some(&alice), None)
+        .await;
+    assert_eq!(info["role"], "owner");
+    assert!(info.get("team").is_none());
+}

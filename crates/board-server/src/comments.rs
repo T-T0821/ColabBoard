@@ -75,14 +75,15 @@ pub fn user_role(
         .into_iter()
         .find(|(id, _)| id == board)
         .and_then(|(_, ub)| ub.key);
-    let role = boards::role_of(
+    let role = boards::role_for(
+        store,
         meta,
         Visitor {
             login: Some(login),
             key: key.as_deref(),
         },
         anonymous_boards,
-    );
+    )?;
     Ok((role, key))
 }
 
@@ -335,7 +336,7 @@ mod tests {
         let alice = user(&store, "alice");
         let bob = user(&store, "bob");
         let carol = user(&store, "carol");
-        let meta = boards::create(&store, "alice", "企画").unwrap();
+        let meta = boards::create(&store, "alice", "企画", None).unwrap();
         let id = meta.id.clone();
         // bob はメンバー、carol は開けない。
         let mut m = boards::get(&store, &id).unwrap().unwrap();

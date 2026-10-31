@@ -250,10 +250,14 @@ dependencies = [
 name = "board-core"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "board-types",
  "bytemuck",
  "glam",
+ "miniz_oxide 0.8.9",
+ "percent-encoding",
  "pulldown-cmark",
+ "quick-xml",
  "serde",
  "serde_json",
  "yrs",

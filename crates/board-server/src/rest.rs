@@ -279,7 +279,10 @@ async fn create_board(
     {
         return Err(Error::forbidden());
     }
-    let meta = boards::create(state.store(), &user.login, &req.title)?;
+    if let Some(team) = &req.team {
+        crate::teams::member_team(state.store(), team, &user.login)?;
+    }
+    let meta = boards::create(state.store(), &user.login, &req.title, req.team.as_deref())?;
     tracing::info!(board = %meta.id, owner = %user.login, "ボード作成(API)");
     let role = Role::Owner.min(actor.cap(&meta.id).unwrap_or(Role::Viewer));
     Ok((StatusCode::CREATED, Json(meta.info(role, None))))
@@ -303,6 +306,7 @@ async fn board_info(
             created: 0,
             updated: 0,
             key: None,
+            team: None,
         },
     }))
 }
