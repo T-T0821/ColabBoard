@@ -7,8 +7,11 @@
 //! | `sessions` | セッショントークン | [`SessionRecord`](crate::auth::SessionRecord)(JSON) |
 //! | `boards` | ボード ID | [`BoardMeta`](crate::boards::BoardMeta)(JSON) |
 //! | `user_boards` | (ログイン名, ボード ID) | [`UserBoard`](crate::boards::UserBoard)(JSON) |
+//! | `comments` | (ボード ID, コメント ID) | [`Comment`](board_core::api::Comment)(JSON) |
+//! | `notifications` | (ログイン名, 通知 ID) | [`Notification`](board_core::api::Notification)(JSON) |
 
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use redb::backends::InMemoryBackend;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
@@ -21,6 +24,23 @@ pub(crate) const SESSIONS: TableDefinition<&str, &[u8]> = TableDefinition::new("
 pub(crate) const BOARDS: TableDefinition<&str, &[u8]> = TableDefinition::new("boards");
 pub(crate) const USER_BOARDS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("user_boards");
+pub(crate) const COMMENTS: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("comments");
+pub(crate) const NOTIFICATIONS: TableDefinition<(&str, u64), &[u8]> =
+    TableDefinition::new("notifications");
+
+/// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
+pub fn next_id() -> u64 {
+    static LAST: AtomicU64 = AtomicU64::new(0);
+    let now = crate::auth::now_ms() * 1000;
+    let mut prev = LAST.load(Ordering::Relaxed);
+    loop {
+        let id = now.max(prev + 1);
+        match LAST.compare_exchange_weak(prev, id, Ordering::Relaxed, Ordering::Relaxed) {
+            Ok(_) => return id,
+            Err(p) => prev = p,
+        }
+    }
+}
 
 pub type StoreError = Box<dyn std::error::Error + Send + Sync>;
 
@@ -54,6 +74,8 @@ impl Store {
         txn.open_table(SESSIONS)?;
         txn.open_table(BOARDS)?;
         txn.open_table(USER_BOARDS)?;
+        txn.open_table(COMMENTS)?;
+        txn.open_table(NOTIFICATIONS)?;
         txn.commit()?;
         Ok(Self { db, persistent })
     }
@@ -208,9 +230,131 @@ impl Store {
     }
 }
 
+/// (文字列, 連番)をキーにするテーブル(コメント・通知・バージョン)。
+pub(crate) type SeqTable = TableDefinition<'static, (&'static str, u64), &'static [u8]>;
+
+impl Store {
+    pub(crate) fn put_seq<T: Serialize>(
+        &self,
+        table: SeqTable,
+        a: &str,
+        id: u64,
+        value: &T,
+    ) -> Result<(), StoreError> {
+        let bytes = serde_json::to_vec(value)?;
+        self.put_seq_raw(table, a, id, &bytes)
+    }
+
+    pub(crate) fn put_seq_raw(
+        &self,
+        table: SeqTable,
+        a: &str,
+        id: u64,
+        bytes: &[u8],
+    ) -> Result<(), StoreError> {
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(table)?;
+            t.insert((a, id), bytes)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    pub(crate) fn get_seq<T: DeserializeOwned>(
+        &self,
+        table: SeqTable,
+        a: &str,
+        id: u64,
+    ) -> Result<Option<T>, StoreError> {
+        match self.get_seq_raw(table, a, id)? {
+            Some(v) => Ok(Some(serde_json::from_slice(&v)?)),
+            None => Ok(None),
+        }
+    }
+
+    pub(crate) fn get_seq_raw(
+        &self,
+        table: SeqTable,
+        a: &str,
+        id: u64,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(table)?;
+        Ok(t.get((a, id))?.map(|v| v.value().to_vec()))
+    }
+
+    /// 1 つ目のキーが `a` のものを ID 順に全部読む。
+    pub(crate) fn scan_seq<T: DeserializeOwned>(
+        &self,
+        table: SeqTable,
+        a: &str,
+    ) -> Result<Vec<(u64, T)>, StoreError> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(table)?;
+        let mut out = Vec::new();
+        for entry in t.range((a, 0)..=(a, u64::MAX))? {
+            let (k, v) = entry?;
+            out.push((k.value().1, serde_json::from_slice(v.value())?));
+        }
+        Ok(out)
+    }
+
+    /// 指定の ID を消す。
+    pub(crate) fn remove_seq(
+        &self,
+        table: SeqTable,
+        a: &str,
+        ids: &[u64],
+    ) -> Result<(), StoreError> {
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(table)?;
+            for id in ids {
+                t.remove((a, *id))?;
+            }
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
+    /// 1 つ目のキーが `a` のものを全部消す。
+    pub(crate) fn clear_seq(&self, table: SeqTable, a: &str) -> Result<(), StoreError> {
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(table)?;
+            t.retain_in((a, 0)..=(a, u64::MAX), |_, _| false)?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn seq_tables() {
+        let store = Store::memory();
+        store.put_seq(COMMENTS, "b", 2, &"two").unwrap();
+        store.put_seq(COMMENTS, "b", 1, &"one").unwrap();
+        store.put_seq(COMMENTS, "c", 1, &"other").unwrap();
+        let got: Vec<(u64, String)> = store.scan_seq(COMMENTS, "b").unwrap();
+        assert_eq!(got, vec![(1, "one".into()), (2, "two".into())]);
+        store.remove_seq(COMMENTS, "b", &[1]).unwrap();
+        assert_eq!(store.scan_seq::<String>(COMMENTS, "b").unwrap().len(), 1);
+        store.clear_seq(COMMENTS, "b").unwrap();
+        assert!(store.scan_seq::<String>(COMMENTS, "b").unwrap().is_empty());
+        assert_eq!(
+            store
+                .get_seq::<String>(COMMENTS, "c", 1)
+                .unwrap()
+                .as_deref(),
+            Some("other")
+        );
+        assert!(next_id() < next_id());
+    }
 
     #[test]
     fn save_and_load() {

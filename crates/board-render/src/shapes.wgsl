@@ -23,6 +23,7 @@ const KIND_DIAMOND: u32 = 5u;
 const KIND_STAR: u32 = 6u;
 const KIND_HEXAGON: u32 = 7u;
 const KIND_PARALLELOGRAM: u32 = 8u;
+const KIND_STAMP: u32 = 9u;
 
 struct Instance {
     @location(0) pos: vec2f,
@@ -81,7 +82,7 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     let view_min = g.origin;
     let view_max = g.origin + g.viewport / g.zoom;
     var margin = inst.stroke_width + 2.0 / g.zoom;
-    if (inst.kind == KIND_STICKY) {
+    if (inst.kind == KIND_STICKY || inst.kind == KIND_STAMP) {
         margin = margin + SHADOW_BLUR + SHADOW_OFFSET.y;
     }
     let offscreen = any(hi + margin < view_min) || any(lo - margin > view_max);
@@ -192,7 +193,7 @@ fn sd_parallelogram(p_in: vec2f, wi: f32, he: f32, sk: f32) -> f32 {
 }
 
 fn shape_sdf(p: vec2f, half: vec2f, kind: u32, radius: f32) -> f32 {
-    if (kind == KIND_ELLIPSE) {
+    if (kind == KIND_ELLIPSE || kind == KIND_STAMP) {
         return sd_ellipse(p, half);
     }
     if (kind == KIND_TRIANGLE) {
@@ -250,7 +251,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
     var out = color * coverage;
 
     // 付箋は柔らかい影を下に敷く。
-    if (in.kind == KIND_STICKY) {
+    if (in.kind == KIND_STICKY || in.kind == KIND_STAMP) {
         let ds = shape_sdf(in.local - SHADOW_OFFSET, in.half, in.kind, in.params.y);
         let shadow = (1.0 - smoothstep(-SHADOW_BLUR * 0.5, SHADOW_BLUR, ds)) * 0.16;
         out = out + vec4f(0.0, 0.0, 0.0, shadow) * (1.0 - out.a);

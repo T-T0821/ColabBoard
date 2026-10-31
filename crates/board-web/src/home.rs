@@ -99,7 +99,7 @@ fn role_badge(role: Role) -> String {
 }
 
 /// 「3 分前」のような表示。
-fn ago(ms: u64) -> String {
+pub fn ago(ms: u64) -> String {
     if ms == 0 {
         return String::new();
     }

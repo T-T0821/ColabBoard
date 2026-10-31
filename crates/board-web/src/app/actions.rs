@@ -5,6 +5,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use board_core::arrange::{self, Align, Order};
+use board_core::table::{self, Edit};
 use wasm_bindgen::JsCast;
 use web_sys::{ClipboardEvent, Element, HtmlElement, KeyboardEvent, MouseEvent};
 
@@ -24,8 +25,21 @@ pub enum Action {
     UnlockAll,
     Order(Order),
     Align(Align),
-    Distribute { horizontal: bool },
+    Distribute {
+        horizontal: bool,
+    },
     Tidy,
+    /// 表を挿入する(3 行 3 列)。
+    InsertTable,
+    /// 表の行・列を足す・消す(右クリックした位置のセルが基準)。
+    Table(Edit),
+}
+
+impl Action {
+    /// 使えないときはメニューに出さない操作。
+    fn hide_when_unavailable(self) -> bool {
+        matches!(self, Action::Table(_))
+    }
 }
 
 thread_local! {
@@ -77,6 +91,12 @@ impl App {
             Action::Group | Action::Align(_) => n >= 2,
             Action::Distribute { .. } => n >= 3,
             Action::Tidy => n >= 2,
+            Action::InsertTable => true,
+            Action::Table(_) => {
+                let at = MENU_POS.with(|p| *p.borrow());
+                table::grid_of(&self.board, self.editor.selection())
+                    .is_some_and(|g| at.is_some_and(|p| g.locate(p).is_some()))
+            }
             Action::Ungroup => self
                 .editor
                 .selection()
@@ -136,6 +156,23 @@ impl App {
                 arrange::distribute(&mut self.board, &sel, horizontal)
             }
             Action::Tidy => arrange::tidy(&mut self.board, &sel),
+            Action::InsertTable => {
+                let at = MENU_POS
+                    .with(|p| p.borrow_mut().take())
+                    .unwrap_or_else(|| self.camera.screen_to_world(self.camera.viewport * 0.5));
+                let ids = table::create(&mut self.board, at, 3, 3);
+                self.editor.set_selection(ids);
+            }
+            Action::Table(how) => {
+                let at = MENU_POS.with(|p| *p.borrow());
+                if let (Some(g), Some(at)) = (table::grid_of(&self.board, &sel), at) {
+                    table::edit(&mut self.board, &g, at, how);
+                    if let Some(g) = table::grid(&self.board, g.group) {
+                        self.editor
+                            .set_selection(g.cells.into_iter().flatten().collect());
+                    }
+                }
+            }
         }
         self.board.end_gesture();
         self.editor.prune_selection(&self.board);
@@ -260,11 +297,20 @@ impl App {
 enum Item {
     Action(&'static str, &'static str, Action),
     Sep,
+    /// 表の操作と一緒に出し入れする区切り。
+    TableSep,
 }
 
 fn menu_items() -> Vec<Item> {
-    use Item::{Action as A, Sep};
+    use Item::{Action as A, Sep, TableSep};
     vec![
+        A("上に行を追加", "", Action::Table(Edit::RowAbove)),
+        A("下に行を追加", "", Action::Table(Edit::RowBelow)),
+        A("左に列を追加", "", Action::Table(Edit::ColLeft)),
+        A("右に列を追加", "", Action::Table(Edit::ColRight)),
+        A("行を削除", "", Action::Table(Edit::DeleteRow)),
+        A("列を削除", "", Action::Table(Edit::DeleteCol)),
+        TableSep,
         A("切り取り", "Ctrl+X", Action::Cut),
         A("コピー", "Ctrl+C", Action::Copy),
         A("貼り付け", "Ctrl+V", Action::Paste),
@@ -299,6 +345,8 @@ fn menu_items() -> Vec<Item> {
         ),
         A("整頓(格子に並べる)", "Alt+Shift+T", Action::Tidy),
         Sep,
+        A("表を挿入", "", Action::InsertTable),
+        Sep,
         A("すべて選択", "Ctrl+A", Action::SelectAll),
     ]
 }
@@ -326,6 +374,14 @@ pub fn install_context_menu(app: &Rc<RefCell<App>>) -> Result<(), String> {
             Item::Sep => {
                 let hr = doc.create_element("hr").map_err(js_err)?;
                 menu.append_child(&hr).map_err(js_err)?;
+            }
+            Item::TableSep => {
+                let hr = doc.create_element("hr").map_err(js_err)?;
+                menu.append_child(&hr).map_err(js_err)?;
+                // 表の操作が使えるときだけ出す(クリックでは何もしない)。
+                actions
+                    .borrow_mut()
+                    .push((hr, Action::Table(Edit::RowAbove)));
             }
             Item::Action(label, keys, action) => {
                 let b = doc.create_element("button").map_err(js_err)?;
@@ -366,10 +422,16 @@ pub fn install_context_menu(app: &Rc<RefCell<App>>) -> Result<(), String> {
                 MENU_POS.with(|m| *m.borrow_mut() = Some(world));
                 a.dirty = true;
                 for (el, action) in actions.borrow().iter() {
-                    if a.can(*action) {
-                        let _ = el.remove_attribute("disabled");
+                    let ok = a.can(*action);
+                    let attr = if action.hide_when_unavailable() {
+                        "hidden"
                     } else {
-                        let _ = el.set_attribute("disabled", "");
+                        "disabled"
+                    };
+                    if ok {
+                        let _ = el.remove_attribute(attr);
+                    } else {
+                        let _ = el.set_attribute(attr, "");
                     }
                 }
                 let style = menu2.style();

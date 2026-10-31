@@ -13,6 +13,7 @@ pub mod ai_diagram;
 pub mod api;
 pub mod auth;
 pub mod boards;
+pub mod comments;
 pub mod room;
 pub mod store;
 
@@ -191,6 +192,11 @@ async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String, role: Role
                         let encoded: Arc<[u8]> = Message::View(v).encode().into();
                         room.set_view(me, encoded.clone());
                         room.broadcast(me, encoded);
+                    }
+                    // 絵文字リアクションは保存せず、ほかの参加者に配るだけ。
+                    Ok(Message::Reaction(mut r)) if r.is_valid() => {
+                        r.peer = me;
+                        room.broadcast(me, Message::Reaction(r).encode().into());
                     }
                     Ok(other) => tracing::warn!(peer = me, "想定外のメッセージ: {other:?}"),
                     Err(e) => tracing::warn!(peer = me, "読めないメッセージ: {e}"),
