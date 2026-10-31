@@ -18,6 +18,11 @@ const KIND_ELLIPSE: u32 = 1u;
 const KIND_STICKY: u32 = 2u;
 // 手書き線の 1 区間。pos = 始点、size = 終点、radius = 線幅の半分。
 const KIND_SEGMENT: u32 = 3u;
+const KIND_TRIANGLE: u32 = 4u;
+const KIND_DIAMOND: u32 = 5u;
+const KIND_STAR: u32 = 6u;
+const KIND_HEXAGON: u32 = 7u;
+const KIND_PARALLELOGRAM: u32 = 8u;
 
 struct Instance {
     @location(0) pos: vec2f,
@@ -119,9 +124,97 @@ fn sd_ellipse(p: vec2f, half: vec2f) -> f32 {
     return k1 * (k1 - 1.0) / max(k2, 1e-6);
 }
 
+// 以下の SDF は Inigo Quilez の 2D 距離関数(MIT)を元にしている。
+// y は下向きなので、上下がある図形は y を反転して使う。
+
+// 頂点が上の二等辺三角形。q = (底辺の半分, 高さ)、頂点が原点で +y へ伸びる。
+fn sd_triangle_isosceles(p_in: vec2f, q: vec2f) -> f32 {
+    let p = vec2f(abs(p_in.x), p_in.y);
+    let a = p - q * clamp(dot(p, q) / dot(q, q), 0.0, 1.0);
+    let b = p - q * vec2f(clamp(p.x / q.x, 0.0, 1.0), 1.0);
+    let s = -sign(q.y);
+    let d = min(vec2f(dot(a, a), s * (p.x * q.y - p.y * q.x)), vec2f(dot(b, b), s * (p.y - q.y)));
+    return -sqrt(d.x) * sign(d.y);
+}
+
+fn ndot(a: vec2f, b: vec2f) -> f32 {
+    return a.x * b.x - a.y * b.y;
+}
+
+fn sd_rhombus(p_in: vec2f, b: vec2f) -> f32 {
+    let p = abs(p_in);
+    let h = clamp(ndot(b - 2.0 * p, b) / dot(b, b), -1.0, 1.0);
+    let d = length(p - 0.5 * b * vec2f(1.0 - h, 1.0 + h));
+    return d * sign(p.x * b.y + p.y * b.x - b.x * b.y);
+}
+
+// 上下が平らな六角形(内接円の半径 r)。
+fn sd_hexagon(p_in: vec2f, r: f32) -> f32 {
+    let k = vec3f(-0.866025404, 0.5, 0.577350269);
+    var p = abs(p_in);
+    p = p - 2.0 * min(dot(k.xy, p), 0.0) * k.xy;
+    p = p - vec2f(clamp(p.x, -k.z * r, k.z * r), r);
+    return length(p) * sign(p.y);
+}
+
+// 上向きの五芒星(y は上向き)。r = 外側の半径、rf = へこみの比率。
+fn sd_star5(p_in: vec2f, r: f32, rf: f32) -> f32 {
+    let k1 = vec2f(0.809016994375, -0.587785252292);
+    let k2 = vec2f(-k1.x, k1.y);
+    var p = vec2f(abs(p_in.x), p_in.y);
+    p = p - 2.0 * max(dot(k1, p), 0.0) * k1;
+    p = p - 2.0 * max(dot(k2, p), 0.0) * k2;
+    p.x = abs(p.x);
+    p.y = p.y - r;
+    let ba = rf * vec2f(-k1.y, k1.x) - vec2f(0.0, 1.0);
+    let h = clamp(dot(p, ba) / dot(ba, ba), 0.0, r);
+    return length(p - ba * h) * sign(p.y * ba.x - p.x * ba.y);
+}
+
+// 上辺が右にずれた平行四辺形(y は上向き)。
+fn sd_parallelogram(p_in: vec2f, wi: f32, he: f32, sk: f32) -> f32 {
+    let e = vec2f(sk, he);
+    var p = p_in;
+    if (p.y < 0.0) {
+        p = -p;
+    }
+    var w = p - e;
+    w.x = w.x - clamp(w.x, -wi, wi);
+    var d = vec2f(dot(w, w), -w.y);
+    let s = p.x * e.y - p.y * e.x;
+    if (s < 0.0) {
+        p = -p;
+    }
+    var v = p - vec2f(wi, 0.0);
+    v = v - e * clamp(dot(v, e) / dot(e, e), -1.0, 1.0);
+    d = min(d, vec2f(dot(v, v), wi * he - abs(s)));
+    return sqrt(d.x) * sign(-d.y);
+}
+
 fn shape_sdf(p: vec2f, half: vec2f, kind: u32, radius: f32) -> f32 {
     if (kind == KIND_ELLIPSE) {
         return sd_ellipse(p, half);
+    }
+    if (kind == KIND_TRIANGLE) {
+        return sd_triangle_isosceles(p + vec2f(0.0, half.y), vec2f(half.x, 2.0 * half.y));
+    }
+    if (kind == KIND_DIAMOND) {
+        return sd_rhombus(p, half);
+    }
+    if (kind == KIND_HEXAGON) {
+        // 単位の六角形(幅 2.309、高さ 2)を外接矩形に合わせて伸ばす。距離は近似。
+        let s = vec2f(half.x / 1.1547, half.y);
+        return sd_hexagon(p / s, 1.0) * min(s.x, s.y);
+    }
+    if (kind == KIND_STAR) {
+        // 単位の星(幅 1.902、上 1.0 〜 下 -0.809)を外接矩形に合わせる。距離は近似。
+        let n = p / half;
+        let q = vec2f(n.x * 0.951, -n.y * 0.9045 + 0.0955);
+        return sd_star5(q, 1.0, 0.45) * min(half.x / 0.951, half.y / 0.9045);
+    }
+    if (kind == KIND_PARALLELOGRAM) {
+        let sk = half.x * 0.25;
+        return sd_parallelogram(vec2f(p.x, -p.y), half.x - sk, half.y, sk);
     }
     return sd_round_box(p, half, radius);
 }
