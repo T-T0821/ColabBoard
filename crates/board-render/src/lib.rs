@@ -236,8 +236,9 @@ impl TextRegions {
     }
 }
 
+/// 画像の描画(画像要素かアイコン)があるか。
 pub fn is_image(e: &Element) -> bool {
-    matches!(e, Element::Shape(s) if s.kind == ShapeKind::Image)
+    matches!(e, Element::Shape(s) if s.kind == ShapeKind::Image || !s.icon.is_empty())
 }
 
 /// インスタンス列を作りながら段を決める。

@@ -768,6 +768,7 @@ mod tests {
         s.meta.group = 77;
         s.meta.locked = true;
         s.meta.link = "https://example.com".into();
+        s.icon = "group:vpc".into();
         a.push(s.clone());
         let mut b = Board::with_client_id(2);
         b.apply_remote(&a.encode_diff(None).unwrap()).unwrap();
