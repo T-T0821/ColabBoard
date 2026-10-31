@@ -85,6 +85,22 @@
 
   <p class="panel help">スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ ダブルクリック/Enter: 文字入力 ・ Delete: 削除 ・ Ctrl/⌘+Z: 元に戻す</p>
 
+  <button id="diagram-toggle" class="panel diagram-toggle" aria-expanded="false" aria-controls="diagram-panel" title="AWS 構成図・フローチャート">構成図</button>
+  <section id="diagram-panel" class="panel diagram-panel" aria-label="構成図" hidden>
+    <div class="diagram-row">
+      <label class="label" for="diagram-service">部品</label>
+      <select id="diagram-service"></select>
+      <button id="diagram-add-service">置く</button>
+    </div>
+    <div class="diagram-row">
+      <label class="label" for="diagram-group">枠</label>
+      <select id="diagram-group"></select>
+      <button id="diagram-add-group">置く</button>
+    </div>
+    <div class="label">サンプル</div>
+    <div id="diagram-samples" class="diagram-samples"></div>
+  </section>
+
   <div id="error" role="alert"></div>
 </body>
 </html>
