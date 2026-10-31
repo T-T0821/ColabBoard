@@ -86,3 +86,5 @@ web-sys = { version = "0.3", features = [
 ] }
 # PDF の取り込み(Pure Rust のラスタライザ)。wasm が数 MB 増えるので機能で切れるようにする。
 hayro = { version = "0.8", default-features = false, optional = true }
+calamine = "0.37.0"
+encoding_rs = "0.8.44"

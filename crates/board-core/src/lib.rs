@@ -25,6 +25,7 @@ pub mod shape;
 pub mod spatial;
 pub mod stamp;
 pub mod table;
+pub mod tabular;
 pub mod templates;
 pub mod tidy;
 

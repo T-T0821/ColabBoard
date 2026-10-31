@@ -6,7 +6,7 @@
 //!   それは文書の題として大きな文字にし、その次の階層の見出しをフレームにする。
 //! - それより深い見出し → 大きめの文字
 //! - 段落 → 文字
-//! - 箇条書き → 付箋(入れ子の項目は親の付箋に「・」付きでまとめる。チェックボックスは ☐ / ☑)
+//! - 箇条書き → 付箋(入れ子の項目は親の付箋に「・」付きでまとめる。チェックボックスは □ / ✓(描画用のフォントにある記号))
 //! - 表 → 表(セルの格子)
 //! - コードブロック・引用 → 色付きの四角形
 //! - 画像 → 仮の四角形(読み込めたら画像に差し替える。差し替えは呼び出し側)
@@ -22,7 +22,7 @@ use crate::board::Board;
 use crate::color::Rgba8;
 use crate::element::{Element, ElementId};
 use crate::geom::Rect;
-use crate::shape::{Shape, ShapeKind, TextAlign, estimate_text_height, estimate_text_width};
+use crate::shape::{Shape, ShapeKind, TextAlign, estimate_text_height};
 use crate::table;
 
 /// 付箋の一辺。
@@ -70,7 +70,7 @@ enum Block {
 struct Item {
     /// 入れ子の深さ(0 が一番外)。
     depth: usize,
-    /// 「1. 」「☐ 」など。
+    /// 「1. 」「□ 」など。
     prefix: String,
     text: String,
     link: Option<String>,
@@ -321,7 +321,7 @@ fn read(md: &str) -> Vec<Block> {
             Event::HardBreak => r.text("\n"),
             Event::TaskListMarker(done) => {
                 if let Some(it) = r.items.last_mut() {
-                    it.prefix = if done { "☑ " } else { "☐ " }.into();
+                    it.prefix = if done { "✓ " } else { "□ " }.into();
                 }
             }
             _ => {}
@@ -475,35 +475,6 @@ fn sticky_text(items: &[Item]) -> String {
     out
 }
 
-/// 表の列の幅と行の高さ。
-fn table_metrics(rows: &[Vec<String>]) -> (Vec<f32>, Vec<f32>) {
-    let cols = rows.iter().map(Vec::len).max().unwrap_or(0);
-    let probe = table::cell(ElementId(0), Vec2::ZERO, table::CELL_SIZE, false, 0);
-    let style = probe.text_style();
-    let pad = probe.size - probe.text_rect().size();
-    let widths: Vec<f32> = (0..cols)
-        .map(|c| {
-            let w = rows
-                .iter()
-                .filter_map(|r| r.get(c))
-                .flat_map(|t| t.split('\n'))
-                .map(|l| estimate_text_width(l, style.font_size))
-                .fold(0.0, f32::max);
-            (w + pad.x + 4.0).clamp(table::CELL_SIZE.x * 0.75, table::CELL_SIZE.x * 2.0)
-        })
-        .collect();
-    let heights = rows
-        .iter()
-        .map(|r| {
-            r.iter()
-                .zip(&widths)
-                .map(|(t, w)| estimate_text_height(t, w - pad.x, &style) + pad.y)
-                .fold(table::CELL_SIZE.y, f32::max)
-        })
-        .collect();
-    (widths, heights)
-}
-
 struct Layout<'a> {
     board: &'a mut Board,
     sticky: Rgba8,
@@ -528,7 +499,7 @@ impl Layout<'_> {
         blocks
             .iter()
             .filter_map(|b| match b {
-                Block::Table(rows) => Some(table_metrics(rows).0.iter().sum::<f32>()),
+                Block::Table(rows) => Some(table::measure(rows).0.iter().sum::<f32>()),
                 _ => None,
             })
             .fold(COLUMN_MIN, f32::max)
@@ -635,22 +606,11 @@ impl Layout<'_> {
     }
 
     fn table(&mut self, rows: Vec<Vec<String>>, pos: Vec2) -> f32 {
-        let (widths, heights) = table_metrics(&rows);
-        let group = self.id().0;
-        let mut y = pos.y;
-        for (r, row) in rows.iter().enumerate() {
-            let mut x = pos.x;
-            for (c, w) in widths.iter().enumerate() {
-                let id = self.id();
-                let size = Vec2::new(*w, heights[r]);
-                let mut s = table::cell(id, Vec2::new(x, y), size, r == 0, group);
-                s.text = row.get(c).cloned().unwrap_or_default();
-                self.add(s);
-                x += w;
-            }
-            y += heights[r];
-        }
-        y - pos.y
+        let board = &mut *self.board;
+        let cells = table::build(&rows, pos, &mut || board.alloc_id());
+        let h = cells.iter().map(|c| c.max().y - pos.y).fold(0.0, f32::max);
+        self.content.extend(cells.into_iter().map(Element::from));
+        h
     }
 }
 
@@ -784,8 +744,16 @@ fn unit_md(board: &Board, u: &Unit) -> Option<(String, bool)> {
         }
         _ if text.is_empty() => None,
         ShapeKind::Sticky => {
+            // 取り込んだチェックボックスは元の書き方に戻す。
+            let (mark, text) = if let Some(t) = text.strip_prefix("□ ") {
+                ("[ ] ", t)
+            } else if let Some(t) = text.strip_prefix("✓ ") {
+                ("[x] ", t)
+            } else {
+                ("", text)
+            };
             let body = with_link(text, &s.meta.link).replace('\n', "\n  ");
-            Some((format!("- {body}"), true))
+            Some((format!("- {mark}{body}"), true))
         }
         ShapeKind::Text if s.font_size >= 26.0 => {
             let level = if s.font_size >= 40.0 {
@@ -963,7 +931,7 @@ cargo build
         };
         assert_eq!(items.len(), 4);
         assert_eq!(items[2].depth, 1);
-        assert_eq!(items[3].line(), "☐ オフライン");
+        assert_eq!(items[3].line(), "□ オフライン");
         assert!(blocks.contains(&Block::Code("cargo build".into())));
         assert!(blocks.contains(&Block::Quote("引用です".into())));
         assert!(blocks.contains(&Block::Image {
@@ -1032,7 +1000,7 @@ cargo build
         let mut board = Board::new();
         insert(&mut board, SAMPLE, Vec2::ZERO, Rgba8::WHITE).unwrap();
         let md = export(&board, &[]);
-        assert!(md.starts_with("# 企画書\n\n## 目的\n\n新しいボードを作る。\n\n- 速い\n- 共同編集\n  ・CRDT\n- ☐ オフライン"), "{md}");
+        assert!(md.starts_with("# 企画書\n\n## 目的\n\n新しいボードを作る。\n\n- 速い\n- 共同編集\n  ・CRDT\n- [ ] オフライン"), "{md}");
         assert!(
             md.contains("## 予定\n\n| 項目 | 期限 |\n| --- | --- |\n| 設計 | 11月 |"),
             "{md}"

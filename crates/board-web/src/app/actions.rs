@@ -273,6 +273,14 @@ pub fn install_clipboard(app: &Rc<RefCell<App>>) -> Result<(), String> {
             };
             if app.borrow_mut().paste_text(&text, None) {
                 e.prevent_default();
+            } else if board_core::tabular::looks_like_tsv(&text) {
+                // 表計算ソフトからコピーした範囲は表にする。
+                e.prevent_default();
+                let mut a = app.borrow_mut();
+                let at = a
+                    .cursor_world
+                    .unwrap_or_else(|| a.camera.screen_to_world(a.camera.viewport * 0.5));
+                a.insert_csv(&text, at);
             } else if board_core::markdown::looks_like_markdown(&text) {
                 // マークダウンはフレーム・付箋・表などに分けて並べる。
                 e.prevent_default();
