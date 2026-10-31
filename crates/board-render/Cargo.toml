@@ -11,6 +11,7 @@ bytemuck.workspace = true
 wgpu.workspace = true
 log.workspace = true
 glyphon = "0.12"
+image.workspace = true
 
 [dev-dependencies]
 naga = { version = "30", features = ["wgsl-in"] }

@@ -253,6 +253,13 @@ pub fn install_clipboard(app: &Rc<RefCell<App>>) -> Result<(), String> {
             if in_text_field(&doc2) {
                 return;
             }
+            // 画像ファイルの貼り付け。
+            let images = super::media::image_files(e.clipboard_data());
+            if !images.is_empty() {
+                e.prevent_default();
+                super::media::insert_files(&app, images, None);
+                return;
+            }
             let Some(text) = e
                 .clipboard_data()
                 .and_then(|d| d.get_data("text/plain").ok())

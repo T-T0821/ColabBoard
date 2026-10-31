@@ -20,6 +20,7 @@ mod collab;
 mod comments;
 mod follow;
 mod format_bar;
+mod media;
 mod reactions;
 mod toolbar;
 
@@ -330,6 +331,7 @@ pub async fn run() -> Result<(), String> {
     toolbar::install(&app)?;
     format_bar::install(&app)?;
     reactions::install(&app)?;
+    media::install(&app)?;
     start_loop(app);
     Ok(())
 }

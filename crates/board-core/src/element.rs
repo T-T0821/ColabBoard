@@ -204,6 +204,7 @@ impl Element {
     /// 文字を置く場所(文字を持てない要素は `None`)。
     pub fn text_box(&self) -> Option<crate::shape::TextBox> {
         match self {
+            Element::Shape(s) if s.kind == crate::shape::ShapeKind::Image => None,
             Element::Shape(s) => Some(s.text_box()),
             Element::Connector(c) => c.label_box().or_else(|| {
                 // 空のラベルを編集するとき用の場所。

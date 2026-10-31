@@ -126,6 +126,8 @@ cargo run -p board-server --release
 DATA_DIR=/var/lib/colabboard STATIC_DIR=/srv/colabboard/dist PORT=8080 ./board-server
 ```
 
+PDF の取り込み(hayro)で wasm が数 MB 大きくなる。不要なら `trunk build --release --no-default-features` でクライアントから外せる。
+
 HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/ws` も通す)を置き、`COOKIE_SECURE=1` にする。
 
 | 環境変数 | 既定値 | 内容 |

@@ -7,6 +7,10 @@ license.workspace = true
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["pdf"]
+pdf = ["dep:hayro"]
+
 [dependencies]
 board-core.workspace = true
 board-render.workspace = true
@@ -19,6 +23,7 @@ console_error_panic_hook = "0.1"
 console_log = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+image.workspace = true
 web-sys = { version = "0.3", features = [
     "Window",
     "Document",
@@ -70,4 +75,10 @@ web-sys = { version = "0.3", features = [
     "Headers",
     "HtmlSelectElement",
     "HtmlFormElement",
+    "File",
+    "FileList",
+    "Blob",
+    "DragEvent",
 ] }
+# PDF の取り込み(Pure Rust のラスタライザ)。wasm が数 MB 増えるので機能で切れるようにする。
+hayro = { version = "0.8", default-features = false, optional = true }

@@ -37,6 +37,7 @@ fn kind_label(k: ShapeKind) -> &'static str {
         ShapeKind::Text => "テキスト",
         ShapeKind::Frame => "フレーム",
         ShapeKind::Stamp => "スタンプ",
+        ShapeKind::Image => "画像",
     }
 }
 
