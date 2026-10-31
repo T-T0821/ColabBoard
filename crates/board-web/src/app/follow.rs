@@ -33,6 +33,8 @@ pub struct Follow {
     /// 最後に合わせたカメラ。ずれていたら自分で動かしたとみなす。
     applied: Option<(Vec2, f32)>,
     presenting: bool,
+    /// フォロー先の最新の表示範囲。毎フレーム少しずつ近づける(届く間隔より滑らかに動かす)。
+    target: Option<View>,
     sent: Option<View>,
     sent_at: f64,
     last_banner: Option<(String, &'static str, &'static str)>,
@@ -54,6 +56,7 @@ impl Follow {
             dismissed: None,
             applied: None,
             presenting: false,
+            target: None,
             sent: None,
             sent_at: 0.0,
             last_banner: None,
@@ -71,6 +74,28 @@ impl Follow {
         ps.sort_unstable();
         ps.first().copied()
     }
+}
+
+/// 1 フレームで残りの何割だけ近づけるか。
+const SMOOTHING: f32 = 0.35;
+
+/// `camera` を表示範囲 `v` へ少し近づける。十分近ければぴったり合わせて `true`。
+fn approach_view(camera: &mut Camera, v: &View) -> bool {
+    let mut target = *camera;
+    apply_view(&mut target, v);
+    let center = |c: &Camera| c.origin + c.viewport * 0.5 / c.zoom;
+    let (c0, c1) = (center(camera), center(&target));
+    let close =
+        (c1 - c0).length() * target.zoom < 0.5 && (target.zoom / camera.zoom - 1.0).abs() < 1e-3;
+    if close {
+        *camera = target;
+        return true;
+    }
+    let zoom = (camera.zoom.ln() + (target.zoom.ln() - camera.zoom.ln()) * SMOOTHING).exp();
+    let c = c0.lerp(c1, SMOOTHING);
+    camera.zoom = zoom;
+    camera.origin = c - camera.viewport * 0.5 / zoom;
+    false
 }
 
 fn apply_view(camera: &mut Camera, v: &View) {
@@ -104,8 +129,26 @@ impl App {
         }
     }
 
+    /// 自分が今プレゼン中か。
+    pub(super) fn presenting(&self) -> bool {
+        self.follow.presenting
+    }
+
+    /// プレゼンを始める/やめる(スライド表示から使う)。共同編集でなければ何もしない。
+    pub(super) fn set_presenting(&mut self, on: bool) -> bool {
+        if self.net.is_none() {
+            return false;
+        }
+        self.follow.presenting = on;
+        if on {
+            self.stop_follow();
+        }
+        true
+    }
+
     fn stop_follow(&mut self) {
         let f = &mut self.follow;
+        f.target = None;
         if f.auto {
             f.dismissed = f.following;
         }
@@ -131,8 +174,7 @@ impl App {
                 self.follow.dismissed = None;
                 return;
             }
-            apply_view(&mut self.camera, &v);
-            self.follow.applied = Some((self.camera.origin, self.camera.zoom));
+            self.follow.target = Some(v);
             self.dirty = true;
         } else if v.presenting
             && !self.follow.presenting
@@ -170,6 +212,15 @@ impl App {
                 .is_some_and(|a| a != (self.camera.origin, self.camera.zoom))
         {
             self.stop_follow();
+        }
+        if self.follow.following.is_some()
+            && let Some(v) = self.follow.target
+        {
+            if approach_view(&mut self.camera, &v) {
+                self.follow.target = None;
+            }
+            self.follow.applied = Some((self.camera.origin, self.camera.zoom));
+            self.dirty = true;
         }
 
         let online = self
