@@ -6,6 +6,7 @@ members = [
     "crates/board-web",
     "crates/board-server",
     "crates/board-bench",
+    "crates/board-sdk",
     "tools/cloud-icons",
 ]
 

@@ -1086,6 +1086,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "graboard-sdk"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "board-core",
+ "board-server",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "guillotiere"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2363,6 +2376,7 @@ dependencies = [
  "rustls-platform-verifier",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",

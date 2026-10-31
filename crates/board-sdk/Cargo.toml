@@ -1,0 +1,18 @@
+[package]
+name = "graboard-sdk"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "グラボード の REST API を Rust から使うためのクライアント"
+
+[dependencies]
+board-core.workspace = true
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "query"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+board-server = { path = "../board-server" }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
+axum = "0.8.9"
