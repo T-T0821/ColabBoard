@@ -82,6 +82,9 @@ pub enum ElementBody {
         style: String,
         start_cap: String,
         end_cap: String,
+        /// 破線。
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        dashed: bool,
     },
     Stroke {
         points: Vec<[f32; 2]>,
@@ -194,6 +197,7 @@ pub fn to_data(e: &Element, z: f64) -> ElementData {
             style: c.style.name().to_string(),
             start_cap: c.start_cap.name().to_string(),
             end_cap: c.end_cap.name().to_string(),
+            dashed: c.dashed,
         },
         Element::Stroke(s) => ElementBody::Stroke {
             points: s.points.iter().map(|p| [p.x, p.y]).collect(),
@@ -415,11 +419,15 @@ pub struct ConnectorStyle {
     /// `straight` / `elbow` / `curved`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
-    /// `none` / `arrow`。
+    /// `none` / `arrow` / `triangle` / `triangle-filled` / `diamond` / `diamond-filled` /
+    /// `circle` / `one` / `many` / `zero-or-one` / `one-or-many` / `zero-or-many`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_cap: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_cap: Option<String>,
+    /// 破線にするか。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dashed: Option<bool>,
 }
 
 /// どの要素にもある属性。
@@ -468,6 +476,8 @@ pub struct ElementPatch {
     pub start_cap: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_cap: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dashed: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub points: Option<Vec<[f32; 2]>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -586,10 +596,10 @@ fn path_style(s: &str) -> R<PathStyle> {
 }
 
 fn cap(s: &str) -> R<Cap> {
-    match s {
-        "none" | "arrow" => Ok(Cap::from_name(s)),
-        _ => Err(format!("端の飾り「{s}」は none / arrow のどれかです")),
-    }
+    Cap::ALL.into_iter().find(|c| c.name() == s).ok_or_else(|| {
+        let names: Vec<&str> = Cap::ALL.iter().map(|c| c.name()).collect();
+        format!("端の飾り「{s}」は {} のどれかです", names.join(" / "))
+    })
 }
 
 fn points(pts: &[[f32; 2]]) -> R<Vec<Vec2>> {
@@ -786,6 +796,9 @@ fn apply_connector_style(c: &mut Connector, st: &ConnectorStyle) -> R<()> {
     if let Some(s) = &st.end_cap {
         c.end_cap = cap(s)?;
     }
+    if let Some(d) = st.dashed {
+        c.dashed = d;
+    }
     Ok(())
 }
 
@@ -814,8 +827,12 @@ fn patch(ctx: &Ctx<'_>, e: &mut Element, p: &ElementPatch) -> R<()> {
         ty,
     )?;
     only(
-        is_conn || p.style.is_none() && p.start_cap.is_none() && p.end_cap.is_none(),
-        "style / start_cap / end_cap",
+        is_conn
+            || p.style.is_none()
+                && p.start_cap.is_none()
+                && p.end_cap.is_none()
+                && p.dashed.is_none(),
+        "style / start_cap / end_cap / dashed",
         ty,
     )?;
     only(
@@ -869,6 +886,7 @@ fn patch(ctx: &Ctx<'_>, e: &mut Element, p: &ElementPatch) -> R<()> {
                     style: p.style.clone(),
                     start_cap: p.start_cap.clone(),
                     end_cap: p.end_cap.clone(),
+                    dashed: p.dashed,
                 },
             )?;
         }
