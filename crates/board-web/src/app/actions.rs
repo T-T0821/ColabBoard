@@ -33,6 +33,8 @@ pub enum Action {
     InsertTable,
     /// 表の行・列を足す・消す(右クリックした位置のセルが基準)。
     Table(Edit),
+    /// 選択(なければ全体)を書き出す。
+    Export(super::export::ExportFormat),
 }
 
 impl Action {
@@ -73,6 +75,7 @@ pub fn action_for_key(e: &KeyboardEvent) -> Option<Action> {
         (false, true, true, "KeyH") => Action::Distribute { horizontal: true },
         (false, true, true, "KeyV") => Action::Distribute { horizontal: false },
         (false, true, true, "KeyT") => Action::Tidy,
+        (true, true, false, "KeyE") => Action::Export(super::export::ExportFormat::Png),
         _ => return None,
     })
 }
@@ -81,7 +84,7 @@ impl App {
     /// 選択の数などから、その操作が今できるか。
     fn can(&self, a: Action) -> bool {
         // 見るだけの人はコピーと全選択だけ。
-        if !self.can_edit() && !matches!(a, Action::Copy | Action::SelectAll) {
+        if !self.can_edit() && !matches!(a, Action::Copy | Action::SelectAll | Action::Export(_)) {
             return false;
         }
         let n = self.editor.selection().len();
@@ -92,6 +95,7 @@ impl App {
             Action::Distribute { .. } => n >= 3,
             Action::Tidy => n >= 2,
             Action::InsertTable => true,
+            Action::Export(_) => !self.board.is_empty(),
             Action::Table(_) => {
                 let at = MENU_POS.with(|p| *p.borrow());
                 table::grid_of(&self.board, self.editor.selection())
@@ -110,7 +114,7 @@ impl App {
         if self.editor.is_dragging() || self.editor.editing().is_some() {
             return;
         }
-        if !self.can_edit() && !matches!(a, Action::Copy | Action::SelectAll) {
+        if !self.can_edit() && !matches!(a, Action::Copy | Action::SelectAll | Action::Export(_)) {
             return;
         }
         let sel = self.editor.selection().to_vec();
@@ -156,6 +160,7 @@ impl App {
                 arrange::distribute(&mut self.board, &sel, horizontal)
             }
             Action::Tidy => arrange::tidy(&mut self.board, &sel),
+            Action::Export(f) => self.export(f),
             Action::InsertTable => {
                 let at = MENU_POS
                     .with(|p| p.borrow_mut().take())
@@ -355,6 +360,17 @@ fn menu_items() -> Vec<Item> {
         A("表を挿入", "", Action::InsertTable),
         Sep,
         A("すべて選択", "Ctrl+A", Action::SelectAll),
+        Sep,
+        A(
+            "PNG で書き出し(選択 / 全体)",
+            "Ctrl+Shift+E",
+            Action::Export(super::export::ExportFormat::Png),
+        ),
+        A(
+            "PDF で書き出し(選択 / 全体)",
+            "",
+            Action::Export(super::export::ExportFormat::Pdf),
+        ),
     ]
 }
 

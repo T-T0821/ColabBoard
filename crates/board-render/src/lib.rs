@@ -11,7 +11,7 @@ mod gpu;
 pub mod images;
 mod text;
 
-pub use gpu::{FrameStats, RenderError, Renderer};
+pub use gpu::{Capture, FrameStats, RenderError, Renderer};
 pub use wgpu;
 
 use board_core::{Element, Shape, ShapeKind, Stroke};

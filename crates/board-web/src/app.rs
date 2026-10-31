@@ -18,6 +18,7 @@ mod actions;
 mod ai;
 mod collab;
 mod comments;
+mod export;
 mod follow;
 mod format_bar;
 mod history;
@@ -746,6 +747,7 @@ impl App {
     }
 
     fn frame(&mut self, now: f64) {
+        export::pump(self);
         self.pump_net(now);
         self.collab_frame();
         self.follow_frame(now);
