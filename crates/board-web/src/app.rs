@@ -93,6 +93,8 @@ struct App {
     history: history::History,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
     live_board: Option<Board>,
+    /// 付箋の作者名を出すか。
+    show_authors: bool,
     /// この端末への保存(共同編集のボードだけ)。
     local_store: Option<offline::LocalStore>,
     /// ボード名・権限・共有パネル(サーバーの API が使えるときだけ)。
@@ -376,6 +378,7 @@ pub async fn run() -> Result<(), String> {
         comments: comments::Comments::new(&document)?,
         history: history::History::new(&document)?,
         live_board: None,
+        show_authors: true,
         local_store,
         chrome,
         access_slot: Rc::default(),
@@ -384,6 +387,11 @@ pub async fn run() -> Result<(), String> {
     }));
     {
         let mut a = app.borrow_mut();
+        // 新しく作る付箋に、書いた人の名前(ログイン中は表示名)を入れる。
+        let author = a.identity.name.clone();
+        a.board.set_author(&author);
+        let show = show_authors_setting(&a.window);
+        a.set_show_authors(show);
         if a.net.is_some() && !a.board.is_empty() {
             // 端末に保存した内容から開いたときは、すぐに表示位置を決める。
             a.initial_view();
@@ -477,7 +485,28 @@ fn server_url(
     ))
 }
 
+/// 付箋の作者名を出すか(端末ごとの設定)。
+const SHOW_AUTHORS_KEY: &str = "colabboard.showAuthors";
+
+fn show_authors_setting(window: &Window) -> bool {
+    window
+        .local_storage()
+        .ok()
+        .flatten()
+        .and_then(|s| s.get_item(SHOW_AUTHORS_KEY).ok().flatten())
+        .is_none_or(|v| v != "0")
+}
+
 impl App {
+    fn set_show_authors(&mut self, on: bool) {
+        self.show_authors = on;
+        self.renderer.set_show_authors(on);
+        if let Some(el) = self.document.get_element_by_id("toggle-authors") {
+            let _ = el.set_attribute("aria-pressed", if on { "true" } else { "false" });
+        }
+        self.dirty = true;
+    }
+
     fn set_board(&mut self, board: Board) {
         // ダミー表示に切り替えたら共同編集はやめる。
         if let Some(net) = self.net.as_mut() {
@@ -1620,6 +1649,13 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;
     on_click(doc, "zoom-out", app, |a| a.zoom_center(0.8))?;
     on_click(doc, "zoom-fit", app, |a| a.fit())?;
+    on_click(doc, "toggle-authors", app, |a| {
+        let on = !a.show_authors;
+        a.set_show_authors(on);
+        if let Ok(Some(s)) = a.window.local_storage() {
+            let _ = s.set_item(SHOW_AUTHORS_KEY, if on { "1" } else { "0" });
+        }
+    })?;
     diagram_ui::install(app, doc)?;
     ai_ui::install(app, doc)?;
     {
