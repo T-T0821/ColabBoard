@@ -160,19 +160,7 @@ impl App {
         if self.editor.is_dragging() || self.editor.editing().is_some() {
             return;
         }
-        let tool = self.editor.tool();
-        if self.a11y.last_tool != Some(tool) {
-            let first = self.a11y.last_tool.is_none();
-            self.a11y.last_tool = Some(tool);
-            if !first {
-                let hint = if creates_with_enter(tool) {
-                    "。Enter で画面の中央に置けます"
-                } else {
-                    ""
-                };
-                self.announce(&format!("{}ツール{hint}", tool_label(tool)));
-            }
-        }
+        // 同じフレームで両方変わったら、後に知らせるツールの方が残る。
         if self.editor.selection() != self.a11y.last_selection.as_slice() {
             let prev = std::mem::replace(
                 &mut self.a11y.last_selection,
@@ -188,6 +176,19 @@ impl App {
                 } else {
                     "選択を解除"
                 });
+            }
+        }
+        let tool = self.editor.tool();
+        if self.a11y.last_tool != Some(tool) {
+            let first = self.a11y.last_tool.is_none();
+            self.a11y.last_tool = Some(tool);
+            if !first {
+                let hint = if creates_with_enter(tool) {
+                    "。Enter で画面の中央に置けます"
+                } else {
+                    ""
+                };
+                self.announce(&format!("{}ツール{hint}", tool_label(tool)));
             }
         }
         if let Some((_, at)) = &self.a11y.pending
