@@ -83,7 +83,17 @@ fn encode(format: ExportFormat, rgba: Vec<u8>, w: u32, h: u32) -> Result<Vec<u8>
 impl App {
     /// 選択中の要素(なければボード全体)を書き出す。
     pub(super) fn export(&mut self, format: ExportFormat) {
-        let sel = self.editor.selection().to_vec();
+        let mut sel = self.editor.selection().to_vec();
+        if sel.is_empty() && !self.hidden_elements().is_empty() {
+            // 個人作業エリアで伏せている要素は書き出さない。
+            sel = self
+                .board
+                .elements()
+                .iter()
+                .map(board_core::Element::id)
+                .filter(|id| !self.hidden_elements().contains(id))
+                .collect();
+        }
         if format == ExportFormat::Markdown {
             let md = board_core::markdown::export(&self.board, &sel);
             let result = if md.trim().is_empty() {

@@ -23,6 +23,7 @@ pub mod issue;
 pub mod markdown;
 pub mod navigation;
 pub mod ops;
+pub mod privacy;
 pub mod protocol;
 pub mod search;
 pub mod session;
@@ -35,6 +36,7 @@ pub mod table;
 pub mod tabular;
 pub mod templates;
 pub mod tidy;
+pub mod workshop;
 
 pub use board::Board;
 pub use camera::Camera;

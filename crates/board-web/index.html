@@ -202,6 +202,25 @@
     </div>
     <p id="vote-status" class="collab-status" data-state="none"></p>
     <ol id="vote-results"></ol>
+    <div class="collab-row" title="自分にだけ中身が見えるフレームを作ります。付箋をエリアの外へ出すか、公開すると全員に見えます">
+      <span class="label">個人作業</span>
+      <button id="area-create">自分のエリアを作る</button>
+      <button id="area-reveal">自分のを公開</button>
+      <button id="area-reveal-all">全員分を公開</button>
+    </div>
+    <p id="area-status" class="collab-status"></p>
+    <div class="collab-row" title="全員の画面で、ほかの人のカーソルを灰色にして名前を隠します">
+      <span class="label">匿名</span>
+      <label><input id="anon-toggle" type="checkbox" /> だれが書いたかわからなくする</label>
+    </div>
+    <div class="collab-row" title="部屋(フレーム)を作り、参加者を人の少ない部屋へ自動で振り分けます">
+      <span class="label">小部屋</span>
+      <label><input id="room-count" type="number" min="1" max="12" value="3" /> 部屋</label>
+      <button id="breakout-start">分かれる</button>
+      <button id="breakout-end">全員を戻す</button>
+    </div>
+    <p id="breakout-status" class="collab-status"></p>
+    <ol id="room-list" class="room-list"></ol>
     <div class="collab-row">
       <span class="label">画面共有</span>
       <button id="present" title="参加者全員の画面をあなたの表示に追従させます">プレゼン開始</button>

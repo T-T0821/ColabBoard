@@ -550,6 +550,19 @@ input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px;
 .collab-row .label { min-width: 56px; font-size: 12px; }
 .collab-row input[type="number"] { width: 48px; }
 .collab-status { margin: 4px 0; color: var(--muted); font-size: 12px; }
+.collab-status:empty { display: none; }
+.collab-row input[type="checkbox"] { vertical-align: -2px; margin: 0 4px 0 0; }
+#room-count { width: 48px; }
+.room-list { margin: 4px 0 8px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.room-list:empty { display: none; }
+.room-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--r-sm); font-size: 12px; }
+.room-list li[data-here] { border-color: var(--accent-ring); background: var(--accent-soft); }
+.room-list li button { height: 24px; padding: 0 8px; font-size: 12px; flex: none; }
+/* 匿名モード: ほかの人のカーソルを灰色にし、名前を隠す */
+body.anonymous .cursor { --c: #9aa0a6 !important; }
+body.anonymous .cursor-name { display: none; }
+body.anonymous #peer-list > * { display: none; }
+body.anonymous #peer-list::after { content: "匿名モード中は表示しません"; color: var(--muted); font-size: 12px; }
 .collab-status[data-state="none"] { display: none; }
 .collab-status[data-state="open"] { color: var(--accent); }
 #vote-results { margin: 4px 0 0; padding: 0; list-style: none; }

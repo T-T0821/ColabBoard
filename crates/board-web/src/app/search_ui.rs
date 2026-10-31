@@ -16,6 +16,14 @@ pub struct Search {
 }
 
 impl App {
+    /// 検索に当たった要素(個人作業エリアで伏せているものは除く)。
+    fn visible_hits(&self, q: &str) -> Vec<board_core::ElementId> {
+        search::find(&self.board, q)
+            .into_iter()
+            .filter(|id| !self.hidden_elements().contains(id))
+            .collect()
+    }
+
     fn search_input(&self) -> Option<HtmlInputElement> {
         by_id(&self.document, "search-input").ok()
     }
@@ -43,7 +51,7 @@ impl App {
 
     fn run_search(&mut self) {
         let q = self.search_input().map(|i| i.value()).unwrap_or_default();
-        self.search.hits = search::find(&self.board, &q);
+        self.search.hits = self.visible_hits(&q);
         self.search.current = 0;
         self.show_hit();
     }
@@ -51,7 +59,7 @@ impl App {
     fn step_search(&mut self, forward: bool) {
         // 編集で文字が変わっているかもしれないので探し直す(位置は保つ)。
         let q = self.search_input().map(|i| i.value()).unwrap_or_default();
-        let hits = search::find(&self.board, &q);
+        let hits = self.visible_hits(&q);
         let n = hits.len();
         if n == 0 {
             self.search.hits = hits;

@@ -258,12 +258,13 @@ impl Board {
 
     fn push_with(&mut self, origin: &str, mut element: Element) -> ElementId {
         let id = element.id();
-        // 新しい付箋には作者を入れる(複製・貼り付けは元の作者のまま)。
+        // 新しい付箋には作者を入れる(複製・貼り付けは元の作者のまま。匿名モード中は入れない)。
         if !self.author.is_empty()
             && !self.index.contains_key(&id)
             && let Element::Shape(s) = &mut element
             && s.kind == ShapeKind::Sticky
             && s.meta.author.is_empty()
+            && !self.anonymous()
         {
             s.meta.author = self.author.clone();
         }

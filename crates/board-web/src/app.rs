@@ -35,6 +35,7 @@ mod slides;
 mod templates_ui;
 mod toolbar;
 mod touch;
+mod workshop;
 
 use crate::bench::Bench;
 use crate::net::{Net, NetEvent, Status};
@@ -93,6 +94,7 @@ struct App {
     collab: collab::Collab,
     ai: ai::AiUi,
     follow: follow::Follow,
+    workshop: workshop::Workshop,
     slides: slides::Slides,
     format_bar: format_bar::FormatBar,
     search: search_ui::Search,
@@ -389,6 +391,7 @@ pub async fn run() -> Result<(), String> {
         collab: collab::Collab::new(&document)?,
         ai: ai::AiUi::new(&document)?,
         follow: follow::Follow::new(&document)?,
+        workshop: workshop::Workshop::new(&document)?,
         slides: slides::Slides::new(&document)?,
         format_bar: format_bar::FormatBar::default(),
         search: search_ui::Search::default(),
@@ -523,7 +526,9 @@ fn show_authors_setting(window: &Window) -> bool {
 impl App {
     fn set_show_authors(&mut self, on: bool) {
         self.show_authors = on;
-        self.renderer.set_show_authors(on);
+        // 匿名モード中は作者名を出さない。
+        self.renderer
+            .set_show_authors(on && !self.board.anonymous());
         if let Some(el) = self.document.get_element_by_id("toggle-authors") {
             let _ = el.set_attribute("aria-pressed", if on { "true" } else { "false" });
         }
@@ -898,6 +903,7 @@ impl App {
         self.pump_net(now);
         self.save_local(now, false);
         self.collab_frame();
+        self.workshop_frame();
         self.slides_frame(now);
         self.follow_frame(now);
         self.comments_frame(now);
@@ -1699,6 +1705,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     collab::install(app, doc)?;
     ai::install(app, doc)?;
     follow::install(app, doc)?;
+    workshop::install(app, doc)?;
     slides::install(app, doc)?;
     comments::install(app, doc)?;
     history::install(app)?;
