@@ -42,7 +42,9 @@ pub struct Slides {
     anim: Option<Anim>,
     /// スライドのために自分でプレゼンを始めたか(終わるときに戻す)。
     started_presenting: bool,
-    /// 全画面にできたか(全画面をやめたらスライドも終わる)。
+    /// 全画面を頼んだか(終わるときに戻す)。
+    fullscreen_requested: bool,
+    /// 実際に全画面になったか(なった後でやめたらスライドも終わる)。
     fullscreen: bool,
     /// 最後にマウスを動かした時刻。
     poked_at: f64,
@@ -68,6 +70,7 @@ impl Slides {
             revision: u64::MAX,
             anim: None,
             started_presenting: false,
+            fullscreen_requested: false,
             fullscreen: false,
             poked_at: 0.0,
             bar_shown: None,
@@ -147,8 +150,9 @@ impl App {
             let _ = body.class_list().add_1("slideshow");
         }
         // 全画面(ブラウザが許さなければ、そのままウィンドウ内で表示する)。
+        s.fullscreen = false;
         if let Some(root) = self.document.document_element() {
-            s.fullscreen = root.request_fullscreen().is_ok();
+            s.fullscreen_requested = root.request_fullscreen().is_ok();
         }
         if !self.presenting() && self.set_presenting(true) {
             self.slides.started_presenting = true;
@@ -168,11 +172,11 @@ impl App {
         if let Some(body) = self.document.body() {
             let _ = body.class_list().remove_1("slideshow");
         }
-        if s.fullscreen {
-            s.fullscreen = false;
-            if self.document.fullscreen_element().is_some() {
-                self.document.exit_fullscreen();
-            }
+        s.fullscreen = false;
+        if std::mem::take(&mut s.fullscreen_requested)
+            && self.document.fullscreen_element().is_some()
+        {
+            self.document.exit_fullscreen();
         }
         if std::mem::take(&mut self.slides.started_presenting) {
             self.set_presenting(false);
@@ -259,13 +263,14 @@ impl App {
             return;
         }
         // 全画面を(Esc などで)やめたらスライドも終わる。
-        if self.slides.fullscreen && self.document.fullscreen_element().is_none() {
-            // 全画面になる前の 1 フレームは見逃す。
-            if now - self.slides.poked_at > 400.0 || self.slides.anim.is_none() {
-                self.slides.fullscreen = false;
-                self.stop_slides();
-                return;
-            }
+        // (ブラウザが全画面を断ったときは、ウィンドウの中でそのまま続ける)
+        let in_fullscreen = self.document.fullscreen_element().is_some();
+        if in_fullscreen {
+            self.slides.fullscreen = true;
+        } else if self.slides.fullscreen {
+            self.slides.fullscreen_requested = false;
+            self.stop_slides();
+            return;
         }
         // フレームが増えた・動いた・消えたら並びを作り直す(今のスライドは保つ)。
         if self.slides.revision != self.board.revision() {
