@@ -68,6 +68,9 @@ pub struct Config {
     pub issues: issues::IssuesConfig,
     /// 音声通話の ICE サーバー(`RTCIceServer` の配列)。`GET /api/rtc` で配る。
     pub ice_servers: serde_json::Value,
+    /// `?embed=1` のページを iframe で埋め込んでよいサイト(CSP の `frame-ancestors` の値)。
+    /// それ以外のページは同じサイトからしか埋め込めない。
+    pub embed_origins: String,
 }
 
 /// 既定の ICE サーバー(公開 STUN)。
@@ -101,6 +104,7 @@ impl Default for Config {
             slack: slack::SlackConfig::default(),
             issues: issues::IssuesConfig::default(),
             ice_servers: default_ice_servers(),
+            embed_origins: "*".into(),
         }
     }
 }
@@ -119,6 +123,7 @@ impl AppState {
 
 pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
     let static_dir = config.static_dir.take();
+    let frame_policy: Arc<str> = format!("frame-ancestors {}", config.embed_origins).into();
     let state = Arc::new(AppState { hub, config });
     let app = Router::new()
         .route("/ws/{room}", get(ws_handler))
@@ -132,11 +137,49 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .nest("/api/v1", rest::routes())
         .nest("/api", api::routes().merge(rest::token_routes()))
         .with_state(state);
-    match static_dir {
+    let app = match static_dir {
         Some(dir) => app.fallback_service(ServeDir::new(dir)),
         #[cfg(feature = "embed")]
         None if embedded::available() => app.fallback(embedded::serve),
         None => app,
+    };
+    app.layer(axum::middleware::from_fn(
+        move |req: axum::extract::Request, next: axum::middleware::Next| {
+            let policy = frame_policy.clone();
+            async move {
+                let embed = is_embed_request(req.uri().query());
+                let mut res = next.run(req).await;
+                set_frame_policy(&mut res, embed, &policy);
+                res
+            }
+        },
+    ))
+}
+
+/// `?embed=1` が付いているか。
+fn is_embed_request(query: Option<&str>) -> bool {
+    query.is_some_and(|q| q.split('&').any(|p| p == "embed=1"))
+}
+
+/// HTML のページに、iframe で埋め込んでよい相手を付ける。埋め込み用(`?embed=1`)のページは
+/// `EMBED_ALLOWED_ORIGINS` のサイトから、それ以外は同じサイトからだけ(クリックジャッキング対策)。
+fn set_frame_policy(res: &mut Response, embed: bool, embed_policy: &str) {
+    let is_html = res
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with("text/html"));
+    if !is_html {
+        return;
+    }
+    let value = if embed {
+        embed_policy
+    } else {
+        "frame-ancestors 'self'"
+    };
+    if let Ok(v) = axum::http::HeaderValue::from_str(value) {
+        res.headers_mut()
+            .insert(axum::http::header::CONTENT_SECURITY_POLICY, v);
     }
 }
 
@@ -332,5 +375,13 @@ mod tests {
         );
         let turn = r#"[{"urls":"turn:example.com","username":"u","credential":"p"}]"#;
         assert_eq!(ice_servers_from_env(Some(turn.into()))[0]["username"], "u");
+    }
+
+    #[test]
+    fn embed_query() {
+        assert!(is_embed_request(Some("room=a&key=b&embed=1")));
+        assert!(!is_embed_request(Some("room=a&embed=0")));
+        assert!(!is_embed_request(Some("room=a&notembed=1")));
+        assert!(!is_embed_request(None));
     }
 }

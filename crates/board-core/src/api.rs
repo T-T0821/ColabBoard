@@ -14,6 +14,7 @@
 //! | `GET` | `/api/boards/{id}/sharing` | 共有設定([`Sharing`]、オーナーのみ) |
 //! | `PUT` | `/api/boards/{id}/members` | メンバーの追加・変更・削除([`SetMember`]、オーナーのみ) |
 //! | `PUT` | `/api/boards/{id}/link` | 共有リンクの設定([`SetLink`] → [`Sharing`]、オーナーのみ) |
+//! | `PUT` | `/api/boards/{id}/embed` | 埋め込み(iframe)の設定([`SetLink`] → [`Sharing`]、オーナーのみ) |
 //! | `GET` | `/api/boards/{id}/comments?key=` | コメント一覧([`Comment`] の配列、閲覧者以上) |
 //! | `POST` | `/api/boards/{id}/comments?key=` | コメント・返信([`NewComment`] → [`Posted`]、コメント可以上・要ログイン) |
 //! | `PATCH` | `/api/boards/{id}/comments/{cid}?key=` | 本文の編集(本人)・解決/再開(コメント可以上)([`EditComment`]) |
@@ -149,6 +150,9 @@ pub struct Sharing {
     /// ログイン名 → 権限。
     pub members: BTreeMap<String, Role>,
     pub link: Option<LinkShare>,
+    /// 他のサイトに埋め込む(iframe)ときの鍵と権限。共有リンクとは別に作り直せる。
+    #[serde(default)]
+    pub embed: Option<LinkShare>,
 }
 
 /// `role` が `None` ならメンバーから外す。

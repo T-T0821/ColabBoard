@@ -259,6 +259,10 @@ pub async fn run() -> Result<(), String> {
     }
     // 共有リンクの鍵(`&key=`)。
     let key = params.get("key").filter(|k| valid_room(k));
+    // 他のサイトに埋め込まれた表示(`&embed=1`)。ボード以外の飾りを隠し、別タブで開くリンクを出す。
+    if params.get("embed").as_deref() == Some("1") {
+        enter_embed_mode(&window, &document, &params);
+    }
     let mut me = None;
     let mut info = None;
     if collaborative {
@@ -455,6 +459,30 @@ pub async fn run() -> Result<(), String> {
     issues::install(&app)?;
     start_loop(app);
     Ok(())
+}
+
+/// 埋め込み表示にする。
+fn enter_embed_mode(window: &Window, document: &Document, params: &web_sys::UrlSearchParams) {
+    if let Some(body) = document.body() {
+        let _ = body.class_list().add_1("embed-mode");
+    }
+    let Some(link) = document.get_element_by_id("embed-open") else {
+        return;
+    };
+    let full =
+        web_sys::UrlSearchParams::new_with_str(&params.to_string().as_string().unwrap_or_default());
+    if let Ok(full) = full {
+        full.delete("embed");
+        let loc = window.location();
+        let href = format!(
+            "{}{}?{}",
+            loc.origin().unwrap_or_default(),
+            loc.pathname().unwrap_or_default(),
+            full.to_string().as_string().unwrap_or_default()
+        );
+        let _ = link.set_attribute("href", &href);
+        let _ = link.remove_attribute("hidden");
+    }
 }
 
 /// `?room=` がなければ新しいルーム名を作って URL に載せる(そのまま共有できるように)。

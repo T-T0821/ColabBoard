@@ -217,6 +217,14 @@ impl BoardChrome {
         format!("{base}{}", board_url(&self.room, Some(key)))
     }
 
+    /// 埋め込み用の iframe のコード。
+    fn embed_code(&self, key: &str) -> String {
+        format!(
+            r#"<iframe src="{}&embed=1" width="800" height="600" style="border:0" allow="clipboard-write; fullscreen" title="グラボード"></iframe>"#,
+            self.link_url(key)
+        )
+    }
+
     fn render_share(&self) {
         let Some(panel) = self.share_panel() else {
             return;
@@ -248,6 +256,14 @@ impl BoardChrome {
                 r#"<div class="row"><input class="grow" readonly value="{url}" data-copy /><button data-action="copy-link">コピー</button></div>
 <button class="link small" data-action="regenerate">リンクを作り直す(古いリンクは使えなくなります)</button>"#,
                 url = escape(&self.link_url(&l.key))
+            ),
+            None => String::new(),
+        };
+        let embed = match &sh.embed {
+            Some(l) => format!(
+                r#"<div class="row"><textarea class="grow embed-code" readonly rows="3">{code}</textarea></div>
+<div class="row"><button data-action="copy-embed">コードをコピー</button><button class="link small" data-action="regenerate-embed">作り直す(今の埋め込みは表示されなくなります)</button></div>"#,
+                code = escape(&self.embed_code(&l.key))
             ),
             None => String::new(),
         };
@@ -286,7 +302,13 @@ impl BoardChrome {
   </form>
   {err}
 </section>
+<section>
+  <label class="field">他のサイトに埋め込む(iframe)<select data-embed-role>{embed_opts}</select></label>
+  {embed}
+</section>
 <section data-slot="slack"></section>"#,
+            embed_opts = options(sh.embed.as_ref().map(|l| l.role), true)
+                .replace("オフ(招待した人だけ)", "オフ"),
             link_opts = options(sh.link.as_ref().map(|l| l.role), true),
             invite_opts = options(Some(Role::Editor), false),
         ));
@@ -369,6 +391,10 @@ fn update_sharing(chrome: &SharedChrome, req: SharingRequest) {
                 http::send::<_, Sharing>("PUT", &http::board_path(&room, None, "/link"), &body)
                     .await
             }
+            SharingRequest::Embed(body) => {
+                http::send::<_, Sharing>("PUT", &http::board_path(&room, None, "/embed"), &body)
+                    .await
+            }
             SharingRequest::Member(body) => {
                 http::send::<_, Sharing>("PUT", &http::board_path(&room, None, "/members"), &body)
                     .await
@@ -388,6 +414,7 @@ fn update_sharing(chrome: &SharedChrome, req: SharingRequest) {
 
 enum SharingRequest {
     Link(SetLink),
+    Embed(SetLink),
     Member(SetMember),
 }
 
@@ -593,6 +620,33 @@ fn install(chrome: &SharedChrome) {
                     el.set_text_content(Some("コピーしました"));
                 }
             }
+            Some("copy-embed") => {
+                let c = ch.borrow();
+                if let Some(key) = c
+                    .sharing
+                    .as_ref()
+                    .and_then(|s| s.embed.as_ref())
+                    .map(|l| l.key.clone())
+                {
+                    copy_text(&c.window, &c.embed_code(&key));
+                    el.set_text_content(Some("コピーしました"));
+                }
+            }
+            Some("regenerate-embed") => {
+                let role = ch
+                    .borrow()
+                    .sharing
+                    .as_ref()
+                    .and_then(|s| s.embed.as_ref())
+                    .map(|l| l.role);
+                update_sharing(
+                    &ch,
+                    SharingRequest::Embed(SetLink {
+                        role,
+                        regenerate: true,
+                    }),
+                );
+            }
             Some("regenerate") => {
                 let role = ch
                     .borrow()
@@ -635,7 +689,16 @@ fn install(chrome: &SharedChrome) {
         else {
             return;
         };
-        if sel.has_attribute("data-link-role") {
+        if sel.has_attribute("data-embed-role") {
+            let role = Role::parse(&sel.value());
+            update_sharing(
+                &ch,
+                SharingRequest::Embed(SetLink {
+                    role,
+                    regenerate: false,
+                }),
+            );
+        } else if sel.has_attribute("data-link-role") {
             let role = Role::parse(&sel.value());
             update_sharing(
                 &ch,

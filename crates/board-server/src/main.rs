@@ -16,6 +16,7 @@
 //! - `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN`: 課題カードで Jira を引くとき。
 //! - `ICE_SERVERS`: 音声通話で使う STUN / TURN サーバー(`RTCIceServer` の JSON 配列)。
 //!   既定は Google の公開 STUN。社内ネットワーク越しにつなぐなら TURN を足す。
+//! - `EMBED_ALLOWED_ORIGINS`(既定 `*`): ボードを iframe で埋め込んでよいサイト(空白区切り。例 `https://wiki.example.com`)。
 //! - `RUST_LOG`(既定 `info`)
 //!
 //! `board-server healthcheck` は自分の `/healthz` を確かめて終了コードで返す(コンテナの死活監視用)。
@@ -119,6 +120,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }),
         slack: board_server::slack::SlackConfig::from_env(),
         issues: board_server::issues::IssuesConfig::from_env(),
+        embed_origins: std::env::var("EMBED_ALLOWED_ORIGINS")
+            .ok()
+            .map(|v| v.replace(',', " ").trim().to_string())
+            .filter(|v| !v.is_empty() && !v.contains(';'))
+            .unwrap_or_else(|| "*".into()),
     };
     if let Some(j) = &config.issues.jira {
         tracing::info!("Jira 連携: {}", j.base_url);
