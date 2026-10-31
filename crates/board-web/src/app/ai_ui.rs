@@ -128,20 +128,13 @@ async fn generate(app: Rc<RefCell<App>>, ui: Ui) {
         "Claude が図を考えています…(数十秒かかることがあります)",
         false,
     );
-    let body = json!({
-        "room": room,
-        "key": share_key(&window),
-        "prompt": prompt,
-        "mode": ui.mode.value(),
-    })
-    .to_string();
-    let result = fetch_json(
-        &window,
-        "POST",
-        &api_url(&window, "/api/ai/diagram"),
-        Some(body),
-    )
-    .await;
+    let body = json!({ "prompt": prompt, "mode": ui.mode.value() }).to_string();
+    let mut path = format!("/api/boards/{room}/ai/diagram");
+    if let Some(key) = share_key(&window) {
+        let key = String::from(js_sys::encode_uri_component(&key));
+        path.push_str(&format!("?key={key}"));
+    }
+    let result = fetch_json(&window, "POST", &api_url(&window, &path), Some(body)).await;
     ui.set_busy(false);
     match result {
         Ok((200, text)) => match DiagramSpec::from_json(&text) {
