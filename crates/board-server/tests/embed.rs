@@ -166,12 +166,15 @@ async fn frame_ancestors_header() {
             .map(|v| v.to_str().unwrap().to_string())
     };
     let (_, _, h) = call(&app, "GET", "/?room=abc&embed=1", None, None).await;
-    assert_eq!(
-        csp(&h).as_deref(),
-        Some("frame-ancestors https://wiki.example.com")
+    assert!(
+        csp(&h)
+            .unwrap()
+            .contains("frame-ancestors https://wiki.example.com;")
     );
+    assert!(h.get(header::X_FRAME_OPTIONS).is_none());
     let (_, _, h) = call(&app, "GET", "/?room=abc", None, None).await;
-    assert_eq!(csp(&h).as_deref(), Some("frame-ancestors 'self'"));
+    assert!(csp(&h).unwrap().contains("frame-ancestors 'self';"));
+    assert_eq!(h[header::X_FRAME_OPTIONS], "SAMEORIGIN");
     // HTML 以外には付けない。
     let (_, _, h) = call(&app, "GET", "/app.js", None, None).await;
     assert_eq!(csp(&h), None);

@@ -23,6 +23,8 @@ ab_glyph = "0.2"
 argon2 = "0.5"
 blake2 = "0.10"
 getrandom = "0.3"
+brotli = "8"
+flate2 = "1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rust-embed = { version = "8", optional = true, features = ["mime-guess", "include-exclude"] }
 wasmi = "2"

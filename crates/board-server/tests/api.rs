@@ -9,6 +9,7 @@ use axum::http::{Request, StatusCode, header};
 use board_core::api::{BoardInfo, Me, Role, Sharing};
 use board_core::protocol::Message;
 use board_core::{Board, Rgba8, Shape, Vec2};
+use board_server::guard::Limits;
 use board_server::{Config, Hub, Store, router};
 use futures_util::{SinkExt, StreamExt};
 use http_body_util::BodyExt;
@@ -29,7 +30,14 @@ async fn start(config: Config) -> Server {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let served = app.clone();
-    tokio::spawn(async move { axum::serve(listener, served).await.unwrap() });
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            served.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap()
+    });
     Server {
         app,
         ws: format!("ws://{addr}/ws"),
@@ -718,7 +726,8 @@ async fn audit_log_records_and_exports() {
         .method("POST")
         .uri("/api/login")
         .header(header::CONTENT_TYPE, "application/json")
-        .header("x-forwarded-for", "203.0.113.7, 10.0.0.1")
+        // 左側は利用者が偽れるので、直前のプロキシが付けた最後の値を使う。
+        .header("x-forwarded-for", "6.6.6.6, 203.0.113.7")
         .header("x-graboard-client-ip", "6.6.6.6");
     let res = s
         .app
@@ -953,4 +962,235 @@ async fn public_pages_with_ogp() {
         StatusCode::NOT_FOUND
     );
     assert!(server.connect(&id, None, Some(&slug)).await.is_none());
+}
+
+#[tokio::test]
+async fn login_attempts_are_limited() {
+    let s = start(Config {
+        limits: Limits {
+            login_failures_per_account: 3,
+            ..Limits::default()
+        },
+        ..Config::default()
+    })
+    .await;
+    s.signup("alice").await;
+    let try_login = |password: &'static str| {
+        s.call(
+            "POST",
+            "/api/login",
+            None,
+            Some(json!({"login": "alice", "password": password})),
+        )
+    };
+    for _ in 0..3 {
+        assert_eq!(try_login("wrong-pass").await.0, StatusCode::BAD_REQUEST);
+    }
+    // 上限に達したら、正しいパスワードでもしばらく断る。
+    let (status, body, _) = try_login("password123").await;
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert!(body["error"].as_str().unwrap().contains("待って"), "{body}");
+    // ほかのアカウントには影響しない。
+    let bob = s.signup("bob").await;
+    assert!(!bob.is_empty());
+}
+
+#[tokio::test]
+async fn accounts_and_boards_have_limits() {
+    let s = start(Config {
+        limits: Limits {
+            max_users: 1,
+            max_boards_per_user: 2,
+            ..Limits::default()
+        },
+        ..Config::default()
+    })
+    .await;
+    let alice = s.signup("alice").await;
+    let (status, body, _) = s
+        .call(
+            "POST",
+            "/api/signup",
+            None,
+            Some(json!({"login": "bob", "name": "", "password": "password123"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    let new_board = || {
+        s.call(
+            "POST",
+            "/api/boards",
+            Some(&alice),
+            Some(json!({"title": "b"})),
+        )
+    };
+    let (status, first, _) = new_board().await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(new_board().await.0, StatusCode::CREATED);
+    assert_eq!(new_board().await.0, StatusCode::FORBIDDEN);
+    // 消せばまた作れる。
+    let id = first["id"].as_str().unwrap();
+    let (status, _, _) = s
+        .call("DELETE", &format!("/api/boards/{id}"), Some(&alice), None)
+        .await;
+    assert!(status.is_success());
+    assert_eq!(new_board().await.0, StatusCode::CREATED);
+}
+
+#[tokio::test]
+async fn api_requests_are_rate_limited() {
+    let s = start(Config {
+        limits: Limits {
+            requests_per_ip_per_minute: 5,
+            ..Limits::default()
+        },
+        ..Config::default()
+    })
+    .await;
+    for _ in 0..5 {
+        assert_eq!(
+            s.call("GET", "/api/me", None, None).await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    assert_eq!(
+        s.call("GET", "/api/me", None, None).await.0,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    // 死活監視は数えない。
+    assert_eq!(
+        s.call("GET", "/healthz", None, None).await.0,
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn connections_per_board_and_ip_are_limited() {
+    let s = start(Config {
+        limits: Limits {
+            peers_per_room: 2,
+            connections_per_ip: 3,
+            ..Limits::default()
+        },
+        ..Config::default()
+    })
+    .await;
+    let _a = s.connect("room-a", None, None).await.unwrap();
+    let _b = s.connect("room-a", None, None).await.unwrap();
+    assert!(
+        s.connect("room-a", None, None).await.is_none(),
+        "人数の上限"
+    );
+    let c = s.connect("room-b", None, None).await.unwrap();
+    assert!(
+        s.connect("room-c", None, None).await.is_none(),
+        "IP ごとの上限"
+    );
+    drop(c);
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(s.connect("room-c", None, None).await.is_some());
+}
+
+#[tokio::test]
+async fn flooding_websocket_is_disconnected() {
+    let s = start(Config {
+        limits: Limits {
+            messages_per_second: 10,
+            ..Limits::default()
+        },
+        ..Config::default()
+    })
+    .await;
+    let (mut ws, mut board) = s.connect("flood", None, None).await.unwrap();
+    for _ in 0..200 {
+        for u in add_sticky(&mut board) {
+            if ws
+                .send(WsMessage::Binary(Message::Update(u).encode().into()))
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
+    }
+    // サーバーが切るまで読む。
+    let closed = tokio::time::timeout(Duration::from_secs(3), async {
+        while let Some(Ok(_)) = ws.next().await {}
+    })
+    .await;
+    assert!(closed.is_ok(), "切断されるはず");
+}
+
+#[tokio::test]
+async fn cross_origin_websocket_does_not_use_login() {
+    let s = start(Config::default()).await;
+    let alice = s.signup("alice").await;
+    let (_, info, _) = s
+        .call(
+            "POST",
+            "/api/boards",
+            Some(&alice),
+            Some(json!({"title": "secret"})),
+        )
+        .await;
+    let id = info["id"].as_str().unwrap().to_string();
+    let open = |origin: &'static str| {
+        let mut req = format!("{}/{id}", s.ws).into_client_request().unwrap();
+        req.headers_mut()
+            .insert(header::COOKIE, alice.parse().unwrap());
+        req.headers_mut()
+            .insert(header::ORIGIN, origin.parse().unwrap());
+        connect_async(req)
+    };
+    assert!(open("https://evil.example").await.is_err());
+    let host =
+        s.ws.trim_start_matches("ws://")
+            .trim_end_matches("/ws")
+            .to_string();
+    let origin: &'static str = Box::leak(format!("http://{host}").into_boxed_str());
+    assert!(open(origin).await.is_ok());
+}
+
+#[tokio::test]
+async fn security_headers_and_csp() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("index.html"),
+        "<html><script type=\"module\">boot()</script><script src=\"/a.js\"></script></html>",
+    )
+    .unwrap();
+    let s = start(Config {
+        static_dir: Some(dir.path().to_path_buf()),
+        limits: Limits {
+            hsts: true,
+            ..Limits::default()
+        },
+        ..Config::default()
+    })
+    .await;
+    let req = Request::builder().uri("/").body(Body::empty()).unwrap();
+    let res = s.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let h = res.headers();
+    assert_eq!(h["x-content-type-options"], "nosniff");
+    assert_eq!(h["x-frame-options"], "SAMEORIGIN");
+    assert_eq!(h["referrer-policy"], "same-origin");
+    assert!(h.contains_key("strict-transport-security"));
+    let csp = h["content-security-policy"].to_str().unwrap();
+    assert!(
+        csp.contains("'wasm-unsafe-eval'") && csp.contains("'sha256-"),
+        "{csp}"
+    );
+    let body = res.into_body().collect().await.unwrap().to_bytes();
+    assert!(body.starts_with(b"<html>"));
+
+    // API にもヘッダーは付く(CSP は HTML だけ)。
+    let req = Request::builder()
+        .uri("/api/me")
+        .body(Body::empty())
+        .unwrap();
+    let res = s.app.clone().oneshot(req).await.unwrap();
+    assert_eq!(res.headers()["x-content-type-options"], "nosniff");
+    assert!(!res.headers().contains_key("content-security-policy"));
 }

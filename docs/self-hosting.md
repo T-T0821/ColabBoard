@@ -90,10 +90,22 @@ DATA_DIR=/var/lib/graboard STATIC_DIR=/srv/graboard/dist ./target/release/board-
 
 ## HTTPS とリバースプロキシ
 
-インターネットや社内に公開するときは、前段に HTTPS のリバースプロキシを置き、`COOKIE_SECURE=1` にします。
+インターネットや社内に公開するときは、前段に HTTPS のリバースプロキシを置きます。
+グラボード自身は HTTP だけを話し、証明書の取得・更新・TLS はプロキシに任せます(Caddy なら自動)。
+サーバーは `127.0.0.1` か内部ネットワークだけで待ち受け、外から 8080 番に直接つながらないようにしてください。
+
+プロキシの後ろでは、次の 3 つを設定します。
+
+| 環境変数 | 値 | 理由 |
+| --- | --- | --- |
+| `COOKIE_SECURE` | `1` | ログイン Cookie を HTTPS だけで送る。`Strict-Transport-Security` も付く |
+| `TRUST_PROXY` | `1` | プロキシが付ける `X-Forwarded-For` から利用者の IP を取る。これがないと、全員がプロキシの IP に見えて回数制限が全員まとめてかかる |
+| `PUBLIC_URL` | `https://board.example.com/` | Slack 通知などのリンク |
+
+`TRUST_PROXY=1` は、プロキシを通らずに直接つながれない構成のときだけにしてください(直接つながれると IP を偽れます)。
 WebSocket(`/ws/…`)も通す必要があります。Service Worker(オフラインで開く機能)も HTTPS か `localhost` でしか動きません。
 
-**Caddy**(証明書を自動で取る):
+**Caddy**(証明書を自動で取る。WebSocket と `X-Forwarded-For` は何もしなくても通る):
 
 ```
 board.example.com {
@@ -106,8 +118,10 @@ board.example.com {
 ```nginx
 server {
     listen 443 ssl;
+    http2 on;
     server_name board.example.com;
-    # ssl_certificate ...;
+    ssl_certificate     /etc/letsencrypt/live/board.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/board.example.com/privkey.pem;
 
     client_max_body_size 64m;   # 画像・PDF の貼り付け用
 
@@ -117,10 +131,85 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $remote_addr;   # 利用者の IP(TRUST_PROXY=1 で使う)
+        proxy_set_header X-Forwarded-Proto $scheme;
         proxy_read_timeout 1h;   # WebSocket を切らない
     }
 }
+
+server {   # http は https へ
+    listen 80;
+    server_name board.example.com;
+    return 301 https://$host$request_uri;
+}
 ```
+
+証明書は `certbot --nginx -d board.example.com` などで取ります。
+
+**Docker Compose で Caddy と並べる例**:
+
+```yaml
+services:
+  graboard:
+    build: .
+    environment:
+      COOKIE_SECURE: "1"
+      TRUST_PROXY: "1"
+      PUBLIC_URL: https://board.example.com/
+    volumes: [colabboard-data:/data]
+    restart: unless-stopped
+    # ports は開けない(Caddy からだけつながる)
+  caddy:
+    image: caddy:2
+    command: caddy reverse-proxy --from board.example.com --to graboard:8080
+    ports: ["80:80", "443:443"]
+    volumes: [caddy-data:/data]
+    restart: unless-stopped
+volumes:
+  colabboard-data:
+  caddy-data:
+```
+
+## 公開前の守り
+
+サーバーには次の守りが組み込まれています。上限は環境変数で変えられます(`0` で制限なし)。数はメモリ上で数えるので、再起動すると数え直します。
+
+| 守り | 既定 | 環境変数 |
+| --- | --- | --- |
+| ログイン失敗の回数制限(アカウントごと、15 分) | 10 回 | `LOGIN_FAILURES_PER_ACCOUNT` |
+| ログイン失敗の回数制限(IP ごと、15 分) | 30 回 | `LOGIN_FAILURES_PER_IP` |
+| アカウント作成の回数制限(IP ごと、1 時間) | 20 回 | `SIGNUPS_PER_IP` |
+| アカウント数の上限(パスワードでの作成。SSO は IdP 側で絞る) | なし | `MAX_USERS` |
+| 1 人が持てるボード数 | 500 | `MAX_BOARDS_PER_USER` |
+| API・WebSocket 接続の要求(IP ごと、1 分) | 600 回 | `REQUESTS_PER_MINUTE` |
+| 同時につなげる WebSocket(IP ごと) | 50 本 | `CONNECTIONS_PER_IP` |
+| 1 つのボードに同時につなげる人数 | 200 人 | `PEERS_PER_BOARD` |
+| WebSocket 1 本のメッセージ数(1 秒、短時間はこの 5 倍まで) | 300 通 | `MESSAGES_PER_SECOND` |
+| パスワードのハッシュ計算を同時に行う数 | 4 件 | `PASSWORD_HASH_SLOTS` |
+
+上限に達すると、ログインやアカウント作成は「〇分ほど待ってからやり直してください」と表示します(HTTP 429 と `Retry-After`)。
+メッセージを送りすぎる WebSocket は切断します(クライアントはつなぎ直して全体を同期し直すので、編集は失われません)。
+
+ほかに、次のことをしています。
+
+- **パスワード**: Argon2id でハッシュ化して保存。存在しないログイン名でも同じだけ時間をかけ、名前の有無を推測させない
+- **ログイン Cookie**: `HttpOnly; SameSite=Lax`。`COOKIE_SECURE=1` で `Secure`
+- **ほかのサイトからの WebSocket**: `Origin` が自分のホストと違う接続では、ログイン Cookie を使わない(共有リンクの鍵や、誰でも開けるボードは使える)。
+  クライアントを別のオリジンから配るときは `ALLOWED_ORIGINS=https://app.example.com` のように許可する
+- **セキュリティヘッダー**: すべての応答に `X-Content-Type-Options: nosniff`、`X-Frame-Options: SAMEORIGIN`(埋め込み表示 `?embed=1` は `EMBED_ALLOWED_ORIGINS` のサイトから埋め込める)、`Referrer-Policy: same-origin`
+  (共有リンクの鍵をほかのサイトへ送らない)、`Cross-Origin-Opener-Policy: same-origin`。`COOKIE_SECURE=1` なら HSTS(`HSTS=0` で止める)
+- **Content-Security-Policy**: HTML には CSP を付け、スクリプトは自分のファイルと、`index.html` のインラインスクリプト(ハッシュで指定)だけ動かす。
+  `index.html` を書き換えても、ハッシュは配信時に計算し直す。外の画像(マークダウンの取り込み)は https なら読める。困ったときは `CSP=0` で止められる
+- **入力の大きさ**: API の JSON は 2 MB まで、WebSocket の 1 通は `MAX_MESSAGE_MB`(既定 128 MB)まで
+
+### 公開前のチェックリスト
+
+- [ ] HTTPS のリバースプロキシを置き、`COOKIE_SECURE=1` と `TRUST_PROXY=1` を設定した
+- [ ] サーバーの 8080 番は外から直接つながらない
+- [ ] 知らない人に使わせないなら `ANONYMOUS_BOARDS=0`(URL を知っていれば誰でも編集できるボードを作らせない)と `MAX_USERS` を設定した
+- [ ] `DATA_DIR` を定期的にバックアップしている(下の「バックアップと更新」)
+- [ ] AI 機能を使うなら、`ANTHROPIC_API_KEY` をサーバーの環境変数だけに置いた(ブラウザには渡らない)
+- [ ] 大勢で使うなら、プロキシ側でも接続数・帯域の制限をかけた(サーバーを複数台にする場合は特に)
 
 ## 環境変数
 
@@ -130,6 +219,10 @@ server {
 | `DATA_DIR` | `data`(Docker では `/data`) | 保存先(`boards.redb`)。空にすると保存しない |
 | `STATIC_DIR` | `crates/board-web/dist` | 配信するクライアント。埋め込み版を使うなら指定しない |
 | `COOKIE_SECURE` | `0` | HTTPS で公開するときは `1` |
+| `TRUST_PROXY` | `0` | リバースプロキシの後ろに置くときは `1`(`X-Forwarded-For` から利用者の IP を取る) |
+| `ALLOWED_ORIGINS` | なし | ログイン付きの WebSocket を受け付けるほかのオリジン(カンマ区切り) |
+| `CSP` / `HSTS` | `1` / `COOKIE_SECURE` と同じ | `0` でそのヘッダーを付けない |
+| 回数制限・上限 | [公開前の守り](#公開前の守り) | `LOGIN_FAILURES_PER_ACCOUNT` `MAX_USERS` `MAX_BOARDS_PER_USER` など |
 | `ANONYMOUS_BOARDS` | `1` | `0` でログインなしのボード(URL を知っていれば誰でも編集できるもの)を禁止 |
 | `MAX_MESSAGE_MB` | `128` | WebSocket で受け取る 1 通の上限。初回同期でボード全体を送るので、数十万要素のボードを使うなら増やす(10 万要素で約 28 MB) |
 | `ANTHROPIC_API_KEY` | なし | 設定すると AI 機能が使える |

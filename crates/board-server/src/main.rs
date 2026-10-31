@@ -8,6 +8,10 @@
 //! - `MAX_MESSAGE_MB`(既定 128): WebSocket で受け取る 1 通の上限。とても大きなボードを使うなら増やす。
 //! - `ANONYMOUS_BOARDS`(既定 `1`): `0` でログインなしのボード作成を禁止する。
 //! - `COOKIE_SECURE`(既定 `0`): `1` でログイン Cookie に `Secure` を付ける(HTTPS 用)。
+//! - `TRUST_PROXY`(既定 `0`): `1` でリバースプロキシの `X-Forwarded-For` から利用者の IP を取る。
+//! - `ALLOWED_ORIGINS`: ログイン付きの WebSocket を受け付けるほかのオリジン(カンマ区切り)。
+//! - 回数制限・上限(`LOGIN_FAILURES_PER_ACCOUNT` `MAX_USERS` `MAX_BOARDS_PER_USER` など)と
+//!   `CSP` `HSTS`: [`board_server::guard::Limits::from_env`] と docs/self-hosting.md を参照。
 //! - `ANTHROPIC_API_KEY`: 設定すると AI 機能(付箋の要約・グループ分け)が有効になる。
 //! - `ANTHROPIC_MODEL`(既定 `claude-opus-5-5`): AI 機能で使うモデル。
 //! - `PUBLIC_URL`: 公開している URL(例 `https://board.example.com/`)。Slack 通知のリンクに使う。
@@ -147,6 +151,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             Arc::new(board_server::oidc::Oidc::new(c))
         }),
         password_login: flag("PASSWORD_LOGIN", true),
+        limits: board_server::guard::Limits::from_env(flag("COOKIE_SECURE", false)),
     };
     if !config.password_login && config.oidc.is_none() {
         tracing::warn!(
