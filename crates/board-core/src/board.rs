@@ -227,6 +227,53 @@ impl Board {
         id
     }
 
+    /// 重なり順の値(大きいほど手前)。
+    pub fn z_of(&self, id: ElementId) -> Option<f64> {
+        self.index.get(&id).map(|&i| self.z[i])
+    }
+
+    /// 重なり順の範囲(最背面, 最前面)。
+    pub fn z_range(&self) -> (f64, f64) {
+        (
+            self.z.first().copied().unwrap_or(0.0),
+            self.z.last().copied().unwrap_or(0.0),
+        )
+    }
+
+    /// 重なり順を変える。
+    pub fn set_z(&mut self, changes: &[(ElementId, f64)]) {
+        let writes: Vec<_> = changes
+            .iter()
+            .filter_map(|&(id, z)| {
+                let &i = self.index.get(&id)?;
+                (self.z[i] != z).then(|| (id, Some((self.elements[i].clone(), z))))
+            })
+            .collect();
+        if !writes.is_empty() {
+            self.write(ORIGIN_LOCAL, writes);
+        }
+    }
+
+    /// 複数の要素をまとめて追加・置き換える(z は既存ならそのまま、新規は最前面に順に積む)。
+    pub fn push_many(&mut self, elements: Vec<Element>) {
+        let mut top = self.top_z();
+        let writes = elements
+            .into_iter()
+            .map(|e| {
+                let id = e.id();
+                let z = match self.index.get(&id) {
+                    Some(&i) => self.z[i],
+                    None => {
+                        top += 1.0;
+                        top
+                    }
+                };
+                (id, Some((e, z)))
+            })
+            .collect();
+        self.write(ORIGIN_LOCAL, writes);
+    }
+
     pub fn remove(&mut self, ids: &[ElementId]) -> usize {
         let present: Vec<_> = ids
             .iter()

@@ -4,6 +4,7 @@
 //! クライアント(WASM)とサーバーの両方から使う。
 
 pub mod api;
+pub mod arrange;
 pub mod board;
 pub mod camera;
 pub mod color;
