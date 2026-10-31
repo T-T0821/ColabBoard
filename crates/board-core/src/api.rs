@@ -39,6 +39,8 @@
 //! | `DELETE` | `/api/teams/{tid}` | チームを消す(オーナーのみ。ボードは作った人の個人ボードに戻る) |
 //! | `PUT` | `/api/teams/{tid}/members` | メンバーの追加・変更・削除([`SetTeamMember`] → [`Team`]) |
 //! | `PUT` | `/api/teams/{tid}/sso` | SSO 自動参加ドメインの設定([`TeamSso`] → [`Team`]、サーバー管理者のみ) |
+//! | `GET` | `/api/storage` | 選べるデータの保存場所([`StorageLocation`] の配列、要ログイン) |
+//! | `PUT` | `/api/teams/{tid}/storage` | チームのボードの保存場所を変え、中身を移す([`SetTeamStorage`] → [`Team`]、チームのオーナーのみ) |
 //! | `GET` | `/api/sso` | ログイン方法([`SsoStatus`]、ログイン不要) |
 //! | `GET` | `/api/sso/oidc/start?next=` | OpenID Connect でログインを始める(IdP へリダイレクト) |
 //! | `GET` | `/api/audit?team=&before=&limit=&action=` | 操作ログ([`AuditEvent`] の配列、新しい順。`team` 指定はチームの管理者、なしはサーバー管理者) |
@@ -286,6 +288,26 @@ pub struct Team {
     /// SSO でログインした人のメールがこのドメインなら、自動でメンバーにする。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sso_domains: Vec<String>,
+    /// チームのボードの中身を置く場所の ID([`StorageLocation`])。`None` はこのサーバー。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub storage: Option<String>,
+}
+
+/// サーバーの管理者が用意したデータの保存場所。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StorageLocation {
+    /// `local` はこのサーバー。
+    pub id: String,
+    pub label: String,
+    /// 種類と所在(`S3 互換(ap-northeast-1)` など)。
+    pub description: String,
+}
+
+/// チームの保存場所を変える。`location` が `None` か `local` ならこのサーバーに戻す。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SetTeamStorage {
+    #[serde(default)]
+    pub location: Option<String>,
 }
 
 /// SSO 自動参加ドメインの設定。
@@ -384,6 +406,7 @@ impl AuditEvent {
             "team.delete" => "チーム削除",
             "team.member" => "チームのメンバー変更",
             "team.settings" => "チームの設定変更",
+            "team.storage" => "保存場所の変更",
             "token.create" => "API トークン作成",
             "token.revoke" => "API トークン失効",
             other => other,

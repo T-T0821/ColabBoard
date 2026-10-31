@@ -252,6 +252,14 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `SLACK_WEBHOOK_PREFIXES` | `https://hooks.slack.com/` | Slack 通知を送ってよい Webhook URL の先頭(カンマ区切り)。これ以外の URL は登録できない |
 | `PLUGIN_DIR` | なし | ここにある `*.wasm` をサーバーのプラグインとして読み込む(全員が使える) |
 | `USER_PLUGINS` | `1` | `0` にすると各自がプラグインを入れるのを禁止(サーバーのプラグインだけになる) |
+| `ADMIN_LOGINS` | なし | サーバー管理者のログイン名(カンマ区切り)。全体の操作ログを見られ、チームの SSO 自動参加ドメインを設定できる |
+| `TRUST_PROXY` | `0` | `1` でリバースプロキシの `X-Forwarded-For` の先頭を操作ログの接続元にする |
+| `AUDIT_RETENTION_DAYS` | `365` | 操作ログを残す日数 |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_REDIRECT_URL` | なし | 4 つそろうと OpenID Connect の SSO が有効になる。コールバックは `https://…/api/sso/oidc/callback` |
+| `OIDC_NAME` / `OIDC_SCOPES` | `SSO` / `openid email profile` | ログイン画面のボタンの名前と、IdP に求めるスコープ |
+| `OIDC_ALLOWED_DOMAINS` | なし | SSO でログインできるメールのドメイン(カンマ区切り。確認済みのメールだけ) |
+| `PASSWORD_LOGIN` | `1` | `0` でパスワードのログインとアカウント作成を止める(SSO だけにする) |
+| `STORAGE_LOCATIONS` | なし | チームが選べるデータの保存場所(下の「組織で使う」を参照) |
 | `ICE_SERVERS` | Google の公開 STUN | 音声通話の STUN / TURN サーバー(`RTCIceServer` の JSON 配列)。会社のネットワーク越しなど直接つながらない相手と話すなら TURN を足す。例: `[{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]` |
 
 ### アカウントと権限
@@ -264,6 +272,20 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 - 編集権限のない人の WebSocket からの更新はサーバーが捨てる。共有設定を変えると参加者はつなぎ直し、権限を確かめ直す。
 - ログインせずに `?room=` で開いたボードは、これまでどおり誰でも編集できる。
 - API の一覧は `crates/board-core/src/api.rs` にある。
+
+### 組織で使う(チーム・SSO・操作ログ・保存場所)
+
+- **チーム**: ホームの「＋ チーム」で作り、ログイン名でメンバーを招待する。役割は メンバー / 管理者 / オーナー。チームのボードはメンバー全員が開け(既定は編集可、ボードごとに下げられる)、管理者はチームのボードすべてを管理できる。チームを消すとボードは作った人の個人ボードに戻る。
+- **SSO**: `OIDC_*` を設定すると、Okta・Entra ID・Google Workspace・Keycloak などでログインできる(認可コード + PKCE、ID トークンの署名を JWKS で検証)。初回ログインでアカウントができ、メールのドメインがチームの「SSO 自動参加ドメイン」と合えばそのチームに入る。同名のパスワードのアカウントには結びつけない。
+- **操作ログ**: ログイン(失敗も)・ボードやチームの作成と削除・共有設定・復元・API トークン・保存場所の変更を、接続元 IP とともに記録する。チームの管理者はチームのログ、サーバー管理者は全体のログをホームから見て CSV / JSON Lines で書き出せる。
+- **データの保存場所**: 管理者が `STORAGE_LOCATIONS` に保存場所を用意すると、チームのオーナーがチームのボードの中身(とバージョン履歴)を置く場所を選べる。切り替えると中身を移し、元の場所からは消す。ボード名・メンバー・コメント・操作ログはこのサーバーに残る。
+
+```sh
+STORAGE_LOCATIONS='tokyo=s3://graboard-tokyo/prod?region=ap-northeast-1&label=東京(AWS);r2=s3://graboard?endpoint=https://<account>.r2.cloudflarestorage.com&region=auto&label=Cloudflare R2;nas=file:///mnt/nas/graboard?label=社内 NAS'
+STORAGE_TOKYO_ACCESS_KEY_ID=…  STORAGE_TOKYO_SECRET_ACCESS_KEY=…   # なければ AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
+```
+
+`s3://` は S3 互換ストレージ(AWS S3・Cloudflare R2・MinIO・Backblaze B2・Wasabi など、署名は AWS Signature V4)、`file://` はサーバーから見えるディレクトリ。`endpoint` を省くと AWS、`style=virtual` で仮想ホスト形式の URL にする。
 
 ### 外部からの操作(REST API)
 

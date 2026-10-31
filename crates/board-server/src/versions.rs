@@ -52,7 +52,7 @@ pub fn create(
         elements: element_count(state),
         bytes: state.len(),
     };
-    store.put_seq_raw(VERSIONS, board, info.id, state)?;
+    store.version_put(board, info.id, state)?;
     store.put_seq(VERSION_INFO, board, info.id, &info)?;
     prune(store, board)?;
     Ok(info)
@@ -68,7 +68,7 @@ fn prune(store: &Store, board: &str) -> Result<(), StoreError> {
         .collect();
     if autos.len() > MAX_AUTO_VERSIONS {
         let old = &autos[..autos.len() - MAX_AUTO_VERSIONS];
-        store.remove_seq(VERSIONS, board, old)?;
+        store.version_remove(board, old)?;
         store.remove_seq(VERSION_INFO, board, old)?;
     }
     Ok(())
@@ -94,7 +94,7 @@ pub fn get_info(store: &Store, board: &str, id: u64) -> Result<Option<VersionInf
 }
 
 pub fn state(store: &Store, board: &str, id: u64) -> Result<Option<Vec<u8>>, StoreError> {
-    store.get_seq_raw(VERSIONS, board, id)
+    store.version_get(board, id)
 }
 
 pub fn rename(
@@ -112,6 +112,8 @@ pub fn rename(
 }
 
 pub fn delete_all(store: &Store, board: &str) -> Result<(), StoreError> {
+    let ids = store.seq_ids(VERSION_INFO, board)?;
+    store.version_remove(board, &ids)?;
     store.clear_seq(VERSIONS, board)?;
     store.clear_seq(VERSION_INFO, board)
 }

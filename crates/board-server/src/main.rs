@@ -29,6 +29,8 @@
 //! - `OIDC_ISSUER`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET`・`OIDC_REDIRECT_URL`: そろえると
 //!   OpenID Connect の SSO が有効になる。`OIDC_NAME`(ボタンの名前)・`OIDC_SCOPES`・
 //!   `OIDC_ALLOWED_DOMAINS`(ログインできるメールのドメイン、`,` 区切り)も設定できる。
+//! - `STORAGE_LOCATIONS`: チームが選べるデータの保存場所(S3 互換・ディレクトリ)。書き方は
+//!   [`board_server::storage`] を参照。
 //! - `PASSWORD_LOGIN`(既定 `1`): `0` でパスワードのログインとアカウント作成を止める(SSO のみ)。
 //! - `RUST_LOG`(既定 `info`)
 //!
@@ -119,6 +121,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         None
     };
 
+    let locations = board_server::storage::parse_locations(
+        &std::env::var("STORAGE_LOCATIONS").unwrap_or_default(),
+        |k| std::env::var(k).ok().filter(|v| !v.is_empty()),
+    )?;
+    for l in &locations {
+        tracing::info!("保存場所: {}({}、{})", l.id, l.label, l.description);
+    }
+    store.set_locations(locations);
     let hub = Arc::new(Hub::new(Arc::new(store)));
     let flusher = spawn_flusher(hub.clone());
     let config = Config {
