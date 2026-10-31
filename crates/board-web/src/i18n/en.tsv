@@ -345,7 +345,7 @@ AI が {n} 枚の付箋を読んでいます…	AI is reading {n} sticky notes�
 要約を付箋にしました	Added the summary as a sticky note
 {n} 個のグループに分けました	Grouped into {n} clusters
 画像の大きさが {n} です	The image size is {n}
-この版は PDF の取り込みに対応していません	This build can't import PDFs
+PDF の読み込み部品を起動できません	Could not start the PDF importer
 PDF を読めません: {n}	Cannot read the PDF: {n}
 ページを画像にできません	Cannot render the page
 PDF にページがありません	The PDF has no pages

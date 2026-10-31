@@ -49,7 +49,9 @@ DATA_DIR=/var/lib/graboard ./board-server
 ```
 
 `STATIC_DIR` を指定しない、かつ既定の `crates/board-web/dist` もない場合に、埋め込んだクライアントを配ります。
-ハッシュ付きのファイル(`*.wasm` `*.js` `*.css`)には長期キャッシュ、`index.html` と `sw.js` には `no-cache` を付けます。
+ハッシュ付きのファイル(`*.wasm` `*.js` `*.css`)には長期キャッシュ、それ以外(`index.html` `sw.js` など)には `no-cache` を付けます。
+`trunk build --release` は brotli / gzip で圧縮したファイル(`.br` `.gz`)も作るので、ブラウザが受け取れる形式で返します(wasm は約 1/4)。
+これは `STATIC_DIR` で配る場合も同じです。リバースプロキシ側で圧縮する必要はありません。
 
 ### systemd で常駐させる
 

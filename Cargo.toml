@@ -9,7 +9,9 @@ members = [
     "crates/board-bench",
     "crates/board-sdk",
     "crates/board-plugin",
+    "crates/board-pdf",
     "tools/cloud-icons",
+    "tools/precompress",
 ]
 
 [workspace.package]

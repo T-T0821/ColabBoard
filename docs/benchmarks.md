@@ -122,3 +122,19 @@ node tools/bench-web.mjs --sizes 100000 --nocull                      # ブロ�
 カリングなしは 10 万要素で 1 回の計測(630 フレーム)が 8 分以内に終わらなかった。
 
 実機の GPU での値は `node tools/bench-web.mjs --headed --webgpu` で測って、ここに追記する。
+
+## 3. 読み込みの軽さ(初回表示)
+
+ヘッドレス Chromium で、キャッシュなし・Service Worker なし(`?room=…&nosw&webgl`)で開き、
+最初のフレームを描くまでの時間(`window.__colabboardTimings.first_frame`)と転送量を測った。
+回線は CDP で 20 Mbps / 40 ms(4G 相当)に絞った。3 回のうち 2・3 回目の値(1 回目はブラウザの起動を含む)。
+
+| | 転送量 | 最初のフレーム |
+| --- | --- | --- |
+| 変更前(wasm 9.4 MB を圧縮せず配信) | 9.66 MB | 4.6〜4.9 秒 |
+| 変更後(PDF を別 wasm に、brotli で配信) | 1.80 MB | 1.4〜1.5 秒 |
+| 変更後 + その後の機能追加(Excel・draw.io 取り込みなど、本体 wasm 7.6 MB) | 2.21 MB | 1.7 秒 |
+
+- PDF の取り込み(hayro)を別の wasm(`board-pdf_bg.wasm`、3.3 MB / brotli 0.9 MB)にし、PDF が貼られたときに Web Worker で読み込む。本体の wasm は 9.4 MB → 6.4 MB
+- `trunk build --release` の後に `tools/precompress` が `.br` / `.gz` を作り、サーバーはブラウザが受け取れる形式をそのまま返す。本体の wasm は brotli で 1.76 MB
+- 日本語フォント(2.8 MB / brotli 1.4 MB)は以前から最初のフレームの後に読み込んでいる(読み込むまで文字以外を描く)
