@@ -761,3 +761,29 @@ Mermaid / PlantUML の図として読めませんでした	Could not read it as 
 本当にチームを削除	Really delete team
 チームを抜ける	Leave team
 チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。	Team boards are open to every member (can edit by default). Admins manage all team boards.
+操作ログ	Audit log
+全体の操作ログ	Audit log (all)
+日時	Time
+操作	Action
+実行者	Actor
+対象・内容	Target / details
+接続元	Source IP
+まだ記録がありません。	No entries yet.
+さらに古い記録	Older entries
+アカウント作成	Account created
+ログイン失敗	Sign-in failed
+SSO でログイン	Signed in with SSO
+ボード作成	Board created
+ボード名の変更	Board renamed
+ボード削除	Board deleted
+ボードのメンバー変更	Board members changed
+共有リンクの変更	Share link changed
+ボードのチーム変更	Board team changed
+バージョンの復元	Version restored
+チーム作成	Team created
+チーム名の変更	Team renamed
+チーム削除	Team deleted
+チームのメンバー変更	Team members changed
+チームの設定変更	Team settings changed
+API トークン作成	API token created
+API トークン失効	API token revoked

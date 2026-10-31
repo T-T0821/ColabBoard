@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::api::{Error, require_user};
+use crate::audit::{self, Entry};
 use crate::auth::{self, now_ms, random_id};
 use crate::boards;
 use crate::store::{Store, StoreError, TEAMS, USER_TEAMS};
@@ -257,6 +258,14 @@ async fn create_team(
     let user = require_user(&state, &headers)?;
     let team = create(state.store(), &user.login, &req.name)?;
     tracing::info!(team = %team.id, owner = %user.login, "チーム作成");
+    audit::record(
+        &state,
+        &headers,
+        Entry::new("team.create")
+            .actor(&user.login)
+            .team(Some(&team.id))
+            .detail(&team.name),
+    );
     Ok((StatusCode::CREATED, Json(team.view(TeamRole::Owner))))
 }
 
@@ -284,6 +293,14 @@ async fn rename_team(
     team.name = clean_team_name(&req.name)
         .ok_or_else(|| Error::bad_request("チームの名前を入れてください"))?;
     put_team(state.store(), &team)?;
+    audit::record(
+        &state,
+        &headers,
+        Entry::new("team.rename")
+            .actor(&user.login)
+            .team(Some(&team.id))
+            .detail(&team.name),
+    );
     Ok(Json(team.view(role)))
 }
 
@@ -297,6 +314,14 @@ async fn delete_team(
     if role != TeamRole::Owner {
         return Err(Error::forbidden());
     }
+    audit::record(
+        &state,
+        &headers,
+        Entry::new("team.delete")
+            .actor(&user.login)
+            .team(Some(&team.id))
+            .detail(&team.name),
+    );
     for id in delete(state.store(), &team)? {
         state.hub.kick(&id);
     }
@@ -327,6 +352,15 @@ async fn set_member(
         MemberError::Invalid(m) => Error::bad_request(m),
     })?;
     save_member_change(state.store(), &team, &login)?;
+    audit::record(
+        &state,
+        &headers,
+        Entry::new("team.member")
+            .actor(&user.login)
+            .team(Some(&tid))
+            .target(&login)
+            .detail(req.role.map_or("removed", TeamRole::as_str)),
+    );
     kick_team_boards(&state, &tid)?;
     // 自分が抜けたあとは自分の役割がない。
     let my_role = team
