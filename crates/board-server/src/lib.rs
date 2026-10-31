@@ -12,6 +12,7 @@ pub mod ai;
 pub mod api;
 pub mod auth;
 pub mod boards;
+pub mod comments;
 pub mod room;
 pub mod store;
 

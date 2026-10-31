@@ -414,7 +414,9 @@ body[data-role="commenter"] .collab,
 body[data-role="viewer"] .diagram-toggle,
 body[data-role="commenter"] .diagram-toggle,
 body[data-role="viewer"] .diagram-panel,
-body[data-role="commenter"] .diagram-panel { display: none; }
+body[data-role="commenter"] .diagram-panel,
+body[data-role="viewer"] .format-bar,
+body[data-role="commenter"] .format-bar { display: none !important; }
 
 /* ---- 共有パネル ---- */
 .share-panel {
@@ -575,3 +577,127 @@ body.home-mode > :not(#home):not(#error) { display: none !important; }
   70% { opacity: 1; }
   100% { opacity: 0; transform: translate(-50%, -180%) scale(1); }
 }
+
+/* ---- コメント ---- */
+body:not([data-comments="on"]) #comments-toggle,
+body:not([data-comments="on"]) #notif-button,
+body:not([data-comments="on"]) #comment-pins { display: none; }
+#notif-button:empty { display: none; }
+#comments-toggle { white-space: nowrap; }
+#comments-toggle[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); }
+.count {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+#notif-button { position: relative; padding: 3px 6px; display: inline-flex; align-items: center; }
+#notif-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linejoin: round; }
+#notif-button .count { position: absolute; top: -6px; right: -6px; background: #e5484d; }
+
+#comment-pins { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+.comment-pin {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  margin: -28px 0 0 0;
+  padding: 0;
+  border-radius: 14px 14px 14px 2px;
+  border: 2px solid #fff;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 650;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+  pointer-events: auto;
+  will-change: transform;
+}
+.comment-pin:hover { color: #fff; filter: brightness(1.1); }
+.comment-pin[data-state="open"] { background: #1a4fc4; outline: 2px solid #c9dafc; }
+.comment-pin[data-state="resolved"] { background: #9b9b9b; }
+
+.comment-popover {
+  width: min(340px, calc(100vw - 16px));
+  max-height: min(480px, calc(100vh - 16px));
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 12px;
+  overflow-y: auto;
+  user-select: text;
+  z-index: 15;
+}
+.comment-popover form { display: flex; flex-direction: column; gap: 6px; }
+.comment-popover textarea {
+  font: inherit;
+  width: 100%;
+  resize: vertical;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.comment-popover textarea:focus { outline: 2px solid #c9dafc; border-color: var(--accent); }
+.thread-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.thread-items .body { margin: 2px 0 0 30px; white-space: normal; overflow-wrap: anywhere; }
+.avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #e8f0fe;
+  color: var(--accent);
+  display: inline-grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 650;
+  flex: none;
+}
+.mention { color: var(--accent); font-weight: 600; }
+
+.comments-panel {
+  top: 56px;
+  right: 12px;
+  width: min(320px, calc(100vw - 24px));
+  max-height: calc(100vh - 140px);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 12px;
+  overflow-y: auto;
+  user-select: text;
+  z-index: 12;
+}
+.threads, .notif-menu ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.threads .thread, .notif-menu .notif {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px 8px;
+  border-color: transparent;
+  text-align: left;
+}
+.threads .thread:hover, .notif-menu .notif:hover { background: #f5f8ff; color: inherit; }
+.threads .thread.open { background: #eef3fe; }
+.excerpt { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notif-menu {
+  top: 56px;
+  right: 12px;
+  width: min(340px, calc(100vw - 24px));
+  max-height: calc(100vh - 140px);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  padding: 10px 12px;
+  overflow-y: auto;
+  z-index: 16;
+}
+.notif-menu .notif.unread { background: #f5f8ff; }
+.notif-menu .notif.unread strong::before { content: "● "; color: var(--accent); font-size: 9px; vertical-align: 2px; }

@@ -10,13 +10,15 @@ use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use board_core::api::{
-    ApiError, BoardInfo, Login, Me, NewBoard, RenameBoard, Role, SetLink, SetMember, Sharing,
-    Signup,
+    ApiError, BoardInfo, Comment, EditComment, Login, MarkRead, Me, NewBoard, NewComment,
+    Notification, Posted, RenameBoard, Role, SetLink, SetMember, Sharing, Signup,
 };
+use board_core::protocol::TOPIC_COMMENTS;
 use serde::Deserialize;
 
 use crate::auth::{self, AuthError, SESSION_COOKIE, UserRecord};
 use crate::boards::{self, BoardMeta, Visitor};
+use crate::comments::{self, CommentError};
 use crate::store::StoreError;
 use crate::{AppState, valid_room_name};
 
@@ -34,6 +36,16 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/boards/{id}/sharing", get(sharing))
         .route("/boards/{id}/members", put(set_member))
         .route("/boards/{id}/link", put(set_link))
+        .route(
+            "/boards/{id}/comments",
+            get(list_comments).post(post_comment),
+        )
+        .route(
+            "/boards/{id}/comments/{cid}",
+            axum::routing::patch(edit_comment).delete(delete_comment),
+        )
+        .route("/notifications", get(notifications))
+        .route("/notifications/read", post(mark_read))
 }
 
 // ---- エラー ----
@@ -82,6 +94,17 @@ impl From<AuthError> for Error {
         match e {
             AuthError::Invalid(m) => Self::bad_request(m),
             AuthError::Internal(e) => e.into(),
+        }
+    }
+}
+
+impl From<CommentError> for Error {
+    fn from(e: CommentError) -> Self {
+        match e {
+            CommentError::Invalid(m) => Self::bad_request(m),
+            CommentError::NotFound => Self::new(StatusCode::NOT_FOUND, "コメントが見つかりません"),
+            CommentError::Forbidden => Self::forbidden(),
+            CommentError::Store(e) => e.into(),
         }
     }
 }
@@ -298,6 +321,7 @@ async fn delete_board(
     meta.updated = auth::now_ms();
     boards::put(state.store(), &meta)?;
     boards::forget(state.store(), &user.login, &id)?;
+    comments::delete_all(state.store(), &id)?;
     state.hub.delete(&id)?;
     tracing::info!(board = %id, "ボード削除");
     Ok(StatusCode::NO_CONTENT)
@@ -364,4 +388,96 @@ async fn set_link(
     boards::put(state.store(), &meta)?;
     state.hub.kick(&id);
     Ok(Json(meta.sharing()))
+}
+
+// ---- コメント ----
+
+async fn list_comments(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<KeyQuery>,
+) -> ApiResult<Json<Vec<Comment>>> {
+    let user = current_user(&state, &headers)?;
+    board_access(
+        &state,
+        &id,
+        user.as_ref().map(|u| u.login.as_str()),
+        q.key.as_deref(),
+    )?;
+    Ok(Json(comments::list(state.store(), &id)?))
+}
+
+async fn post_comment(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(q): Query<KeyQuery>,
+    Json(req): Json<NewComment>,
+) -> ApiResult<(StatusCode, Json<Posted>)> {
+    let user = require_user(&state, &headers)?;
+    let (meta, role) = board_access(&state, &id, Some(&user.login), q.key.as_deref())?;
+    if !role.can_comment() {
+        return Err(Error::forbidden());
+    }
+    let posted = comments::post(
+        state.store(),
+        meta.as_ref(),
+        &id,
+        &user,
+        req,
+        state.config.anonymous_boards,
+    )?;
+    // コメントしたボードは一覧に載せる。
+    boards::remember(state.store(), &user.login, &id, q.key.as_deref())?;
+    state.hub.refresh(&id, TOPIC_COMMENTS);
+    Ok((StatusCode::CREATED, Json(posted)))
+}
+
+async fn edit_comment(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, cid)): Path<(String, u64)>,
+    Query(q): Query<KeyQuery>,
+    Json(req): Json<EditComment>,
+) -> ApiResult<Json<Comment>> {
+    let user = require_user(&state, &headers)?;
+    let (_, role) = board_access(&state, &id, Some(&user.login), q.key.as_deref())?;
+    if !role.can_comment() {
+        return Err(Error::forbidden());
+    }
+    let c = comments::edit(state.store(), &id, cid, &user, role, req)?;
+    state.hub.refresh(&id, TOPIC_COMMENTS);
+    Ok(Json(c))
+}
+
+async fn delete_comment(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path((id, cid)): Path<(String, u64)>,
+    Query(q): Query<KeyQuery>,
+) -> ApiResult<StatusCode> {
+    let user = require_user(&state, &headers)?;
+    let (_, role) = board_access(&state, &id, Some(&user.login), q.key.as_deref())?;
+    comments::delete(state.store(), &id, cid, &user, role)?;
+    state.hub.refresh(&id, TOPIC_COMMENTS);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn notifications(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> ApiResult<Json<Vec<Notification>>> {
+    let user = require_user(&state, &headers)?;
+    Ok(Json(comments::notifications(state.store(), &user.login)?))
+}
+
+async fn mark_read(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<MarkRead>,
+) -> ApiResult<StatusCode> {
+    let user = require_user(&state, &headers)?;
+    comments::mark_read(state.store(), &user.login, req.ids.as_deref())?;
+    Ok(StatusCode::NO_CONTENT)
 }
