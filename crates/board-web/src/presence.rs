@@ -56,6 +56,13 @@ impl Identity {
     }
 }
 
+/// ログインしたときの表示名を、次回からのカーソルの名前にする。
+pub fn remember_name(window: &Window, name: &str) {
+    if let Ok(Some(s)) = window.local_storage() {
+        let _ = s.set_item("colabboard.name", name);
+    }
+}
+
 struct Peer {
     presence: Presence,
     el: HtmlElement,

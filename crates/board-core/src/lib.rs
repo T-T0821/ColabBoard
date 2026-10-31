@@ -10,6 +10,7 @@ pub mod camera;
 pub mod color;
 pub mod connector;
 mod crdt;
+pub mod diagram;
 pub mod editor;
 pub mod element;
 pub mod geom;
@@ -26,6 +27,6 @@ pub use editor::{Editor, Modifiers, Tool};
 pub use element::{Cap, Connector, Element, ElementId, Endpoint, Meta, PathStyle, Stroke};
 pub use geom::Rect;
 pub use navigation::Navigator;
-pub use shape::{Shape, ShapeKind, TextAlign};
+pub use shape::{Shape, ShapeKind, TextAlign, TextBox, TextStyle};
 
 pub use glam::{Mat4, Vec2};

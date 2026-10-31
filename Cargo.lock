@@ -214,6 +214,7 @@ dependencies = [
  "bytemuck",
  "glam",
  "serde",
+ "serde_json",
  "yrs",
 ]
 
@@ -265,6 +266,8 @@ dependencies = [
  "glam",
  "js-sys",
  "log",
+ "serde",
+ "serde_json",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
