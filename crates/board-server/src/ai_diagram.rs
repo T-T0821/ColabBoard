@@ -1,6 +1,6 @@
 //! 生成 AI で図を作る。
 //!
-//! `POST /api/boards/{id}/ai/diagram?key=` に `{ "prompt": "…", "mode": "auto" | "aws" | "flowchart" }`
+//! `POST /api/boards/{id}/ai/diagram?key=` に `{ "prompt": "…", "mode": "auto" | "aws" | "azure" | "gcp" | "flowchart" }`
 //! を送ると、Claude が `board_core::diagram::DiagramSpec`(グループ・ノード・矢印の JSON)を返す。
 //! レイアウトと要素への変換はクライアントが行う(自分の操作として Undo でき、そのまま同期される)。
 //! Claude API の呼び出しと呼びすぎの制限は付箋の AI 機能([`crate::ai`])と共通。
@@ -31,6 +31,8 @@ pub enum Mode {
     #[default]
     Auto,
     Aws,
+    Azure,
+    Gcp,
     Flowchart,
 }
 
@@ -43,10 +45,14 @@ Output only the diagram object. The whiteboard lays it out automatically, so giv
 structure, not coordinates:
 - groups: nested frames. Use `parent` to nest (empty string for top level). For AWS \
 architecture, nest like aws_cloud > region > vpc > availability_zone > public_subnet / \
-private_subnet. Use `generic` for any other kind of grouping (team, phase, system).
+private_subnet. For Azure: azure_subscription > azure_region > azure_resource_group > \
+azure_vnet > azure_subnet. For Google Cloud: gcp_project > gcp_region > gcp_vpc > \
+gcp_subnet (gcp_zone inside a region when zones matter). Use `generic` for any other \
+kind of grouping (team, phase, system).
 - nodes: one per component or step. `group` is the id of the innermost group that \
 contains it (empty string if none). `kind` must be one of the listed kinds; pick the \
-specific AWS service when one fits, `users`/`client`/`internet` for actors outside AWS, \
+specific cloud service when one fits (AWS kinds have no prefix, Azure kinds start \
+with azure_, Google Cloud kinds with gcp_; stay within the provider the user names), `users`/`client`/`internet` for actors outside AWS, \
 and process/decision/terminal/data/note for flowcharts and general diagrams. \
 `label` is a short name (about 2-12 characters): for an AWS service do not repeat the \
 service name, describe its role instead (e.g. 'Web サーバー'), or leave it empty.
@@ -63,6 +69,8 @@ fn mode_hint(mode: Mode) -> &'static str {
     match mode {
         Mode::Auto => "",
         Mode::Aws => "\n\n(Draw this as an AWS architecture diagram.)",
+        Mode::Azure => "\n\n(Draw this as a Microsoft Azure architecture diagram.)",
+        Mode::Gcp => "\n\n(Draw this as a Google Cloud architecture diagram.)",
         Mode::Flowchart => "\n\n(Draw this as a flowchart, direction 'down'.)",
     }
 }
@@ -215,6 +223,8 @@ mod tests {
     fn mode_adds_hint() {
         assert_eq!(user_message(" VPC ", Mode::Auto), "VPC");
         assert!(user_message("x", Mode::Aws).contains("AWS"));
+        assert!(user_message("x", Mode::Azure).contains("Azure"));
+        assert!(user_message("x", Mode::Gcp).contains("Google Cloud"));
         assert!(user_message("x", Mode::Flowchart).contains("flowchart"));
     }
 

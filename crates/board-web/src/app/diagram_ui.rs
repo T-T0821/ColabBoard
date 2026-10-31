@@ -114,6 +114,8 @@ fn category_name(c: catalog::Category) -> &'static str {
         Frontend => "フロントエンド",
         DevTools => "開発ツール",
         General => "一般",
+        Azure => "Microsoft Azure",
+        GoogleCloud => "Google Cloud",
         Flow => "フローチャート",
     }
 }
