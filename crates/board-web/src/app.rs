@@ -16,6 +16,7 @@ use web_sys::{
 
 mod actions;
 mod ai;
+mod ai_board;
 mod collab;
 mod comments;
 mod export;
@@ -23,6 +24,7 @@ mod follow;
 mod format_bar;
 mod history;
 mod imports;
+mod ink_ui;
 mod issues;
 mod media;
 mod offline;
@@ -1656,6 +1658,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     })?;
     collab::install(app, doc)?;
     ai::install(app, doc)?;
+    ai_board::install(app, doc)?;
     follow::install(app, doc)?;
     comments::install(app, doc)?;
     history::install(app)?;

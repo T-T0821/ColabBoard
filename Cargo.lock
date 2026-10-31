@@ -278,11 +278,13 @@ version = "0.1.0"
 dependencies = [
  "argon2",
  "axum",
+ "base64 0.22.1",
  "blake2",
  "board-core",
  "futures-util",
  "getrandom 0.3.4",
  "http-body-util",
+ "image",
  "redb",
  "reqwest",
  "rust-embed",

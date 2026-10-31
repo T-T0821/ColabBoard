@@ -162,7 +162,7 @@ pub(super) fn install(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), Stri
         prompt: by_id(doc, "ai-prompt")?,
         mode: by_id(doc, "ai-mode")?,
         button: by_id(doc, "ai-generate")?,
-        status: by_id(doc, "ai-status")?,
+        status: by_id(doc, "ai-diagram-status")?,
     };
     {
         let app = app.clone();

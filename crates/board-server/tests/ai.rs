@@ -198,3 +198,125 @@ async fn errors_without_key_or_room() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(seen.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn ink_sends_image_and_validates_items() {
+    use board_core::Stroke;
+    let hub = Arc::new(Hub::new(Arc::new(Store::memory())));
+    let m = hub.join("ink-room");
+    let mut b = Board::new();
+    b.apply_remote(&m.room.snapshot()).unwrap();
+    let mut ids = Vec::new();
+    for y in [0.0, 300.0] {
+        let id = b.alloc_id();
+        let mut s = Stroke::new(id, Vec2::new(0.0, y), Rgba8::BLACK, 4.0);
+        s.points.push(Vec2::new(200.0, y + 100.0));
+        b.push(s);
+        ids.push(hex(id));
+    }
+    for u in b.take_outgoing() {
+        m.room.apply(&u).unwrap();
+    }
+    let (url, seen) = fake_claude(json!({
+        "items": [
+            { "kind": "rect", "strokes": [ids[0], "deadbeef"], "text": "" },
+            { "kind": "text", "strokes": [ids[1]], "text": "受付" },
+            { "kind": "frame", "strokes": [ids[1]], "text": "" },
+        ]
+    }))
+    .await;
+    let app = router(
+        hub.clone(),
+        Config {
+            ai: ai(&url),
+            ..Config::default()
+        },
+    );
+    let (status, body) =
+        post_json(&app, "/api/boards/ink-room/ai/ink", json!({ "ids": ids })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["items"],
+        json!([
+            { "kind": "rect", "strokes": [ids[0]], "text": "" },
+            { "kind": "text", "strokes": [ids[1]], "text": "受付" },
+        ])
+    );
+    let content = seen.lock().unwrap()[0].1["messages"][0]["content"].clone();
+    assert_eq!(content[0]["type"], "image");
+    assert_eq!(content[0]["source"]["media_type"], "image/png");
+    assert!(content[1]["text"].as_str().unwrap().contains(&ids[1]));
+
+    // 線を選んでいなければ Claude を呼ばずに断る。
+    let (status, _) = post_json(&app, "/api/boards/ink-room/ai/ink", json!({ "ids": [] })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn ask_and_minutes_read_the_board() {
+    let hub = Arc::new(Hub::new(Arc::new(Store::memory())));
+    let (_m, ids) = seed(&hub, "ask-room");
+    let (url, seen) = fake_claude(json!({
+        "answer": "速さが大事という意見が 2 つあります",
+        "refs": [ids[2], "deadbeef", ids[0]],
+    }))
+    .await;
+    let app = router(
+        hub.clone(),
+        Config {
+            ai: ai(&url),
+            ..Config::default()
+        },
+    );
+    let (status, body) = post_json(
+        &app,
+        "/api/boards/ask-room/ai/ask",
+        json!({ "question": "何が大事?", "ids": ids, "history": [{ "q": "前", "a": "答え" }] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["refs"], json!([ids[2], ids[0]]));
+    let prompt = seen.lock().unwrap()[0].1["messages"][0]["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(prompt.contains("<question>何が大事?</question>"));
+    assert!(prompt.contains("<q>前</q>"));
+    assert!(prompt.contains("安くしたい"));
+
+    // 空の質問は Claude を呼ばずに断る。
+    let (status, _) = post_json(
+        &app,
+        "/api/boards/ask-room/ai/ask",
+        json!({ "question": " " }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (url, _) = fake_claude(json!({
+        "title": "改善会議", "summary": "速さが論点。", "topics": [],
+        "decisions": ["速度を優先"], "actions": [{ "task": "計測", "owner": "", "due": "" }],
+        "open_questions": [],
+    }))
+    .await;
+    let app = router(
+        hub.clone(),
+        Config {
+            ai: ai(&url),
+            ..Config::default()
+        },
+    );
+    let (status, body) = post_json(
+        &app,
+        "/api/boards/ask-room/ai/minutes",
+        json!({ "ids": ids, "date": "2026-10-31<x>" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let md = body["markdown"].as_str().unwrap();
+    assert!(
+        md.starts_with("# 議事録: 改善会議\n\n2026-10-31 作成(AI)"),
+        "{md}"
+    );
+    assert!(md.contains("| 計測 | — | — |"));
+}
