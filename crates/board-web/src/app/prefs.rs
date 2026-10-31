@@ -22,6 +22,7 @@ impl App {
             self.editor.load_prefs(&s);
         }
         SAVED.with(|v| *v.borrow_mut() = self.editor.save_prefs());
+        self.show_sticky_mode();
         // ツールバーの図形ボタンの絵を、覚えていた図形にする。
         if let Some(svg) = self
             .document
@@ -29,6 +30,19 @@ impl App {
             .and_then(|b| b.first_element_child())
         {
             svg.set_inner_html(&super::toolbar::icon(self.editor.shape_kind));
+        }
+    }
+
+    /// 付箋ツールのボタンに、次の付箋が縦書きかを出す。
+    fn show_sticky_mode(&self) {
+        if let Some(b) = self.document.get_element_by_id("tool-sticky") {
+            if self.editor.sticky_vertical {
+                let _ = b.set_attribute("data-vertical", "");
+                let _ = b.set_attribute("data-tip", "付箋・縦書き");
+            } else {
+                let _ = b.remove_attribute("data-vertical");
+                let _ = b.set_attribute("data-tip", "付箋");
+            }
         }
     }
 
@@ -42,6 +56,7 @@ impl App {
         if let Some(s) = storage(self) {
             let _ = s.set_item(KEY, &now);
         }
+        self.show_sticky_mode();
         SAVED.with(|v| *v.borrow_mut() = now);
     }
 }

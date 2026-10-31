@@ -337,6 +337,8 @@ pub struct Editor {
     pending_edit: Option<ElementId>,
     pub shape_fill: Rgba8,
     pub sticky_color: Rgba8,
+    /// 新しい付箋を縦書きにするか(最後に付箋で選んだ書き方)。
+    pub sticky_vertical: bool,
     pub pen_color: Rgba8,
     pub pen_width: f32,
     pub highlighter_color: Rgba8,
@@ -376,6 +378,7 @@ impl Editor {
             pending_edit: None,
             shape_fill: Rgba8::WHITE,
             sticky_color: STICKY_COLORS[0],
+            sticky_vertical: false,
             pen_color: Rgba8::BLACK,
             pen_width: 3.0,
             highlighter_color: Rgba8([0xff, 0xe0, 0x33, 0x66]),
@@ -433,10 +436,30 @@ impl Editor {
         self.stamp = stamp;
     }
 
+    /// 次に作る付箋(最後に使った色と書き方)。
+    pub fn new_sticky(&self, id: ElementId, pos: Vec2) -> Shape {
+        let mut s = Shape::sticky(id, pos, self.sticky_color);
+        s.vertical = self.sticky_vertical;
+        s
+    }
+
+    /// 選択中の付箋を縦書き・横書きにしたら、次に作る付箋も同じ書き方にする。
+    pub fn note_vertical(&mut self, board: &Board, vertical: bool) {
+        let sticky = self.selection.iter().any(|id| {
+            board
+                .get(*id)
+                .and_then(|e| e.as_shape())
+                .is_some_and(|s| s.kind == ShapeKind::Sticky)
+        });
+        if sticky {
+            self.sticky_vertical = vertical;
+        }
+    }
+
     /// 次回も使う設定(最後に使った色・図形など)を文字列にする。`load_prefs` で戻せる。
     pub fn save_prefs(&self) -> String {
         format!(
-            "shape={};fill={};sticky={};pen={};pw={};hl={};path={};stamp={}",
+            "shape={};fill={};sticky={};pen={};pw={};hl={};path={};stamp={};sv={}",
             self.shape_kind.name(),
             self.shape_fill.to_hex(),
             self.sticky_color.to_hex(),
@@ -445,6 +468,7 @@ impl Editor {
             self.highlighter_color.to_hex(),
             self.connector_style.name(),
             self.stamp.name,
+            u8::from(self.sticky_vertical),
         )
     }
 
@@ -461,6 +485,7 @@ impl Editor {
                 }
                 "fill" => self.shape_fill = Rgba8::parse_hex(v).unwrap_or(self.shape_fill),
                 "sticky" => self.sticky_color = Rgba8::parse_hex(v).unwrap_or(self.sticky_color),
+                "sv" => self.sticky_vertical = v == "1",
                 "pen" => self.pen_color = Rgba8::parse_hex(v).unwrap_or(self.pen_color),
                 "pw" => {
                     if let Ok(w) = v.parse::<f32>()
@@ -499,7 +524,7 @@ impl Editor {
     pub fn create_at(&mut self, board: &mut Board, center: Vec2) -> Option<ElementId> {
         let id = board.alloc_id();
         let shape = match self.tool {
-            Tool::Sticky => Shape::sticky(id, Vec2::ZERO, self.sticky_color),
+            Tool::Sticky => self.new_sticky(id, Vec2::ZERO),
             Tool::Shape => Shape::new(
                 id,
                 self.shape_kind,
@@ -862,7 +887,7 @@ impl Editor {
             }
             Tool::Sticky => {
                 let id = board.alloc_id();
-                let mut note = Shape::sticky(id, world, self.sticky_color);
+                let mut note = self.new_sticky(id, world);
                 note.pos = world - note.size * 0.5;
                 board.push(note);
                 self.selection = vec![id];
@@ -1216,6 +1241,7 @@ mod tests {
         e.highlighter_color = Rgba8([1, 2, 3, 0x66]);
         e.pen_width = 6.0;
         e.connector_style = PathStyle::Curved;
+        e.sticky_vertical = true;
         let saved = e.save_prefs();
         let mut f = Editor::new();
         f.load_prefs(&saved);
@@ -1224,6 +1250,30 @@ mod tests {
         // 壊れた値は無視する。
         f.load_prefs("shape=sticky;fill=#zz;pw=999;junk");
         assert_eq!(f.save_prefs(), saved);
+    }
+
+    #[test]
+    fn vertical_sticky_becomes_the_next_default() {
+        let mut b = Board::new();
+        let mut e = Editor::new();
+        let id = b.alloc_id();
+        b.push(Shape::sticky(id, Vec2::ZERO, STICKY_COLORS[0]));
+        e.set_selection(vec![id]);
+        e.note_vertical(&b, true);
+        assert!(e.sticky_vertical);
+        assert!(e.new_sticky(ElementId(99), Vec2::ZERO).vertical);
+        // 付箋以外を縦書きにしても付箋の既定は変えない。
+        let r = b.alloc_id();
+        b.push(Shape::new(
+            r,
+            ShapeKind::Rect,
+            Vec2::ZERO,
+            Vec2::splat(10.0),
+            Rgba8::WHITE,
+        ));
+        e.set_selection(vec![r]);
+        e.note_vertical(&b, false);
+        assert!(e.sticky_vertical);
     }
 
     #[test]

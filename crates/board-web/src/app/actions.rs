@@ -325,7 +325,7 @@ impl App {
             .cursor_world
             .unwrap_or_else(|| self.camera.screen_to_world(self.camera.viewport * 0.5));
         let id = self.board.alloc_id();
-        let mut note = board_core::Shape::sticky(id, target, self.editor.sticky_color);
+        let mut note = self.editor.new_sticky(id, target);
         note.pos = target - note.size * 0.5;
         note.text = text.chars().take(2000).collect();
         self.board.end_gesture();
