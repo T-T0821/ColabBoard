@@ -128,7 +128,8 @@ pub fn node_shape(id: ElementId, kind: &NodeKind, label: &str, pos: Vec2) -> Sha
             stroke: kind.category.color(),
             stroke_width: 3.0,
             corner_radius: 10.0,
-            ..Shape::rect(id, pos, Vec2::new(180.0, 90.0), kind.category.fill())
+            icon: kind.id.to_string(),
+            ..Shape::rect(id, pos, Vec2::new(220.0, 90.0), kind.category.fill())
         },
         NodeStyle::Process => Shape::rect(id, pos, Vec2::new(200.0, 90.0), Rgba8::WHITE),
         NodeStyle::Data => Shape::new(
@@ -190,6 +191,9 @@ pub fn group_shape(id: ElementId, kind: &GroupKind, label: &str, rect: Rect) -> 
     s.text = group_title(kind, label);
     s.text_color = kind.color();
     s.font_size = GROUP_FONT;
+    if kind.id != "generic" {
+        s.icon = format!("group:{}", kind.id);
+    }
     s
 }
 

@@ -83,7 +83,7 @@ tools/fetch-cloud-icons.sh                    # 3 社ともダウンロード
 tools/fetch-cloud-icons.sh --aws ~/Downloads/Icon-package.zip   # 手元の ZIP を使う
 ```
 
-配布 URL が変わってダウンロードに失敗したときは、[AWS](https://aws.amazon.com/architecture/icons/)・[Azure](https://learn.microsoft.com/azure/architecture/icons/)・[Google Cloud](https://cloud.google.com/icons) のページから ZIP を取得して `--aws` / `--azure` / `--gcp` で渡してください。取り込んでいない部品は色付きの図形で表示されます。
+配布 URL が変わってダウンロードに失敗したときは、[AWS](https://aws.amazon.com/architecture/icons/)・[Azure](https://learn.microsoft.com/azure/architecture/icons/)・[Google Cloud](https://cloud.google.com/icons) のページから ZIP を取得して `--aws` / `--azure` / `--gcp` で渡してください。取り込むと、構成図の部品は左側に、枠は左上の角に公式アイコンが付きます(アイコンは各自のブラウザで描くので、ボードのデータには種類の名前だけが入ります)。取り込んでいない部品は色付きの図形で表示されます。
 
 ## 使い方
 

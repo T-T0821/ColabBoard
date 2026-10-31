@@ -123,6 +123,9 @@ pub struct Shape {
     pub meta: Meta,
     /// 画像のバイト列(`ShapeKind::Image` のときだけ)。
     pub image: Option<ImageData>,
+    /// 図形の中に描くアイコンの名前(構成図の部品の種類。例: `ec2`、`group:vpc`)。
+    /// 空ならアイコンなし。アイコンの画像は描画側が名前から探し、なければ描かない。
+    pub icon: String,
 }
 
 /// 画像のバイト列(PNG / JPEG)。複製しても中身は共有する。
@@ -192,6 +195,12 @@ pub fn estimate_text_height(text: &str, width: f32, style: &TextStyle) -> f32 {
 
 /// フレームの見出しの高さ(ワールド単位)。
 pub const FRAME_TITLE_HEIGHT: f32 = 32.0;
+/// 図形の中のアイコンの一辺の上限。
+pub const ICON_SIZE: f32 = 48.0;
+/// フレームの左上に置くアイコンの一辺。
+pub const FRAME_ICON_SIZE: f32 = 32.0;
+const ICON_PAD: f32 = 14.0;
+const ICON_GAP: f32 = 8.0;
 
 impl Shape {
     /// 画像の図形を作る。
@@ -242,6 +251,7 @@ impl Shape {
             text_color: Rgba8::BLACK,
             meta: Meta::default(),
             image: None,
+            icon: String::new(),
         }
     }
 
@@ -295,6 +305,7 @@ impl Shape {
             text_color: Rgba8::BLACK,
             meta: Meta::default(),
             image: None,
+            icon: String::new(),
         }
     }
 
@@ -374,7 +385,32 @@ impl Shape {
         let half = b.size() * 0.5 * Vec2::new(fx, fy);
         let half = (half - glam::Vec2::splat(pad)).max(glam::Vec2::ZERO);
         let center = b.center() + Vec2::new(0.0, b.size().y * dy * 0.5);
-        Rect::new(center - half, center + half)
+        let mut r = Rect::new(center - half, center + half);
+        // アイコンの右側に文字を置く。
+        if let Some(icon) = self.icon_rect() {
+            r.min.x = (icon.max.x + ICON_GAP).min(r.max.x);
+        }
+        r
+    }
+
+    /// アイコンを描く矩形(ワールド座標)。アイコンがなければ `None`。
+    ///
+    /// フレームは左上の角に、それ以外は左端に縦中央で置く。
+    pub fn icon_rect(&self) -> Option<Rect> {
+        if self.icon.is_empty() || self.kind == ShapeKind::Image {
+            return None;
+        }
+        let b = self.bounds();
+        if self.kind == ShapeKind::Frame {
+            let side = FRAME_ICON_SIZE.min(b.size().x).min(b.size().y);
+            return Some(Rect::new(b.min, b.min + Vec2::splat(side)));
+        }
+        let side = ICON_SIZE
+            .min(b.size().y - 2.0 * ICON_PAD)
+            .min(b.size().x * 0.4)
+            .max(0.0);
+        let min = Vec2::new(b.min.x + ICON_PAD, b.center().y - side * 0.5);
+        Some(Rect::new(min, min + Vec2::splat(side)))
     }
 
     /// 文字の表示を切り取る範囲。
@@ -496,6 +532,32 @@ mod tests {
         assert!(e.contains(Vec2::new(50.0, 25.0)));
         // 外接矩形の角は楕円の外。
         assert!(!e.contains(Vec2::new(2.0, 2.0)));
+    }
+
+    #[test]
+    fn icon_sits_left_of_text() {
+        let mut s = Shape::rect(
+            ElementId(1),
+            Vec2::ZERO,
+            Vec2::new(200.0, 90.0),
+            Rgba8::WHITE,
+        );
+        assert!(s.icon_rect().is_none());
+        let plain = s.text_rect();
+        s.icon = "ec2".into();
+        let icon = s.icon_rect().unwrap();
+        assert_eq!(icon.size(), Vec2::splat(ICON_SIZE));
+        assert!(s.bounds().contains_rect(&icon));
+        assert!(s.text_rect().min.x >= icon.max.x);
+        assert_eq!(s.text_rect().max, plain.max);
+        let mut f = Shape::frame(ElementId(2), Vec2::ZERO, Vec2::splat(300.0));
+        f.icon = "group:vpc".into();
+        assert_eq!(f.icon_rect().unwrap().min, Vec2::ZERO);
+        // フレームの見出しは枠の上なので動かない。
+        assert_eq!(
+            f.text_rect(),
+            Shape::frame(ElementId(2), Vec2::ZERO, Vec2::splat(300.0)).text_rect()
+        );
     }
 
     #[test]

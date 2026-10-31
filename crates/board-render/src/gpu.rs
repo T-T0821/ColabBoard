@@ -228,6 +228,12 @@ impl Renderer {
         self.text.load_font(data);
     }
 
+    /// 構成図のアイコン(`Shape::icon` の名前)の画像を登録する。読めなければ `false`。
+    pub fn register_icon(&mut self, name: &str, bytes: &[u8]) -> bool {
+        self.images
+            .register_icon(&self.device, &self.queue, name, bytes)
+    }
+
     pub fn has_font(&self) -> bool {
         self.text.has_font()
     }
