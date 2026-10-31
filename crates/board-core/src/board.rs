@@ -168,6 +168,11 @@ impl Board {
         self.sync.is_some()
     }
 
+    /// 共同編集用のドキュメント(要素以外の共有状態に使う)。
+    pub(crate) fn doc(&self) -> Option<&Doc> {
+        self.sync.as_ref().map(|s| &s.doc)
+    }
+
     pub fn elements(&self) -> &[Element] {
         &self.elements
     }

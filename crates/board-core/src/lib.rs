@@ -15,7 +15,9 @@ pub mod element;
 pub mod geom;
 pub mod navigation;
 pub mod protocol;
+pub mod session;
 pub mod shape;
+pub mod tidy;
 
 pub use board::Board;
 pub use camera::Camera;
