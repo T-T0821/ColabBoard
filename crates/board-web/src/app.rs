@@ -24,6 +24,8 @@ use crate::{format_count, format_zoom, parse_hex};
 /// カーソル位置を送る最短間隔(ミリ秒)。
 const PRESENCE_INTERVAL_MS: f64 = 40.0;
 
+mod diagram_ui;
+
 struct App {
     window: Window,
     document: Document,
@@ -1113,6 +1115,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;
     on_click(doc, "zoom-out", app, |a| a.zoom_center(0.8))?;
     on_click(doc, "zoom-fit", app, |a| a.fit())?;
+    diagram_ui::install(app, doc)?;
     {
         let input: HtmlInputElement = by_id(doc, "continuous")?;
         let app = app.clone();
