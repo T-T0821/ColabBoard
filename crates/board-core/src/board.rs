@@ -11,10 +11,11 @@ use yrs::{
 };
 
 use crate::color::{Rgba8, STICKY_COLORS};
+use crate::connector::{Connector, Endpoint};
 use crate::crdt;
 use crate::element::{Element, ElementId};
 use crate::geom::Rect;
-use crate::shape::Shape;
+use crate::shape::{Shape, ShapeKind};
 
 /// 自分の操作(Undo の対象)。
 const ORIGIN_LOCAL: &str = "local";
@@ -256,6 +257,7 @@ impl Board {
                     None => self.remove_view(id),
                 }
             }
+            self.refresh_routes();
             return;
         };
         {
@@ -322,6 +324,34 @@ impl Board {
                 Some((e, z)) => self.upsert_view(e, z),
                 None => self.remove_view(id),
             }
+        }
+        self.refresh_routes();
+    }
+
+    /// コネクタの経路を、つながった相手の現在位置から計算し直す。
+    fn refresh_routes(&mut self) {
+        let mut changed = false;
+        for i in 0..self.elements.len() {
+            let Element::Connector(c) = &self.elements[i] else {
+                continue;
+            };
+            let mut c = c.clone();
+            let elements = &self.elements;
+            let index = &self.index;
+            let lookup = |id: ElementId| {
+                index
+                    .get(&id)
+                    .map(|&j| &elements[j])
+                    .filter(|e| !matches!(e, Element::Connector(_)))
+                    .map(Element::bounds)
+            };
+            if c.route(lookup) {
+                self.elements[i] = Element::Connector(c);
+                changed = true;
+            }
+        }
+        if changed {
+            self.revision += 1;
         }
     }
 
@@ -502,22 +532,56 @@ impl Board {
             note.text = text.to_string();
             b.push_with(ORIGIN_INIT, note.into());
         }
+        // フレームの中に、矢印でつないだ小さな流れ図を置く。
         let id = b.alloc_id();
-        let rect = Shape::rect(
-            id,
-            Vec2::new(0.0, 260.0),
-            Vec2::new(300.0, 140.0),
-            Rgba8::hex(0xe8f0fe),
-        );
-        b.push_with(ORIGIN_INIT, rect.into());
-        let id = b.alloc_id();
-        let ellipse = Shape::ellipse(
-            id,
-            Vec2::new(380.0, 250.0),
-            Vec2::new(160.0, 160.0),
-            Rgba8::hex(0xe6f4ea),
-        );
-        b.push_with(ORIGIN_INIT, ellipse.into());
+        let mut frame = Shape::frame(id, Vec2::new(0.0, 280.0), Vec2::new(680.0, 220.0));
+        frame.text = "はじめてのフロー".into();
+        b.push_with(ORIGIN_INIT, frame.into());
+        let steps = [
+            (
+                ShapeKind::Rect,
+                Vec2::new(30.0, 330.0),
+                0xe8f0fe,
+                "アイデア",
+            ),
+            (
+                ShapeKind::Diamond,
+                Vec2::new(250.0, 320.0),
+                0xfff3a3,
+                "検討",
+            ),
+            (
+                ShapeKind::Ellipse,
+                Vec2::new(480.0, 330.0),
+                0xe6f4ea,
+                "実行",
+            ),
+        ];
+        let mut prev: Option<ElementId> = None;
+        for (kind, pos, fill, text) in steps {
+            let id = b.alloc_id();
+            let size = if kind == ShapeKind::Diamond {
+                Vec2::new(180.0, 140.0)
+            } else {
+                Vec2::new(170.0, 120.0)
+            };
+            let mut s = Shape::new(id, kind, pos, size, Rgba8::hex(fill));
+            s.text = text.into();
+            b.push_with(ORIGIN_INIT, s.into());
+            if let Some(from) = prev {
+                let cid = b.alloc_id();
+                let c = Connector::new(
+                    cid,
+                    Endpoint::Attached {
+                        id: from,
+                        anchor: None,
+                    },
+                    Endpoint::Attached { id, anchor: None },
+                );
+                b.push_with(ORIGIN_INIT, c.into());
+            }
+            prev = Some(id);
+        }
     }
 
     /// 性能確認用に `n` 個の要素を格子状に並べたボードを作る(決定的)。
@@ -550,7 +614,14 @@ impl Board {
                         120.0 + (r >> 16) as f32 % 100.0,
                         80.0 + (r >> 24) as f32 % 120.0,
                     );
-                    Shape::rect(id, pos, size, palette[(r >> 32) as usize % palette.len()])
+                    let kind = ShapeKind::LIBRARY[(r >> 40) as usize % ShapeKind::LIBRARY.len()];
+                    Shape::new(
+                        id,
+                        kind,
+                        pos,
+                        size,
+                        palette[(r >> 32) as usize % palette.len()],
+                    )
                 }
                 _ => {
                     let d = 100.0 + (r >> 16) as f32 % 100.0;
@@ -584,6 +655,75 @@ impl SplitMix64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::connector::PathStyle;
+
+    #[test]
+    fn connectors_follow_and_sync() {
+        let mut a = Board::with_client_id(1);
+        let s1 = a.alloc_id();
+        a.push(Shape::rect(
+            s1,
+            Vec2::ZERO,
+            Vec2::splat(100.0),
+            Rgba8::WHITE,
+        ));
+        let s2 = a.alloc_id();
+        a.push(Shape::new(
+            s2,
+            ShapeKind::Star,
+            Vec2::new(300.0, 0.0),
+            Vec2::splat(100.0),
+            Rgba8::WHITE,
+        ));
+        let cid = a.alloc_id();
+        let mut c = Connector::new(
+            cid,
+            Endpoint::Attached {
+                id: s1,
+                anchor: None,
+            },
+            Endpoint::Attached {
+                id: s2,
+                anchor: None,
+            },
+        );
+        c.style = PathStyle::Straight;
+        a.push(c);
+        let path = |b: &Board| match b.get(cid) {
+            Some(Element::Connector(c)) => c.path.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            path(&a),
+            vec![Vec2::new(100.0, 50.0), Vec2::new(300.0, 50.0)]
+        );
+
+        // 相手を動かすと追従する。
+        a.update(s2, |e| e.translate(Vec2::new(100.0, 0.0)));
+        assert_eq!(path(&a)[1], Vec2::new(400.0, 50.0));
+
+        // 別の参加者にも同じ形で届く(経路は受け手が計算する)。
+        let mut b = Board::with_client_id(2);
+        b.apply_remote(&a.encode_diff(None).unwrap()).unwrap();
+        assert_eq!(path(&b), path(&a));
+        assert!(matches!(b.get(s2), Some(Element::Shape(s)) if s.kind == ShapeKind::Star));
+    }
+
+    #[test]
+    fn meta_roundtrips() {
+        let mut a = Board::with_client_id(1);
+        let id = a.alloc_id();
+        let mut s = Shape::text(id, Vec2::ZERO, Vec2::new(200.0, 40.0));
+        s.text = "見出し".into();
+        s.font_size = 40.0;
+        s.meta.group = 77;
+        s.meta.locked = true;
+        s.meta.link = "https://example.com".into();
+        a.push(s.clone());
+        let mut b = Board::with_client_id(2);
+        b.apply_remote(&a.encode_diff(None).unwrap()).unwrap();
+        assert_eq!(b.get(id), Some(&Element::Shape(s)));
+    }
 
     #[test]
     fn demo_is_deterministic_and_sized() {

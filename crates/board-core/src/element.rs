@@ -2,11 +2,24 @@ use glam::Vec2;
 
 use crate::color::Rgba8;
 use crate::geom::{Rect, distance_to_segment};
-use crate::shape::Shape;
+use crate::shape::{Shape, ShapeKind};
+
+pub use crate::connector::{Cap, Connector, Endpoint, PathStyle};
 
 /// ボード内で一意な要素 ID。共同編集では CRDT 側のキーになる。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ElementId(pub u64);
+
+/// どの種類の要素にもある属性。
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Meta {
+    /// 所属するグループ(0 ならなし)。同じグループの要素はまとめて選択・移動する。
+    pub group: u64,
+    /// ロック中は選択・移動・削除できない(ロック解除はメニューから)。
+    pub locked: bool,
+    /// クリックで開くリンク(空ならなし)。
+    pub link: String,
+}
 
 /// 手書きの線。点列をそのまま持ち、GPU では線分ごとのカプセルとして描く。
 #[derive(Clone, Debug, PartialEq)]
@@ -15,6 +28,9 @@ pub struct Stroke {
     pub points: Vec<Vec2>,
     pub color: Rgba8,
     pub width: f32,
+    /// 蛍光ペン(半透明で、文字の下に引く想定)。
+    pub highlighter: bool,
+    pub meta: Meta,
 }
 
 impl Stroke {
@@ -24,6 +40,8 @@ impl Stroke {
             points: vec![start],
             color,
             width,
+            highlighter: false,
+            meta: Meta::default(),
         }
     }
 
@@ -71,6 +89,7 @@ impl Stroke {
 pub enum Element {
     Shape(Shape),
     Stroke(Stroke),
+    Connector(Connector),
 }
 
 impl Element {
@@ -78,7 +97,28 @@ impl Element {
         match self {
             Element::Shape(s) => s.id,
             Element::Stroke(s) => s.id,
+            Element::Connector(c) => c.id,
         }
+    }
+
+    pub fn meta(&self) -> &Meta {
+        match self {
+            Element::Shape(s) => &s.meta,
+            Element::Stroke(s) => &s.meta,
+            Element::Connector(c) => &c.meta,
+        }
+    }
+
+    pub fn meta_mut(&mut self) -> &mut Meta {
+        match self {
+            Element::Shape(s) => &mut s.meta,
+            Element::Stroke(s) => &mut s.meta,
+            Element::Connector(c) => &mut c.meta,
+        }
+    }
+
+    pub fn is_locked(&self) -> bool {
+        self.meta().locked
     }
 
     /// 見た目の外接矩形。
@@ -86,6 +126,7 @@ impl Element {
         match self {
             Element::Shape(s) => s.bounds(),
             Element::Stroke(s) => s.bounds(),
+            Element::Connector(c) => c.bounds(),
         }
     }
 
@@ -100,6 +141,7 @@ impl Element {
                 grown.contains(p)
             }
             Element::Stroke(s) => s.distance(p) <= s.width * 0.5 + tolerance,
+            Element::Connector(c) => c.distance(p) <= c.width * 0.5 + tolerance.max(4.0),
         }
     }
 
@@ -107,6 +149,7 @@ impl Element {
         match self {
             Element::Shape(s) => s.pos += d,
             Element::Stroke(s) => s.points.iter_mut().for_each(|p| *p += d),
+            Element::Connector(c) => c.translate(d),
         }
     }
 
@@ -127,13 +170,26 @@ impl Element {
                     .iter_mut()
                     .for_each(|p| *p = Rect::map_point(&inner_from, &inner_to, *p));
             }
+            Element::Connector(c) => {
+                for end in [&mut c.from, &mut c.to] {
+                    if let Endpoint::Free(p) = end {
+                        *p = Rect::map_point(from, to, *p);
+                    }
+                }
+            }
         }
     }
 
     pub fn set_color(&mut self, c: Rgba8) {
         match self {
+            // 文字だけの要素は文字色を変える。
+            Element::Shape(s) if s.kind == ShapeKind::Text => s.text_color = c,
             Element::Shape(s) => s.fill = c,
-            Element::Stroke(s) => s.color = c,
+            Element::Stroke(s) => {
+                let a = s.color.0[3];
+                s.color = Rgba8([c.0[0], c.0[1], c.0[2], a]);
+            }
+            Element::Connector(k) => k.color = c,
         }
     }
 
@@ -141,6 +197,7 @@ impl Element {
         match self {
             Element::Shape(s) => &s.text,
             Element::Stroke(_) => "",
+            Element::Connector(c) => &c.text,
         }
     }
 
@@ -155,6 +212,12 @@ impl Element {
 impl From<Shape> for Element {
     fn from(s: Shape) -> Self {
         Element::Shape(s)
+    }
+}
+
+impl From<Connector> for Element {
+    fn from(c: Connector) -> Self {
+        Element::Connector(c)
     }
 }
 

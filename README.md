@@ -39,6 +39,18 @@ cargo run -p board-server --release
 | `DATA_DIR` | `data` | 保存先(`boards.redb`)。空にすると保存しない |
 | `STATIC_DIR` | `crates/board-web/dist` | 配信するクライアント |
 | `RUST_LOG` | `info` | ログの詳しさ |
+| `ANONYMOUS_BOARDS` | `1` | `0` にするとログインなしのボード(`?room=` で誰でも作れて誰でも編集できるもの)を禁止 |
+| `COOKIE_SECURE` | `0` | HTTPS で公開するときは `1`(ログイン Cookie に `Secure` を付ける) |
+
+### アカウントと権限
+
+- `/api/signup` `/api/login` でアカウントを作ってログインする(パスワードは Argon2id で保存、セッションは `HttpOnly` Cookie)。
+- ログインして作ったボードにはオーナーがいて、最初は本人しか開けない。共有は 2 通り。
+  - **メンバー招待**: ログイン名を指定して「閲覧のみ / コメント可 / 編集可」を与える。
+  - **共有リンク**: `?room=…&key=…` のリンクを開いた人に、決めた権限を与える。作り直すと古いリンクは使えなくなる。
+- 編集権限のない人の WebSocket からの更新はサーバーが捨てる。共有設定を変えると参加者はつなぎ直し、権限を確かめ直す。
+- ログインせずに `?room=` で開いたボードは、これまでどおり誰でも編集できる。
+- API の一覧は `crates/board-core/src/api.rs` にある。
 
 | URL パラメータ | 内容 |
 | --- | --- |
