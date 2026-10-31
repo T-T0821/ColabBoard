@@ -468,13 +468,8 @@ nodes は枝で、parent が空文字なら中心から出る大枝(3〜7 本)�
 text は短い日本語(20 文字以内)で、付箋の言い回しを生かして要約します。似た意見はまとめ、\
 書かれていない内容は足さないでください。id は n1, n2 のような短い英数字にします。";
 
-/// マインドマップの木(`board_core::mindmap::MindTree` と同じ形の JSON)。
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct MindTree {
-    pub text: String,
-    #[serde(default)]
-    pub children: Vec<MindTree>,
-}
+/// マインドマップの木(マインドマップモードと共通の型)。
+pub use board_core::mindmap::MindTree;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct MindNode {
