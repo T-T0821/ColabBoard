@@ -23,13 +23,17 @@
 //! | `sso_identities` | `{issuer}\n{sub}` | 結びついたログイン名(JSON) |
 //! | `audit` | (`*` か `team:{id}`, 記録 ID) | [`AuditEvent`](board_core::api::AuditEvent)(JSON) |
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, RwLock};
 
 use redb::backends::InMemoryBackend;
 use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
+
+use crate::storage::{self, Location};
 
 const ROOMS: TableDefinition<&str, &[u8]> = TableDefinition::new("rooms");
 pub(crate) const USERS: TableDefinition<&str, &[u8]> = TableDefinition::new("users");
@@ -80,6 +84,21 @@ pub type StoreError = Box<dyn std::error::Error + Send + Sync>;
 pub struct Store {
     db: Database,
     persistent: bool,
+    /// 管理者が用意した保存場所(チームが選べる)。
+    locations: RwLock<HashMap<String, Arc<Location>>>,
+}
+
+/// 保存場所を引くための最小限の形(boards・teams モジュールの型に頼らない)。
+#[derive(Deserialize)]
+struct TeamOf {
+    #[serde(default)]
+    team: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct StorageOf {
+    #[serde(default)]
+    storage: Option<String>,
 }
 
 impl Store {
@@ -123,7 +142,11 @@ impl Store {
         txn.open_table(AUDIT)?;
         txn.open_table(SSO_IDENTITIES)?;
         txn.commit()?;
-        Ok(Self { db, persistent })
+        Ok(Self {
+            db,
+            persistent,
+            locations: RwLock::new(HashMap::new()),
+        })
     }
 
     /// ディスクに保存しているか。
@@ -131,13 +154,197 @@ impl Store {
         self.persistent
     }
 
+    // ---- 保存場所 ----
+
+    pub fn set_locations(&self, locations: Vec<Location>) {
+        let mut map = self.locations.write().unwrap_or_else(|e| e.into_inner());
+        map.clear();
+        for l in locations {
+            map.insert(l.id.clone(), Arc::new(l));
+        }
+    }
+
+    /// 用意された保存場所(ID 順)。
+    pub fn locations(&self) -> Vec<Arc<Location>> {
+        let map = self.locations.read().unwrap_or_else(|e| e.into_inner());
+        let mut v: Vec<_> = map.values().cloned().collect();
+        v.sort_by(|a, b| a.id.cmp(&b.id));
+        v
+    }
+
+    pub fn location(&self, id: &str) -> Option<Arc<Location>> {
+        let map = self.locations.read().unwrap_or_else(|e| e.into_inner());
+        map.get(id).cloned()
+    }
+
+    /// ボードの中身の置き場所。このサーバーなら `None`。
+    pub fn location_of(&self, room: &str) -> Result<Option<Arc<Location>>, StoreError> {
+        if self
+            .locations
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty()
+        {
+            return Ok(None);
+        }
+        let Some(TeamOf { team: Some(team) }) = self.get_json::<TeamOf>(BOARDS, room)? else {
+            return Ok(None);
+        };
+        let Some(StorageOf { storage: Some(id) }) = self.get_json::<StorageOf>(TEAMS, &team)?
+        else {
+            return Ok(None);
+        };
+        match self.location(&id) {
+            Some(l) => Ok(Some(l)),
+            // 設定から消えた保存場所に置いたままのボードは、黙ってこのサーバーに書かない。
+            None => Err(format!("保存場所「{id}」が設定されていません").into()),
+        }
+    }
+
+    /// ボードの中身を読む(チームの保存場所か、このサーバー)。
     pub fn load(&self, room: &str) -> Result<Option<Vec<u8>>, StoreError> {
+        let loc = self.location_of(room)?;
+        self.load_at(loc.as_deref(), room)
+    }
+
+    pub fn save(&self, room: &str, state: &[u8]) -> Result<(), StoreError> {
+        let loc = self.location_of(room)?;
+        self.save_at(loc.as_deref(), room, state)
+    }
+
+    pub fn delete_room(&self, room: &str) -> Result<(), StoreError> {
+        if let Some(loc) = self.location_of(room)? {
+            loc.blob.delete(&storage::board_key(room))?;
+        }
+        self.delete_local_room(room)
+    }
+
+    /// 指定の場所から読む。保存場所になければ、移す前のこのサーバーの分も見る。
+    pub fn load_at(
+        &self,
+        loc: Option<&Location>,
+        room: &str,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        if let Some(loc) = loc
+            && let Some(b) = loc.blob.get(&storage::board_key(room))?
+        {
+            return Ok(Some(b));
+        }
+        self.load_local(room)
+    }
+
+    pub fn save_at(
+        &self,
+        loc: Option<&Location>,
+        room: &str,
+        state: &[u8],
+    ) -> Result<(), StoreError> {
+        match loc {
+            Some(loc) => loc.blob.put(&storage::board_key(room), state),
+            None => self.save_local(room, state),
+        }
+    }
+
+    /// 指定の場所から消す(このサーバーなら redb から)。
+    pub fn delete_at(&self, loc: Option<&Location>, room: &str) -> Result<(), StoreError> {
+        match loc {
+            Some(loc) => loc.blob.delete(&storage::board_key(room)),
+            None => self.delete_local_room(room),
+        }
+    }
+
+    // ---- バージョンの中身 ----
+
+    pub fn version_put(&self, room: &str, id: u64, state: &[u8]) -> Result<(), StoreError> {
+        let loc = self.location_of(room)?;
+        self.version_put_at(loc.as_deref(), room, id, state)
+    }
+
+    pub fn version_get(&self, room: &str, id: u64) -> Result<Option<Vec<u8>>, StoreError> {
+        let loc = self.location_of(room)?;
+        self.version_get_at(loc.as_deref(), room, id)
+    }
+
+    pub fn version_remove(&self, room: &str, ids: &[u64]) -> Result<(), StoreError> {
+        if let Some(loc) = self.location_of(room)? {
+            for id in ids {
+                loc.blob.delete(&storage::version_key(room, *id))?;
+            }
+        }
+        self.remove_seq(VERSIONS, room, ids)
+    }
+
+    pub fn version_put_at(
+        &self,
+        loc: Option<&Location>,
+        room: &str,
+        id: u64,
+        state: &[u8],
+    ) -> Result<(), StoreError> {
+        match loc {
+            Some(loc) => loc.blob.put(&storage::version_key(room, id), state),
+            None => self.put_seq_raw(VERSIONS, room, id, state),
+        }
+    }
+
+    pub fn version_get_at(
+        &self,
+        loc: Option<&Location>,
+        room: &str,
+        id: u64,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        if let Some(loc) = loc
+            && let Some(b) = loc.blob.get(&storage::version_key(room, id))?
+        {
+            return Ok(Some(b));
+        }
+        self.get_seq_raw(VERSIONS, room, id)
+    }
+
+    pub fn version_delete_at(
+        &self,
+        loc: Option<&Location>,
+        room: &str,
+        id: u64,
+    ) -> Result<(), StoreError> {
+        match loc {
+            Some(loc) => loc.blob.delete(&storage::version_key(room, id)),
+            None => self.remove_seq(VERSIONS, room, &[id]),
+        }
+    }
+
+    /// 保存場所に置いたボードの中身とバージョンを消す(ボードの削除の前に呼ぶ)。
+    pub fn purge_location_data(&self, room: &str) -> Result<(), StoreError> {
+        if let Some(loc) = self.location_of(room)? {
+            loc.blob.delete(&storage::board_key(room))?;
+            for id in self.seq_ids(VERSION_INFO, room)? {
+                loc.blob.delete(&storage::version_key(room, id))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// 1 つ目のキーが `a` のものの ID(ID 順)。
+    pub(crate) fn seq_ids(&self, table: SeqTable, a: &str) -> Result<Vec<u64>, StoreError> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(table)?;
+        let mut out = Vec::new();
+        for entry in t.range((a, 0)..=(a, u64::MAX))? {
+            let (k, _) = entry?;
+            out.push(k.value().1);
+        }
+        Ok(out)
+    }
+
+    // ---- このサーバー(redb)に置く中身 ----
+
+    fn load_local(&self, room: &str) -> Result<Option<Vec<u8>>, StoreError> {
         let txn = self.db.begin_read()?;
         let table = txn.open_table(ROOMS)?;
         Ok(table.get(room)?.map(|v| v.value().to_vec()))
     }
 
-    pub fn save(&self, room: &str, state: &[u8]) -> Result<(), StoreError> {
+    fn save_local(&self, room: &str, state: &[u8]) -> Result<(), StoreError> {
         let txn = self.db.begin_write()?;
         {
             let mut table = txn.open_table(ROOMS)?;
@@ -147,7 +354,7 @@ impl Store {
         Ok(())
     }
 
-    pub fn delete_room(&self, room: &str) -> Result<(), StoreError> {
+    fn delete_local_room(&self, room: &str) -> Result<(), StoreError> {
         let txn = self.db.begin_write()?;
         {
             let mut table = txn.open_table(ROOMS)?;

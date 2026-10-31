@@ -449,6 +449,8 @@ async fn delete_board(
 ) -> ApiResult<StatusCode> {
     let user = require_user(&state, &headers)?;
     let mut meta = owned_board(&state, &id, &user, None, Role::Owner)?;
+    // チームの保存場所に置いた中身は、チームから外す前に消す。
+    state.store().purge_location_data(&id)?;
     audit::record(
         &state,
         &headers,

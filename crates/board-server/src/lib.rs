@@ -33,6 +33,7 @@ pub mod public;
 pub mod rest;
 pub mod room;
 pub mod slack;
+pub mod storage;
 pub mod store;
 pub mod teams;
 pub mod tokens;
