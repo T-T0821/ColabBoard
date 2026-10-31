@@ -23,6 +23,7 @@ mod format_bar;
 mod history;
 mod media;
 mod reactions;
+mod templates_ui;
 mod toolbar;
 
 use crate::net::{Net, NetEvent, Status};
@@ -339,6 +340,7 @@ pub async fn run() -> Result<(), String> {
     format_bar::install(&app)?;
     reactions::install(&app)?;
     media::install(&app)?;
+    templates_ui::install(&app)?;
     start_loop(app);
     Ok(())
 }
