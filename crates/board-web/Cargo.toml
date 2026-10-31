@@ -75,6 +75,7 @@ web-sys = { version = "0.3", features = [
     "Headers",
     "HtmlSelectElement",
     "HtmlFormElement",
+    "MediaQueryList",
     "File",
     "FileList",
     "Blob",

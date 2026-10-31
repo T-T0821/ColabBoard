@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use board_core::{Board, Camera, ElementId, Rect, TextBox};
+use board_core::{Board, Camera, ElementId, Rect, ShapeKind, TextBox};
 
 use crate::Layer;
 use glyphon::{
@@ -34,6 +34,8 @@ struct Item<'a> {
     id: ElementId,
     text: &'a str,
     tb: TextBox,
+    /// 塗りのない要素(文字だけ・枠だけの図形)。背景がキャンバスそのものになる。
+    on_canvas: bool,
 }
 
 pub struct TextLayer {
@@ -48,6 +50,7 @@ pub struct TextLayer {
     viewport: Viewport,
     buffers: HashMap<ElementId, Cached>,
     has_font: bool,
+    dark: bool,
 }
 
 impl TextLayer {
@@ -73,6 +76,7 @@ impl TextLayer {
             viewport,
             buffers: HashMap::new(),
             has_font: false,
+            dark: false,
         }
     }
 
@@ -86,6 +90,10 @@ impl TextLayer {
 
     pub fn has_font(&self) -> bool {
         self.has_font
+    }
+
+    pub fn set_dark(&mut self, dark: bool) {
+        self.dark = dark;
     }
 
     /// 見えている図形の文字を準備する。`skip` は編集中で別の欄に表示している要素。
@@ -119,6 +127,9 @@ impl TextLayer {
                         id: e.id(),
                         text: e.text(),
                         tb: e.text_box()?,
+                        on_canvas: e
+                            .as_shape()
+                            .is_none_or(|s| s.fill.0[3] < 128 || s.kind == ShapeKind::Frame),
                     },
                 ))
             })
@@ -142,8 +153,10 @@ impl TextLayer {
             prepared,
             viewport,
             buffers,
+            dark,
             ..
         } = self;
+        let dark = *dark;
 
         for (_, s) in &visible {
             let style = s.tb.style;
@@ -215,7 +228,7 @@ impl TextLayer {
             let clip = s.tb.clip;
             let clip_min = camera.world_to_screen(clip.min);
             let clip_max = camera.world_to_screen(clip.max);
-            let [r, g, b, a] = s.tb.style.color.0;
+            let [r, g, b, a] = crate::dark_ink(s.tb.style.color.0, dark && s.on_canvas);
             Some(TextArea {
                 buffer: &c.buffer,
                 left: origin.x,
