@@ -273,7 +273,8 @@ impl Connector {
             rect,
             clip: rect.expand(2.0),
             style,
-            center_vertically: true,
+            valign: crate::shape::VAlign::Middle,
+            vertical: false,
         })
     }
 

@@ -319,6 +319,56 @@ impl Editor {
         self.stamp = stamp;
     }
 
+    /// 次回も使う設定(最後に使った色・図形など)を文字列にする。`load_prefs` で戻せる。
+    pub fn save_prefs(&self) -> String {
+        format!(
+            "shape={};fill={};sticky={};pen={};pw={};hl={};path={};stamp={}",
+            self.shape_kind.name(),
+            self.shape_fill.to_hex(),
+            self.sticky_color.to_hex(),
+            self.pen_color.to_hex(),
+            self.pen_width,
+            self.highlighter_color.to_hex(),
+            self.connector_style.name(),
+            self.stamp.name,
+        )
+    }
+
+    /// `save_prefs` の文字列を読む。読めない項目は今のまま。
+    pub fn load_prefs(&mut self, s: &str) {
+        for (k, v) in s.split(';').filter_map(|kv| kv.split_once('=')) {
+            match k {
+                "shape" => {
+                    if let Some(kind) = ShapeKind::from_name(v)
+                        && ShapeKind::LIBRARY.contains(&kind)
+                    {
+                        self.shape_kind = kind;
+                    }
+                }
+                "fill" => self.shape_fill = Rgba8::parse_hex(v).unwrap_or(self.shape_fill),
+                "sticky" => self.sticky_color = Rgba8::parse_hex(v).unwrap_or(self.sticky_color),
+                "pen" => self.pen_color = Rgba8::parse_hex(v).unwrap_or(self.pen_color),
+                "pw" => {
+                    if let Ok(w) = v.parse::<f32>()
+                        && (0.5..=64.0).contains(&w)
+                    {
+                        self.pen_width = w;
+                    }
+                }
+                "hl" => {
+                    self.highlighter_color = Rgba8::parse_hex(v).unwrap_or(self.highlighter_color);
+                }
+                "path" => self.connector_style = PathStyle::from_name(v),
+                "stamp" => {
+                    if let Some(st) = crate::stamp::Stamp::by_name(v) {
+                        self.stamp = st;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// 図形ツールにして種類を選ぶ。
     pub fn set_shape_kind(&mut self, kind: ShapeKind) {
         self.tool = Tool::Shape;
@@ -439,7 +489,16 @@ impl Editor {
             Tool::Shape => self.shape_fill = c,
             _ => {}
         }
+        // 選択中の要素の色を変えたら、次に作る同じ種類の要素もその色にする(最後に使った色)。
         for id in self.selection.clone() {
+            match board.get(id) {
+                Some(Element::Shape(s)) if s.kind == ShapeKind::Sticky => self.sticky_color = c,
+                Some(Element::Shape(s)) if ShapeKind::LIBRARY.contains(&s.kind) => {
+                    self.shape_fill = c;
+                }
+                Some(Element::Stroke(s)) if s.color.0[3] == 0xff => self.pen_color = c,
+                _ => {}
+            }
             board.update(id, |e| e.set_color(c));
         }
     }
@@ -946,6 +1005,36 @@ mod tests {
 
     const NO: Modifiers = Modifiers { shift: false };
     const SHIFT: Modifiers = Modifiers { shift: true };
+
+    #[test]
+    fn prefs_round_trip() {
+        let mut e = Editor::new();
+        e.set_shape_kind(ShapeKind::Cloud);
+        e.shape_fill = Rgba8::hex(0x123456);
+        e.sticky_color = STICKY_COLORS[3];
+        e.highlighter_color = Rgba8([1, 2, 3, 0x66]);
+        e.pen_width = 6.0;
+        e.connector_style = PathStyle::Curved;
+        let saved = e.save_prefs();
+        let mut f = Editor::new();
+        f.load_prefs(&saved);
+        assert_eq!(f.save_prefs(), saved);
+        assert_eq!(f.tool(), Tool::Select, "読み込みでツールは変えない");
+        // 壊れた値は無視する。
+        f.load_prefs("shape=sticky;fill=#zz;pw=999;junk");
+        assert_eq!(f.save_prefs(), saved);
+    }
+
+    #[test]
+    fn recoloring_a_selection_becomes_the_next_default() {
+        let mut b = Board::new();
+        let mut e = Editor::new();
+        let id = b.alloc_id();
+        b.push(Shape::sticky(id, Vec2::ZERO, STICKY_COLORS[0]));
+        e.set_selection(vec![id]);
+        e.apply_color(&mut b, STICKY_COLORS[4]);
+        assert_eq!(e.sticky_color, STICKY_COLORS[4]);
+    }
 
     #[test]
     fn create_rect_by_drag_then_switch_to_select() {

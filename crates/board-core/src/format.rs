@@ -6,7 +6,7 @@
 use crate::board::Board;
 use crate::connector::{Cap, PathStyle};
 use crate::element::{Element, ElementId};
-use crate::shape::{Shape, ShapeKind, TextAlign};
+use crate::shape::{Shape, ShapeKind, TextAlign, VAlign};
 
 /// 書式バーで選べる文字の大きさ。
 pub const FONT_SIZES: [f32; 7] = [12.0, 16.0, 20.0, 24.0, 32.0, 48.0, 64.0];
@@ -20,6 +20,9 @@ pub enum Change {
     /// 文字を一段大きく / 小さくする(`FONT_SIZES` の隣の値へ)。
     FontStep(i32),
     Align(TextAlign),
+    VAlign(VAlign),
+    /// 縦書きにする / 横書きに戻す。
+    Vertical(bool),
     /// 図形の種類を変える(付箋・文字・フレームは対象外)。
     Kind(ShapeKind),
     Path(PathStyle),
@@ -38,6 +41,8 @@ pub struct Summary {
     pub has_text: bool,
     pub font_size: Option<f32>,
     pub align: Option<TextAlign>,
+    pub valign: Option<VAlign>,
+    pub vertical: Option<bool>,
     /// 種類を変えられる図形があるか、その共通の種類。
     pub has_kind: bool,
     pub kind: Option<ShapeKind>,
@@ -80,6 +85,7 @@ pub fn summarize(board: &Board, ids: &[ElementId]) -> Summary {
     let mut out = Summary::default();
     let (mut fs, mut al, mut kind, mut path, mut sc, mut ec, mut w, mut link) =
         (None, None, None, None, None, None, None, None);
+    let (mut va, mut vw) = (None, None);
     for e in ids.iter().filter_map(|&id| board.get(id)) {
         out.count += 1;
         out.locked |= e.is_locked();
@@ -91,6 +97,10 @@ pub fn summarize(board: &Board, ids: &[ElementId]) -> Summary {
                 let st = s.text_style();
                 merge(&mut fs, st.font_size);
                 merge(&mut al, st.align);
+                if s.kind != ShapeKind::Frame {
+                    merge(&mut va, s.valign);
+                    merge(&mut vw, s.vertical);
+                }
                 if convertible(s.kind) {
                     out.has_kind = true;
                     merge(&mut kind, s.kind);
@@ -114,6 +124,8 @@ pub fn summarize(board: &Board, ids: &[ElementId]) -> Summary {
     }
     out.font_size = fs.flatten();
     out.align = al.flatten();
+    out.valign = va.flatten();
+    out.vertical = vw.flatten();
     out.kind = kind.flatten();
     out.path = path.flatten();
     out.start_cap = sc.flatten();
@@ -152,6 +164,10 @@ fn apply_one(e: &mut Element, change: &Change) {
             s.fit_text_height();
         }
         (Element::Shape(s), Change::Align(a)) => s.align = *a,
+        (Element::Shape(s), Change::VAlign(v)) if s.kind != ShapeKind::Frame => s.valign = *v,
+        (Element::Shape(s), Change::Vertical(v)) if s.kind != ShapeKind::Frame => {
+            s.vertical = *v;
+        }
         (Element::Shape(s), Change::Kind(k)) if convertible(s.kind) && convertible(*k) => {
             s.kind = *k;
         }
@@ -288,6 +304,34 @@ mod tests {
         b.end_gesture();
         assert!(b.undo());
         assert_eq!(summarize(&b, &ids).link.as_deref(), Some(""));
+    }
+
+    #[test]
+    fn vertical_alignment_and_writing_sync() {
+        let mut a = Board::with_client_id(1);
+        let r = a.alloc_id();
+        a.push(Shape::new(
+            r,
+            ShapeKind::Rect,
+            Vec2::ZERO,
+            Vec2::splat(100.0),
+            Rgba8::WHITE,
+        ));
+        let t = a.alloc_id();
+        a.push(Shape::text(t, Vec2::ZERO, Vec2::splat(100.0)));
+        // 既定: 図形は上下中央、文字だけの要素は上揃え。
+        assert_eq!(summarize(&a, &[r]).valign, Some(VAlign::Middle));
+        assert_eq!(summarize(&a, &[t]).valign, Some(VAlign::Top));
+        apply(&mut a, &[r, t], &Change::VAlign(VAlign::Bottom));
+        apply(&mut a, &[r], &Change::Vertical(true));
+        let sum = summarize(&a, &[r, t]);
+        assert_eq!((sum.valign, sum.vertical), (Some(VAlign::Bottom), None));
+        let mut b = Board::with_client_id(2);
+        b.apply_remote(&a.encode_diff(None).unwrap()).unwrap();
+        let s = b.get(r).unwrap().as_shape().unwrap();
+        assert_eq!((s.valign, s.vertical), (VAlign::Bottom, true));
+        let tb = s.text_box();
+        assert!(tb.vertical && tb.valign == VAlign::Bottom);
     }
 
     #[test]

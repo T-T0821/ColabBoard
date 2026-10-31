@@ -34,6 +34,8 @@ pub use editor::{Editor, Modifiers, Tool};
 pub use element::{Cap, Connector, Element, ElementId, Endpoint, Meta, PathStyle, Stroke};
 pub use geom::Rect;
 pub use navigation::Navigator;
-pub use shape::{ImageData, Shape, ShapeCategory, ShapeKind, TextAlign, TextBox, TextStyle};
+pub use shape::{
+    ImageData, Shape, ShapeCategory, ShapeKind, TextAlign, TextBox, TextStyle, VAlign,
+};
 
 pub use glam::{Mat4, Vec2};
