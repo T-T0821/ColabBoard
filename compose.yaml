@@ -1,0 +1,15 @@
+# docker compose up -d で http://localhost:8080 に立ち上がる。
+services:
+  colabboard:
+    build: .
+    image: colabboard
+    ports:
+      - "8080:8080"
+    volumes:
+      - colabboard-data:/data
+    environment:
+      RUST_LOG: info
+    restart: unless-stopped
+
+volumes:
+  colabboard-data:

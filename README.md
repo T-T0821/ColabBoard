@@ -159,11 +159,22 @@ iOS Safari・Android Chrome で動く(WebGPU がなければ WebGL2 で描く)�
 
 ## セルフホスト
 
-サーバーは `cargo build -p board-server --release` でできる単一のバイナリ(`target/release/board-server`)と、クライアントのビルド結果(`crates/board-web/dist`)だけで動く。データは `DATA_DIR/boards.redb` の 1 ファイルに保存される。
+詳しい手順(Docker / systemd / リバースプロキシ / バックアップ)は [docs/self-hosting.md](docs/self-hosting.md)。
 
 ```sh
-DATA_DIR=/var/lib/colabboard STATIC_DIR=/srv/colabboard/dist PORT=8080 ./board-server
+docker compose up -d          # → http://localhost:8080(データは colabboard-data ボリューム)
 ```
+
+Docker を使わない場合は、クライアントを埋め込んだ単一バイナリにできる。ファイル 1 つをコピーするだけで動き、データは `DATA_DIR/boards.redb` の 1 ファイルに保存される。
+
+```sh
+(cd crates/board-web && trunk build --release)
+cargo build -p board-server --release --features embed
+DATA_DIR=/var/lib/graboard PORT=8080 ./target/release/board-server
+./target/release/board-server healthcheck   # 死活監視(/healthz を確かめ、終了コードで返す)
+```
+
+`embed` なしでビルドした場合は `STATIC_DIR` でクライアントのディレクトリを指定する。
 
 PDF の取り込み(hayro)で wasm が数 MB 大きくなる。不要なら `trunk build --release --no-default-features` でクライアントから外せる。
 
@@ -173,7 +184,8 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | --- | --- | --- |
 | `PORT` | `8080` | 待ち受けポート |
 | `DATA_DIR` | `data` | 保存先(`boards.redb`)。空にすると保存しない |
-| `STATIC_DIR` | `crates/board-web/dist` | 配信するクライアント |
+| `STATIC_DIR` | `crates/board-web/dist` | 配信するクライアント。`embed` 版で埋め込みを使うなら指定しない |
+| `MAX_MESSAGE_MB` | `128` | WebSocket で受け取る 1 通の上限。数十万要素のボードを使うなら増やす |
 | `RUST_LOG` | `info` | ログの詳しさ |
 | `ANONYMOUS_BOARDS` | `1` | `0` にするとログインなしのボード(`?room=` で誰でも作れて誰でも編集できるもの)を禁止 |
 | `COOKIE_SECURE` | `0` | HTTPS で公開するときは `1`(ログイン Cookie に `Secure` を付ける) |
