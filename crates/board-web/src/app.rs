@@ -14,6 +14,7 @@ use web_sys::{
     HtmlTextAreaElement, KeyboardEvent, PointerEvent, WheelEvent, Window,
 };
 
+mod a11y;
 mod actions;
 mod ai;
 mod collab;
@@ -89,6 +90,7 @@ struct App {
     follow: follow::Follow,
     format_bar: format_bar::FormatBar,
     search: search_ui::Search,
+    a11y: a11y::A11y,
     comments: comments::Comments,
     history: history::History,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
@@ -373,6 +375,7 @@ pub async fn run() -> Result<(), String> {
         follow: follow::Follow::new(&document)?,
         format_bar: format_bar::FormatBar::default(),
         search: search_ui::Search::default(),
+        a11y: a11y::A11y::default(),
         comments: comments::Comments::new(&document)?,
         history: history::History::new(&document)?,
         live_board: None,
@@ -419,6 +422,7 @@ pub async fn run() -> Result<(), String> {
     media::install(&app)?;
     templates_ui::install(&app)?;
     search_ui::install(&app)?;
+    a11y::install(&app)?;
     start_loop(app);
     Ok(())
 }
@@ -846,6 +850,7 @@ impl App {
         self.follow_frame(now);
         self.comments_frame(now);
         self.history_frame();
+        self.a11y_frame(now);
         self.touch_frame(now);
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
@@ -1143,6 +1148,7 @@ impl App {
         }
         let text = self.board.get(id).map(BoardElement::text).unwrap_or("");
         self.text_editor.set_value(text);
+        self.label_text_editor(id);
         let _ = self.text_editor.set_attribute("data-visible", "true");
         self.layout_text_editor();
         let _ = self.text_editor.focus();
@@ -1224,6 +1230,12 @@ impl App {
         }
         let key = e.key();
         let ctrl = e.ctrl_key() || e.meta_key();
+        if key == "Escape" && self.close_shortcuts() {
+            return true;
+        }
+        if self.a11y_key(e) {
+            return true;
+        }
         if key == "Escape" && (self.comments_escape() || self.history_escape()) {
             return true;
         }
@@ -1461,6 +1473,8 @@ fn install_text_editor(app: &Rc<RefCell<App>>) -> Result<(), String> {
             if e.key() == "Escape" || (e.key() == "Enter" && (e.ctrl_key() || e.meta_key())) {
                 e.prevent_default();
                 let _ = el2.blur();
+                // キーボードで続けて操作できるようにキャンバスへ戻す。
+                let _ = app.borrow().canvas.focus();
             }
         })?;
     }

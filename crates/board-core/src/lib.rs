@@ -3,6 +3,7 @@
 //! 描画にも同期にも依存しないデータモデル・座標変換・編集操作を持つ。
 //! クライアント(WASM)とサーバーの両方から使う。
 
+pub mod a11y;
 pub mod api;
 pub mod arrange;
 pub mod board;
