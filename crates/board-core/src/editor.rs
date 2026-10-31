@@ -12,9 +12,12 @@ use crate::color::{Rgba8, STICKY_COLORS};
 use crate::element::{Connector, Element, ElementId, Endpoint, PathStyle, Stroke};
 use crate::geom::Rect;
 use crate::shape::{Shape, ShapeKind};
+use crate::snap;
 
 /// 選択枠や範囲選択の色。
 pub const ACCENT: Rgba8 = Rgba8::hex(0x4c5cf5);
+/// スマートガイドの色(選択枠と見分けやすい赤)。
+pub const GUIDE: Rgba8 = Rgba8::hex(0xf2385a);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tool {
@@ -94,6 +97,8 @@ impl Tool {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Modifiers {
     pub shift: bool,
+    /// 押している間はスナップしない。
+    pub alt: bool,
 }
 
 /// 選択枠の 8 つのつまみ。
@@ -137,6 +142,12 @@ impl Handle {
 
     fn position(self, r: &Rect) -> Vec2 {
         r.min + r.size() * self.anchor()
+    }
+
+    /// 動く辺 [左, 上, 右, 下]。
+    fn moving_edges(self) -> [bool; 4] {
+        let a = self.anchor();
+        [a.x == 0.0, a.y == 0.0, a.x == 1.0, a.y == 1.0]
     }
 
     pub fn cursor(self) -> &'static str {
@@ -185,14 +196,22 @@ impl Handle {
 
 enum Drag {
     Move {
-        last: Vec2,
+        /// つかんだ点。
+        start: Vec2,
+        /// ここまでに動かした量。
+        applied: Vec2,
         /// 一緒に動かす要素(選択 + グループ + フレームの中身)。
         ids: Vec<ElementId>,
+        /// つかんだときの外接矩形(スナップ用)。
+        bounds: Option<Rect>,
+        /// 吸い付く相手(最初に動かしたときに集める)。
+        others: Option<Vec<Rect>>,
     },
     Resize {
         handle: Handle,
         orig: Rect,
         snapshot: Vec<Element>,
+        others: Option<Vec<Rect>>,
     },
     Marquee {
         start: Vec2,
@@ -252,6 +271,57 @@ fn erase_at(board: &mut Board, world: Vec2, tolerance: f32) -> bool {
     !hit.is_empty() && board.remove(&hit) > 0
 }
 
+/// 移動のドラッグを始める。
+fn move_drag(board: &Board, world: Vec2, ids: Vec<ElementId>) -> Drag {
+    // スナップは図形の外接矩形で考える(付いてくるコネクタは含めない)。
+    let shapes: Vec<ElementId> = ids
+        .iter()
+        .copied()
+        .filter(|id| matches!(board.get(*id), Some(Element::Shape(_))))
+        .collect();
+    Drag::Move {
+        start: world,
+        applied: Vec2::ZERO,
+        bounds: board.bounds_of(&shapes),
+        ids,
+        others: None,
+    }
+}
+
+/// 吸い付く相手を、画面に見えている範囲(少し広め)から集める。
+fn snap_targets(board: &Board, camera: &Camera, except: &[ElementId]) -> Vec<Rect> {
+    let (min, max) = camera.visible_world_rect();
+    let area = Rect::new(min, max).expand(200.0 / camera.zoom);
+    snap::targets(board, &area, except)
+}
+
+/// ガイドを描くための図形(細い長方形)。
+fn guide_shapes(guides: &[snap::Guide], px: f32) -> Vec<Shape> {
+    let bar = |a: Vec2, b: Vec2| {
+        let r = Rect::from_points(a, b).expand(0.5 * px);
+        let mut s = Shape::rect(ElementId(0), r.min, r.size(), GUIDE);
+        s.stroke_width = 0.0;
+        s.corner_radius = 0.0;
+        s
+    };
+    let mut out = Vec::new();
+    for g in guides {
+        match *g {
+            snap::Guide::Line { a, b } => out.push(bar(a, b)),
+            snap::Guide::Gap { a, b, vertical } => {
+                out.push(bar(a, b));
+                // 両端に短い棒。
+                let t = 5.0 * px;
+                let n = if vertical { Vec2::X } else { Vec2::Y };
+                for p in [a, b] {
+                    out.push(bar(p - n * t, p + n * t));
+                }
+            }
+        }
+    }
+    out
+}
+
 /// 1 人分の編集状態。
 pub struct Editor {
     tool: Tool,
@@ -272,6 +342,8 @@ pub struct Editor {
     hover_target: Option<ElementId>,
     /// 当たり判定を広げる倍率(指で触るときは大きくする)。
     hit_scale: f32,
+    /// ドラッグ中に出すスマートガイド。
+    guides: Vec<snap::Guide>,
 }
 
 impl Default for Editor {
@@ -305,6 +377,7 @@ impl Editor {
             stamp: crate::stamp::STAMPS[0],
             hover_target: None,
             hit_scale: 1.0,
+            guides: Vec::new(),
         }
     }
 
@@ -573,6 +646,7 @@ impl Editor {
                         handle,
                         orig,
                         snapshot,
+                        others: None,
                     });
                     return true;
                 }
@@ -596,7 +670,7 @@ impl Editor {
                             self.selection = members;
                         }
                         let ids = arrange::move_set(board, &self.selection);
-                        self.drag = Some(Drag::Move { last: world, ids });
+                        self.drag = Some(move_drag(board, world, ids));
                     }
                     None => {
                         let base = if mods.shift {
@@ -664,10 +738,7 @@ impl Editor {
                 board.push(self.stamp.shape(id, world));
                 self.selection = vec![id];
                 // そのままドラッグで位置を調整できる。ツールはスタンプのまま。
-                self.drag = Some(Drag::Move {
-                    last: world,
-                    ids: vec![id],
-                });
+                self.drag = Some(move_drag(board, world, vec![id]));
                 true
             }
             Tool::Sticky => {
@@ -679,10 +750,7 @@ impl Editor {
                 self.tool = Tool::Select;
                 self.pending_edit = Some(id);
                 // そのままドラッグで位置を調整できる。
-                self.drag = Some(Drag::Move {
-                    last: world,
-                    ids: vec![id],
-                });
+                self.drag = Some(move_drag(board, world, vec![id]));
                 true
             }
             Tool::Pen | Tool::Highlighter => {
@@ -713,12 +781,27 @@ impl Editor {
             return false;
         };
         match drag {
-            Drag::Move { last, ids } => {
-                let d = world - *last;
-                if d == Vec2::ZERO {
-                    return false;
+            Drag::Move {
+                start,
+                applied,
+                ids,
+                bounds,
+                others,
+            } => {
+                let mut want = world - *start;
+                self.guides.clear();
+                if let Some(b) = bounds.filter(|_| !mods.alt) {
+                    let others = others.get_or_insert_with(|| snap_targets(board, camera, ids));
+                    let moved = Rect::new(b.min + want, b.max + want);
+                    let s = snap::snap_move(moved, others, snap::SNAP_PX / camera.zoom);
+                    want += s.offset;
+                    self.guides = s.guides;
                 }
-                *last = world;
+                let d = want - *applied;
+                if d == Vec2::ZERO {
+                    return true;
+                }
+                *applied = want;
                 for id in ids.iter() {
                     board.update(*id, |e| e.translate(d));
                 }
@@ -727,8 +810,23 @@ impl Editor {
                 handle,
                 orig,
                 snapshot,
+                others,
             } => {
-                let target = handle.resize(orig, world, mods.shift);
+                let mut target = handle.resize(orig, world, mods.shift);
+                self.guides.clear();
+                // 縦横比を保つときはスナップしない(比がずれるため)。
+                if !mods.alt && !mods.shift {
+                    let ids: Vec<ElementId> = snapshot.iter().map(Element::id).collect();
+                    let others = others.get_or_insert_with(|| snap_targets(board, camera, &ids));
+                    let (r, g) = snap::snap_resize(
+                        target,
+                        handle.moving_edges(),
+                        others,
+                        snap::SNAP_PX / camera.zoom,
+                    );
+                    target = r;
+                    self.guides = g;
+                }
                 for original in snapshot.iter() {
                     let mut e = original.clone();
                     e.remap(orig, &target);
@@ -812,6 +910,7 @@ impl Editor {
 
     pub fn pointer_up(&mut self, board: &mut Board, camera: &Camera, screen: Vec2) -> bool {
         let world = camera.screen_to_world(screen);
+        self.guides.clear();
         match self.drag.take() {
             Some(Drag::Create { id, start }) => {
                 let clicked = (world - start).abs().max_element() * camera.zoom < self.click_px();
@@ -864,6 +963,7 @@ impl Editor {
 
     /// ドラッグを取り消す(2 本目の指が来てピンチに切り替わるときなど)。
     pub fn cancel(&mut self, board: &mut Board) {
+        self.guides.clear();
         match self.drag.take() {
             Some(Drag::ConnectorEnd { .. }) => {
                 self.hover_target = None;
@@ -942,6 +1042,7 @@ impl Editor {
                 }
             }
         }
+        out.extend(guide_shapes(&self.guides, px));
         if let Some(Drag::Marquee { start, current, .. }) = &self.drag {
             let r = Rect::from_points(*start, *current);
             let mut s = Shape::rect(
@@ -976,8 +1077,14 @@ mod tests {
         b.push(Shape::rect(id, pos, size, Rgba8::WHITE))
     }
 
-    const NO: Modifiers = Modifiers { shift: false };
-    const SHIFT: Modifiers = Modifiers { shift: true };
+    const NO: Modifiers = Modifiers {
+        shift: false,
+        alt: false,
+    };
+    const SHIFT: Modifiers = Modifiers {
+        shift: true,
+        alt: false,
+    };
 
     #[test]
     fn create_rect_by_drag_then_switch_to_select() {
@@ -1046,6 +1153,29 @@ mod tests {
         e.pointer_down(&mut b, &c, Vec2::new(500.0, 500.0), NO);
         e.pointer_up(&mut b, &c, Vec2::new(500.0, 500.0));
         assert!(e.selection().is_empty());
+    }
+
+    #[test]
+    fn move_snaps_to_neighbor_and_alt_disables() {
+        let (mut b, c, mut e) = setup();
+        add_rect(&mut b, Vec2::ZERO, Vec2::splat(100.0));
+        let z = add_rect(&mut b, Vec2::new(200.0, 300.0), Vec2::splat(100.0));
+        // 左端を x=3 まで動かす → x=0 に吸い付き、ガイドが出る。
+        e.pointer_down(&mut b, &c, Vec2::new(250.0, 350.0), NO);
+        e.pointer_move(&mut b, &c, Vec2::new(53.0, 350.0), NO);
+        assert_eq!(b.get(z).unwrap().bounds().min, Vec2::new(0.0, 300.0));
+        assert!(!e.guides.is_empty());
+        assert!(e.overlay(&b, &c).iter().any(|s| s.fill == GUIDE));
+        // Alt を押している間は吸い付かない。
+        let alt = Modifiers {
+            shift: false,
+            alt: true,
+        };
+        e.pointer_move(&mut b, &c, Vec2::new(54.0, 350.0), alt);
+        assert_eq!(b.get(z).unwrap().bounds().min, Vec2::new(4.0, 300.0));
+        assert!(e.guides.is_empty());
+        e.pointer_up(&mut b, &c, Vec2::new(54.0, 350.0));
+        assert!(e.guides.is_empty());
     }
 
     #[test]
