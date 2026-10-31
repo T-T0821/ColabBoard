@@ -1,0 +1,90 @@
+:root {
+  --bg: #f5f5f4;
+  --panel: #ffffff;
+  --text: #1f1f1f;
+  --muted: #6b6b6b;
+  --border: #e3e3e1;
+  --accent: #2f6fed;
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+
+#board {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  touch-action: none;
+  cursor: grab;
+  outline: none;
+}
+#board[data-dragging] { cursor: grabbing; }
+
+.panel {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  user-select: none;
+}
+
+.hud { top: 12px; left: 12px; gap: 14px; }
+.brand { font-weight: 650; }
+.sep { width: 1px; height: 16px; background: var(--border); }
+.label { color: var(--muted); }
+
+.demo { top: 12px; right: 12px; }
+.zoom { bottom: 12px; right: 12px; }
+#hud-zoom { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; }
+#hud-fps, #hud-count { font-variant-numeric: tabular-nums; }
+
+.help { bottom: 12px; left: 12px; margin: 0; color: var(--muted); }
+
+button {
+  font: inherit;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+button:hover { border-color: var(--accent); color: var(--accent); }
+.check { display: flex; align-items: center; gap: 4px; color: var(--muted); }
+
+#error {
+  display: none;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  max-width: min(520px, calc(100vw - 32px));
+  padding: 16px 20px;
+  background: #fff4f4;
+  border: 1px solid #f2b8b8;
+  border-radius: 10px;
+  color: #8a1c1c;
+}
+#error[data-visible] { display: block; }
+
+@media (max-width: 720px) {
+  .help, .demo .label { display: none; }
+  .demo { top: auto; bottom: 60px; right: 12px; flex-wrap: wrap; max-width: calc(100vw - 24px); }
+  .hud { right: 12px; flex-wrap: wrap; gap: 8px; }
+}

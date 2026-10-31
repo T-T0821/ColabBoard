@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>ColabBoard</title>
+  <link data-trunk rel="rust" data-wasm-opt="s" />
+  <link data-trunk rel="css" href="style.css" />
+</head>
+<body>
+  <canvas id="board" tabindex="0" aria-label="ホワイトボード"></canvas>
+
+  <header class="panel hud">
+    <strong class="brand">ColabBoard</strong>
+    <span class="sep"></span>
+    <span><span class="label">描画</span> <span id="hud-backend">初期化中…</span></span>
+    <span><span class="label">要素</span> <span id="hud-count">0</span></span>
+    <span><span class="label">速度</span> <span id="hud-fps">操作時のみ描画</span></span>
+  </header>
+
+  <section class="panel demo" aria-label="性能確認">
+    <span class="label">ダミー要素</span>
+    <button id="demo-1k">1千</button>
+    <button id="demo-10k">1万</button>
+    <button id="demo-100k">10万</button>
+    <button id="demo-1m">100万</button>
+    <label class="check"><input id="continuous" type="checkbox" /> 常時再描画(計測)</label>
+  </section>
+
+  <nav class="panel zoom" aria-label="ズーム">
+    <button id="zoom-out" aria-label="縮小">−</button>
+    <span id="hud-zoom">100%</span>
+    <button id="zoom-in" aria-label="拡大">+</button>
+    <button id="zoom-fit">全体</button>
+  </nav>
+
+  <p class="panel help">ドラッグ / スクロール: 移動 ・ Ctrl/⌘+スクロール / ピンチ: ズーム ・ 1: 全体表示 ・ 0: 100%</p>
+
+  <div id="error" role="alert"></div>
+</body>
+</html>

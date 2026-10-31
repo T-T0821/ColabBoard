@@ -1,0 +1,9 @@
+[package]
+name = "board-core"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+glam.workspace = true
+bytemuck.workspace = true
