@@ -18,6 +18,7 @@ pub mod format;
 pub mod geom;
 pub mod markdown;
 pub mod navigation;
+pub mod privacy;
 pub mod protocol;
 pub mod search;
 pub mod session;
@@ -27,6 +28,7 @@ pub mod stamp;
 pub mod table;
 pub mod templates;
 pub mod tidy;
+pub mod workshop;
 
 pub use board::Board;
 pub use camera::Camera;

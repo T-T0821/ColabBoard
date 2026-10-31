@@ -255,6 +255,7 @@ impl ImageLayer {
         board: &Board,
         camera: &Camera,
         layers: &[Layer],
+        hidden: &std::collections::HashSet<board_core::ElementId>,
     ) -> usize {
         self.draws.clear();
         self.draws.resize_with(layers.len(), Vec::new);
@@ -268,7 +269,7 @@ impl ImageLayer {
         for (li, layer) in layers.iter().enumerate() {
             for e in &elements[layer.elements.clone()] {
                 let Some(s) = e.as_shape() else { continue };
-                if s.kind != ShapeKind::Image && s.icon.is_empty() {
+                if s.kind != ShapeKind::Image && s.icon.is_empty() || hidden.contains(&s.id) {
                     continue;
                 }
                 if !s.bounds().intersects(&view) {

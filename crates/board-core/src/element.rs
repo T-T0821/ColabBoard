@@ -19,6 +19,9 @@ pub struct Meta {
     pub locked: bool,
     /// クリックで開くリンク(空ならなし)。
     pub link: String,
+    /// 個人作業エリア(フレーム)の持ち主の参加者 ID。空なら普通の要素。
+    /// 持ち主以外には、エリアの中の要素の中身を見せない(`privacy`)。
+    pub private: String,
 }
 
 /// 手書きの線。点列をそのまま持ち、GPU では線分ごとのカプセルとして描く。

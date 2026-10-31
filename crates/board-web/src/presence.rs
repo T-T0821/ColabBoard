@@ -72,6 +72,8 @@ pub struct Cursors {
     document: Document,
     layer: HtmlElement,
     peers: HashMap<u32, Peer>,
+    /// 小部屋に分かれているときの自分の部屋。外にいる人のカーソルは出さない。
+    pub area: Option<board_core::geom::Rect>,
 }
 
 impl Cursors {
@@ -80,6 +82,7 @@ impl Cursors {
             document,
             layer,
             peers: HashMap::new(),
+            area: None,
         }
     }
 
@@ -145,7 +148,8 @@ impl Cursors {
         for peer in self.peers.values() {
             let p = &peer.presence;
             let style = peer.el.style();
-            if !p.is_visible() {
+            let outside = self.area.is_some_and(|r| !r.contains(Vec2::new(p.x, p.y)));
+            if !p.is_visible() || outside {
                 let _ = style.set_property("display", "none");
                 continue;
             }

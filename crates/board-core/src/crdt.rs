@@ -64,6 +64,7 @@ pub fn encode(e: &Element, z: f64) -> Vec<(&'static str, Any)> {
         ("g", Any::Number(Number::Int(meta.group as i64))),
         ("lock", Any::Bool(meta.locked)),
         ("link", Any::String(meta.link.as_str().into())),
+        ("priv", Any::String(meta.private.as_str().into())),
     ]);
     match e {
         Element::Shape(s) => {
@@ -157,6 +158,7 @@ fn meta<T: ReadTxn>(m: &MapRef, txn: &T) -> Meta {
         group,
         locked: boolean(m, txn, "lock"),
         link: string(m, txn, "link"),
+        private: string(m, txn, "priv"),
     }
 }
 

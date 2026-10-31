@@ -29,6 +29,7 @@ mod search_ui;
 mod templates_ui;
 mod toolbar;
 mod touch;
+mod workshop;
 
 use crate::bench::Bench;
 use crate::net::{Net, NetEvent, Status};
@@ -87,6 +88,7 @@ struct App {
     collab: collab::Collab,
     ai: ai::AiUi,
     follow: follow::Follow,
+    workshop: workshop::Workshop,
     format_bar: format_bar::FormatBar,
     search: search_ui::Search,
     comments: comments::Comments,
@@ -371,6 +373,7 @@ pub async fn run() -> Result<(), String> {
         collab: collab::Collab::new(&document)?,
         ai: ai::AiUi::new(&document)?,
         follow: follow::Follow::new(&document)?,
+        workshop: workshop::Workshop::new(&document)?,
         format_bar: format_bar::FormatBar::default(),
         search: search_ui::Search::default(),
         comments: comments::Comments::new(&document)?,
@@ -843,6 +846,7 @@ impl App {
         self.pump_net(now);
         self.save_local(now, false);
         self.collab_frame();
+        self.workshop_frame();
         self.follow_frame(now);
         self.comments_frame(now);
         self.history_frame();
@@ -1611,6 +1615,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     collab::install(app, doc)?;
     ai::install(app, doc)?;
     follow::install(app, doc)?;
+    workshop::install(app, doc)?;
     comments::install(app, doc)?;
     history::install(app)?;
     on_click(doc, "undo", app, |a| a.undo())?;

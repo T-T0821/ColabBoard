@@ -216,12 +216,17 @@ enum Drag {
 }
 
 /// 点の下にある最前面の要素(ロック中の要素は素通りする)。
-fn pick(board: &Board, world: Vec2, tolerance: f32) -> Option<&Element> {
+fn pick<'a>(
+    board: &'a Board,
+    hidden: &std::collections::HashSet<ElementId>,
+    world: Vec2,
+    tolerance: f32,
+) -> Option<&'a Element> {
     board
         .elements()
         .iter()
         .rev()
-        .find(|e| !e.is_locked() && e.hit(world, tolerance))
+        .find(|e| !e.is_locked() && !hidden.contains(&e.id()) && e.hit(world, tolerance))
 }
 
 /// コネクタの端をつなげる相手(図形のみ、`except` 以外)。
@@ -272,6 +277,8 @@ pub struct Editor {
     hover_target: Option<ElementId>,
     /// 当たり判定を広げる倍率(指で触るときは大きくする)。
     hit_scale: f32,
+    /// 個人作業エリアで隠れている要素(選択も編集もできない)。`privacy::hidden_ids` で作る。
+    pub hidden: std::collections::HashSet<ElementId>,
 }
 
 impl Default for Editor {
@@ -305,6 +312,7 @@ impl Editor {
             stamp: crate::stamp::STAMPS[0],
             hover_target: None,
             hit_scale: 1.0,
+            hidden: std::collections::HashSet::new(),
         }
     }
 
@@ -335,6 +343,7 @@ impl Editor {
             && self.handle_at(board, camera, screen).is_none()
             && pick(
                 board,
+                &self.hidden,
                 camera.screen_to_world(screen),
                 self.hit_px() / camera.zoom,
             )
@@ -401,7 +410,7 @@ impl Editor {
     /// ダブルクリックで編集できる要素。
     pub fn editable_at(&self, board: &Board, camera: &Camera, screen: Vec2) -> Option<ElementId> {
         let world = camera.screen_to_world(screen);
-        pick(board, world, self.hit_px() / camera.zoom)
+        pick(board, &self.hidden, world, self.hit_px() / camera.zoom)
             .filter(|e| e.text_box().is_some())
             .map(Element::id)
     }
@@ -428,7 +437,7 @@ impl Editor {
         self.selection = board
             .elements()
             .iter()
-            .filter(|e| !e.is_locked())
+            .filter(|e| !e.is_locked() && !self.hidden.contains(&e.id()))
             .map(Element::id)
             .collect();
     }
@@ -436,7 +445,7 @@ impl Editor {
     /// 右クリックした位置の要素を選ぶ(選択中の要素ならそのまま)。何もなければ選択を外す。
     pub fn select_at(&mut self, board: &Board, camera: &Camera, screen: Vec2) {
         let world = camera.screen_to_world(screen);
-        match pick(board, world, self.hit_px() / camera.zoom).map(Element::id) {
+        match pick(board, &self.hidden, world, self.hit_px() / camera.zoom).map(Element::id) {
             Some(id) if self.selection.contains(&id) => {}
             Some(id) => self.selection = arrange::expand_groups(board, &[id]),
             None => self.selection.clear(),
@@ -537,7 +546,7 @@ impl Editor {
                     return "move";
                 }
                 let world = camera.screen_to_world(screen);
-                match pick(board, world, self.hit_px() / camera.zoom) {
+                match pick(board, &self.hidden, world, self.hit_px() / camera.zoom) {
                     Some(e) if self.selection.contains(&e.id()) => "move",
                     Some(_) => "pointer",
                     None => "default",
@@ -576,7 +585,8 @@ impl Editor {
                     });
                     return true;
                 }
-                let hit = pick(board, world, self.hit_px() / camera.zoom).map(Element::id);
+                let hit =
+                    pick(board, &self.hidden, world, self.hit_px() / camera.zoom).map(Element::id);
                 match hit {
                     Some(id) => {
                         let selected = self.selection.contains(&id);
@@ -746,7 +756,9 @@ impl Editor {
                 let inside: Vec<ElementId> = board
                     .query_inside(&r)
                     .into_iter()
-                    .filter(|id| board.get(*id).is_some_and(|e| !e.is_locked()))
+                    .filter(|id| {
+                        !self.hidden.contains(id) && board.get(*id).is_some_and(|e| !e.is_locked())
+                    })
                     .collect();
                 for id in arrange::expand_groups(board, &inside) {
                     if !sel.contains(&id) {

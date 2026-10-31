@@ -16,7 +16,9 @@ pub use cull::VisibleBlocks;
 pub use gpu::{Capture, FrameStats, RenderError, Renderer};
 pub use wgpu;
 
-use board_core::{Element, Shape, ShapeKind, Stroke};
+use std::collections::HashSet;
+
+use board_core::{Element, ElementId, Shape, ShapeKind, Stroke};
 use bytemuck::{Pod, Zeroable};
 
 /// ダークモードでキャンバスに直接載る文字・線は、黒に近ければ明るくする
@@ -297,6 +299,15 @@ pub fn is_image(e: &Element) -> bool {
 
 /// インスタンス列を作りながら段を決める。
 pub fn build_layers(elements: &[Element], out: &mut Vec<ShapeInstance>) -> Vec<Layer> {
+    build_layers_masked(elements, &HashSet::new(), out)
+}
+
+/// `hidden`(個人作業エリアで隠れている要素)は中身のない伏せたカードとして描く。
+pub fn build_layers_masked(
+    elements: &[Element],
+    hidden: &HashSet<ElementId>,
+    out: &mut Vec<ShapeInstance>,
+) -> Vec<Layer> {
     out.clear();
     let mut layers = Vec::new();
     let mut regions = TextRegions::default();
@@ -314,9 +325,16 @@ pub fn build_layers(elements: &[Element], out: &mut Vec<ShapeInstance>) -> Vec<L
             start_elem = i;
             regions.clear();
         }
-        push_instances(e, out);
+        let masked = hidden.contains(&e.id());
+        if masked {
+            if let Some(f) = board_core::privacy::face_down(e) {
+                push_instances(&f, out);
+            }
+        } else {
+            push_instances(e, out);
+        }
         // 段の最後に描くもの(文字・画像)の上に後ろの要素が重なったら段を分ける。
-        if !e.text().is_empty() || is_image(e) {
+        if masked || !e.text().is_empty() || is_image(e) {
             regions.insert(bounds);
         }
     }

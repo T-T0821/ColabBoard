@@ -97,6 +97,7 @@ impl TextLayer {
     }
 
     /// 見えている図形の文字を準備する。`skip` は編集中で別の欄に表示している要素。
+    #[allow(clippy::too_many_arguments)]
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -105,6 +106,7 @@ impl TextLayer {
         camera: &Camera,
         layers: &[Layer],
         skip: Option<ElementId>,
+        hidden: &std::collections::HashSet<ElementId>,
     ) -> usize {
         self.prepared.clear();
         self.prepared.resize(layers.len(), false);
@@ -123,13 +125,22 @@ impl TextLayer {
             None => Box::new(elements.iter().enumerate()),
         };
         let visible: Vec<(usize, Item<'_>)> = near
-            .filter(|(_, e)| !e.text().is_empty() && Some(e.id()) != skip)
+            .filter(|(_, e)| {
+                (hidden.contains(&e.id()) || !e.text().is_empty()) && Some(e.id()) != skip
+            })
             .filter_map(|(i, e)| {
+                let text = if hidden.contains(&e.id()) {
+                    // 伏せたカード(描かない種類は文字も出さない)。
+                    board_core::privacy::face_down(e)?;
+                    board_core::privacy::FACE_DOWN_TEXT
+                } else {
+                    e.text()
+                };
                 Some((
                     i,
                     Item {
                         id: e.id(),
-                        text: e.text(),
+                        text,
                         tb: e.text_box()?,
                         on_canvas: e
                             .as_shape()
