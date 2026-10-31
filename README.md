@@ -76,7 +76,7 @@ cargo run -p board-server --release
 
 | crate | 役割 |
 | --- | --- |
-| `board-core` | データモデル(図形・手書き線・ボード、yrs による CRDT と Undo)、タイマーと投票の共有状態(`session`)、付箋の自動整理(`arrange`)、カメラ座標変換、パン/ズームと編集操作(`Editor`)。描画にも通信にも依存しない |
+| `board-core` | データモデル(図形・手書き線・ボード、yrs による CRDT と Undo)、タイマーと投票の共有状態(`session`)、付箋の自動整理(`tidy`)、カメラ座標変換、パン/ズームと編集操作(`Editor`)。描画にも通信にも依存しない |
 | `board-render` | wgpu の描画エンジン。WGSL シェーダ(`grid.wgsl`, `shapes.wgsl`)と文字描画(glyphon / cosmic-text) |
 | `board-web` | ブラウザ用クライアント(WASM)。canvas、入力イベント、HUD、WebSocket 接続とカーソル表示 |
 | `board-server` | 同期サーバー(axum + tokio)。ルームごとに yrs ドキュメントを持って更新を中継し、redb に保存する |

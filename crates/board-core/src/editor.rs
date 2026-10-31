@@ -5,6 +5,7 @@
 
 use glam::Vec2;
 
+use crate::arrange;
 use crate::board::Board;
 use crate::camera::Camera;
 use crate::color::{Rgba8, STICKY_COLORS};
@@ -155,6 +156,8 @@ impl Handle {
 enum Drag {
     Move {
         last: Vec2,
+        /// 一緒に動かす要素(選択 + グループ + フレームの中身)。
+        ids: Vec<ElementId>,
     },
     Resize {
         handle: Handle,
@@ -173,6 +176,15 @@ enum Drag {
     Draw {
         id: ElementId,
     },
+}
+
+/// 点の下にある最前面の要素(ロック中の要素は素通りする)。
+fn pick(board: &Board, world: Vec2, tolerance: f32) -> Option<&Element> {
+    board
+        .elements()
+        .iter()
+        .rev()
+        .find(|e| !e.is_locked() && e.hit(world, tolerance))
 }
 
 /// 1 人分の編集状態。
@@ -261,8 +273,7 @@ impl Editor {
     /// ダブルクリックで編集できる要素。
     pub fn editable_at(&self, board: &Board, camera: &Camera, screen: Vec2) -> Option<ElementId> {
         let world = camera.screen_to_world(screen);
-        board
-            .hit_test(world, HIT_TOLERANCE_PX / camera.zoom)
+        pick(board, world, HIT_TOLERANCE_PX / camera.zoom)
             .filter(|e| e.as_shape().is_some())
             .map(Element::id)
     }
@@ -285,21 +296,38 @@ impl Editor {
         self.selection.clear();
     }
 
-    /// 選択を置き換える(存在しない要素は除く)。
-    pub fn set_selection(&mut self, board: &Board, ids: &[ElementId]) {
-        self.selection = ids
+    pub fn select_all(&mut self, board: &Board) {
+        self.selection = board
+            .elements()
             .iter()
-            .copied()
-            .filter(|id| board.get(*id).is_some())
+            .filter(|e| !e.is_locked())
+            .map(Element::id)
             .collect();
     }
 
-    pub fn select_all(&mut self, board: &Board) {
-        self.selection = board.elements().iter().map(Element::id).collect();
+    /// 右クリックした位置の要素を選ぶ(選択中の要素ならそのまま)。何もなければ選択を外す。
+    pub fn select_at(&mut self, board: &Board, camera: &Camera, screen: Vec2) {
+        let world = camera.screen_to_world(screen);
+        match pick(board, world, HIT_TOLERANCE_PX / camera.zoom).map(Element::id) {
+            Some(id) if self.selection.contains(&id) => {}
+            Some(id) => self.selection = arrange::expand_groups(board, &[id]),
+            None => self.selection.clear(),
+        }
+    }
+
+    /// 選択を置き換える(貼り付け後など)。
+    pub fn set_selection(&mut self, ids: Vec<ElementId>) {
+        self.selection = ids;
     }
 
     pub fn delete_selection(&mut self, board: &mut Board) -> usize {
-        let n = board.remove(&self.selection);
+        let ids: Vec<ElementId> = self
+            .selection
+            .iter()
+            .copied()
+            .filter(|id| board.get(*id).is_some_and(|e| !e.is_locked()))
+            .collect();
+        let n = board.remove(&ids);
         self.selection.clear();
         n
     }
@@ -342,7 +370,7 @@ impl Editor {
                     return "move";
                 }
                 let world = camera.screen_to_world(screen);
-                match board.hit_test(world, HIT_TOLERANCE_PX / camera.zoom) {
+                match pick(board, world, HIT_TOLERANCE_PX / camera.zoom) {
                     Some(e) if self.selection.contains(&e.id()) => "move",
                     Some(_) => "pointer",
                     None => "default",
@@ -376,22 +404,27 @@ impl Editor {
                     });
                     return true;
                 }
-                let hit = board
-                    .hit_test(world, HIT_TOLERANCE_PX / camera.zoom)
-                    .map(Element::id);
+                let hit = pick(board, world, HIT_TOLERANCE_PX / camera.zoom).map(Element::id);
                 match hit {
                     Some(id) => {
                         let selected = self.selection.contains(&id);
+                        // グループの仲間もまとめて選ぶ。
+                        let members = arrange::expand_groups(board, &[id]);
                         if mods.shift {
                             if selected {
-                                self.selection.retain(|s| *s != id);
+                                self.selection.retain(|s| !members.contains(s));
                                 return true;
                             }
-                            self.selection.push(id);
+                            for m in members {
+                                if !self.selection.contains(&m) {
+                                    self.selection.push(m);
+                                }
+                            }
                         } else if !selected {
-                            self.selection = vec![id];
+                            self.selection = members;
                         }
-                        self.drag = Some(Drag::Move { last: world });
+                        let ids = arrange::move_set(board, &self.selection);
+                        self.drag = Some(Drag::Move { last: world, ids });
                     }
                     None => {
                         let base = if mods.shift {
@@ -430,7 +463,10 @@ impl Editor {
                 self.tool = Tool::Select;
                 self.pending_edit = Some(id);
                 // そのままドラッグで位置を調整できる。
-                self.drag = Some(Drag::Move { last: world });
+                self.drag = Some(Drag::Move {
+                    last: world,
+                    ids: vec![id],
+                });
                 true
             }
             Tool::Pen => {
@@ -455,13 +491,13 @@ impl Editor {
             return false;
         };
         match drag {
-            Drag::Move { last } => {
+            Drag::Move { last, ids } => {
                 let d = world - *last;
                 if d == Vec2::ZERO {
                     return false;
                 }
                 *last = world;
-                for id in &self.selection {
+                for id in ids.iter() {
                     board.update(*id, |e| e.translate(d));
                 }
             }
@@ -485,7 +521,12 @@ impl Editor {
                 *current = world;
                 let r = Rect::from_points(*start, *current);
                 let mut sel = base.clone();
-                for id in board.query_inside(&r) {
+                let inside: Vec<ElementId> = board
+                    .query_inside(&r)
+                    .into_iter()
+                    .filter(|id| board.get(*id).is_some_and(|e| !e.is_locked()))
+                    .collect();
+                for id in arrange::expand_groups(board, &inside) {
                     if !sel.contains(&id) {
                         sel.push(id);
                     }

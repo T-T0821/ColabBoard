@@ -6,8 +6,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use board_core::arrange::{self, Arrange};
 use board_core::session::{VoteSession, VoteTally, format_remaining};
+use board_core::tidy::{self, Arrange};
 use board_core::{Board, Camera, ElementId, Vec2};
 use wasm_bindgen::JsCast;
 use web_sys::{Document, Element, HtmlElement, HtmlInputElement};
@@ -329,7 +329,7 @@ impl App {
         };
         let pad = b.size().max_element() * 1.5;
         self.camera.fit(b.min - pad, b.max + pad, 48.0);
-        self.editor.set_selection(&self.board, &[id]);
+        self.editor.set_selection(vec![id]);
         self.dirty = true;
     }
 
@@ -338,8 +338,8 @@ impl App {
         if self.editor.is_dragging() {
             return;
         }
-        let ids = arrange::targets(&self.board, self.editor.selection());
-        if arrange::arrange(&mut self.board, &ids, mode) > 0 {
+        let ids = tidy::targets(&self.board, self.editor.selection());
+        if tidy::arrange(&mut self.board, &ids, mode) > 0 {
             self.dirty = true;
         }
     }
