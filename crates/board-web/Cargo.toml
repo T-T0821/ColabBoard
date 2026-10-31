@@ -102,6 +102,12 @@ web-sys = { version = "0.3", features = [
     "MutationObserver",
     "MutationObserverInit",
     "MutationRecord",
+    "HtmlVideoElement",
+    "MediaRecorder",
+    "MediaRecorderOptions",
+    "BlobEvent",
+    "CanvasRenderingContext2d",
+    "CanvasGradient",
 ] }
 # PDF の取り込み(Pure Rust のラスタライザ)。wasm が数 MB 増えるので機能で切れるようにする。
 calamine = "0.37.0"

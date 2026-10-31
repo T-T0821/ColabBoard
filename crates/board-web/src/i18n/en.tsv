@@ -790,6 +790,44 @@ Mermaid / PlantUML の図として読めませんでした	Could not read it as 
 本当にチームを削除	Really delete team
 チームを抜ける	Leave team
 チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。	Team boards are open to every member (can edit by default). Admins manage all team boards.
+プラグイン	Plugins
+プラグイン(選択中の要素に実行)	Plugins (run on the selection)
+使えるプラグインはまだありません。ボード一覧の「開発者向け」から自分のプラグイン(.wasm)を入れるか、サーバーの管理者に PLUGIN_DIR を設定してもらってください。	No plugins yet. Add your own (.wasm) from "For developers" on the board list, or ask the server admin to set PLUGIN_DIR.
+自分	Mine
+権限なし	No permissions
+ボードを読む	Read the board
+ボードを編集する	Edit the board
+ログ	Log
+実行中…	Running…
+実行しました	Done
+実行しました({n} 件の変更)	Done ({n} changes)
+選択中の要素(なければボード全体)に実行	Run on the selected elements (or the whole board)
+このプラグインはボードを編集するので、編集権限が必要です	This plugin edits the board, so you need edit access
+開発者向け: API トークンとプラグイン	For developers: API tokens and plugins
+API トークン	API tokens
+トークンを作る	Create token
+読み書き	Read and write
+読むだけ	Read only
+{n} 日	{n} days
+1 年	1 year
+無期限	No expiry
+用途(例: CI から付箋を置く)	Purpose (e.g. add stickies from CI)
+できること	Scope
+有効期間	Expires in
+まだトークンはありません。	No tokens yet.
+無効にする	Revoke
+本当に無効にする	Revoke now
+トークンを無効にしました	Token revoked
+まだ使っていません	Never used
+作ったトークン	New token
+このトークンは今しか表示されません。安全な場所に控えてください。	This token is shown only now. Store it somewhere safe.
+プラグイン(.wasm)を入れる	Add a plugin (.wasm)
+入れたプラグインは自分だけが使えます。ボードを開き、右上の「プラグイン」から実行します。	Plugins you add are only available to you. Open a board and run them from "Plugins" at the top right.
+まだプラグインはありません。	No plugins yet.
+消す	Remove
+プラグインを消しました	Plugin removed
+入れています…	Installing…
+ファイルを読めません	Cannot read the file
 操作ログ	Audit log
 全体の操作ログ	Audit log (all)
 日時	Time
@@ -893,3 +931,29 @@ URL を作り直す	Regenerate URL
 すべてたたむ	Collapse all
 すべての枝を開く	Expand all branches
 すべての枝をたたむ	Collapse all branches
+でログイン	Sign in
+または	or
+SSO で自動参加させるメールのドメイン(例 example.co.jp)	Email domains that auto-join via SSO (e.g. example.com)
+SSO 自動参加ドメイン	SSO auto-join domains
+SSO 自動参加	SSO auto-join
+動画メモを録って置く(最長 1 分)	Record a video memo and place it (up to 1 minute)
+動画メモ	Video memo
+キャンセル	Cancel
+撮り直す	Retake
+録画	Record
+停止	Stop
+ボードに置く	Place on board
+保存中…	Saving…
+保存できません	Cannot save
+動画を閉じる	Close video
+カメラを準備しています…	Getting the camera ready…
+動画メモはサーバーにつながっているボードで使えます	Video memos are available on boards connected to the server
+このブラウザは録画に対応していません	This browser cannot record video
+録画を始められません	Cannot start recording
+録画を保存できません	Cannot save the recording
+録画が空です	The recording is empty
+このブラウザではカメラを使えません(HTTPS か localhost で開いてください)	This browser cannot use the camera (open the page over HTTPS or on localhost)
+カメラとマイクの使用が許可されていません(アドレスバーから許可できます)	Camera and microphone access is blocked (you can allow it from the address bar)
+カメラが見つかりません	No camera found
+カメラを他のアプリが使っています	Another app is using the camera
+カメラを使えません	Cannot use the camera

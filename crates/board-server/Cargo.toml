@@ -26,6 +26,9 @@ getrandom = "0.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rust-embed = { version = "8", optional = true, features = ["mime-guess", "include-exclude"] }
 wasmi = "2"
+rsa = { version = "0.9", features = ["sha2"] }
+sha2 = "0.10"
+p256 = { version = "0.13", features = ["ecdsa"] }
 
 [features]
 # ビルド済みの Web クライアント(crates/board-web/dist)をバイナリに埋め込み、1 ファイルで配れるようにする。
@@ -38,3 +41,4 @@ tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 wat = "1.263.0"
+rsa = { version = "0.9", features = ["sha2", "pem"] }

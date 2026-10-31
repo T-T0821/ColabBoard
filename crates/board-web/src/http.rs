@@ -142,6 +142,54 @@ pub async fn get_bytes(path: &str) -> Result<Vec<u8>, HttpError> {
     Ok(js_sys::Uint8Array::new(&buf).to_vec())
 }
 
+/// バイナリを POST して JSON を受け取る(動画メモの保存など)。
+pub async fn post_bytes<T: DeserializeOwned>(
+    path: &str,
+    content_type: &str,
+    bytes: &[u8],
+) -> Result<T, HttpError> {
+    send_bytes("POST", path, content_type, bytes).await
+}
+
+/// バイナリを送って JSON を受け取る(プラグインの `.wasm` など)。
+pub async fn send_bytes<T: DeserializeOwned>(
+    method: &str,
+    path: &str,
+    content_type: &str,
+    bytes: &[u8],
+) -> Result<T, HttpError> {
+    let window = web_sys::window().ok_or(HttpError::Unavailable)?;
+    let init = RequestInit::new();
+    init.set_method(method);
+    init.set_credentials(RequestCredentials::Include);
+    let body = js_sys::Uint8Array::from(bytes);
+    init.set_body(&body);
+    let req = Request::new_with_str_and_init(&format!("{}/api{path}", base()), &init)
+        .map_err(|_| HttpError::Unavailable)?;
+    let _ = req.headers().set("Content-Type", content_type);
+    let res: Response = JsFuture::from(window.fetch_with_request(&req))
+        .await
+        .map_err(|_| HttpError::Unavailable)?
+        .dyn_into()
+        .map_err(|_| HttpError::Unavailable)?;
+    let status = res.status();
+    let text = match res.text() {
+        Ok(p) => JsFuture::from(p)
+            .await
+            .ok()
+            .and_then(|v| v.as_string())
+            .unwrap_or_default(),
+        Err(_) => String::new(),
+    };
+    if (200..300).contains(&status) {
+        return parse(Some(text));
+    }
+    let msg = serde_json::from_str::<ApiError>(&text)
+        .map(|e| e.error)
+        .unwrap_or_else(|_| format!("エラー({status})"));
+    Err(HttpError::Status(status, msg))
+}
+
 /// 応答の中身を使わない呼び出し。
 pub async fn send_empty(method: &str, path: &str) -> Result<(), HttpError> {
     call(method, path, None).await.map(|_| ())

@@ -90,7 +90,7 @@ pub fn face_down(e: &Element) -> Option<Element> {
     let Element::Shape(s) = e else {
         return None;
     };
-    if s.kind == ShapeKind::Image || s.kind == ShapeKind::Text || s.kind == ShapeKind::Stamp {
+    if s.kind.is_picture() || s.kind == ShapeKind::Text || s.kind == ShapeKind::Stamp {
         return None;
     }
     let mut c = s.clone();

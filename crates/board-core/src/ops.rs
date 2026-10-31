@@ -206,7 +206,9 @@ fn text(s: &str) -> R<String> {
 
 fn kind(s: &str) -> R<ShapeKind> {
     match ShapeKind::from_name(s) {
-        Some(ShapeKind::Image) => Err("画像はこの API では作れません".into()),
+        Some(ShapeKind::Image | ShapeKind::Video) => {
+            Err("画像・動画はこの API では作れません".into())
+        }
         Some(k) => Ok(k),
         None => Err(format!("図形の種類「{s}」はありません")),
     }

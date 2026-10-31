@@ -138,6 +138,13 @@ impl From<CommentError> for Error {
 
 pub type ApiResult<T> = Result<T, Error>;
 
+fn password_login_disabled() -> Error {
+    Error::new(
+        StatusCode::FORBIDDEN,
+        "このサーバーではパスワードでのログインは使えません。SSO でログインしてください",
+    )
+}
+
 // ---- ログイン状態 ----
 
 fn session_token(headers: &HeaderMap) -> Option<&str> {
@@ -234,6 +241,9 @@ async fn signup(
     headers: HeaderMap,
     Json(req): Json<Signup>,
 ) -> ApiResult<Response> {
+    if !state.config.password_login {
+        return Err(password_login_disabled());
+    }
     let store = state.store().clone();
     let user = blocking(move || auth::signup(&store, &req.login, &req.name, &req.password)).await?;
     tracing::info!(login = %user.login, "アカウント作成");
@@ -254,6 +264,9 @@ async fn login(
     headers: HeaderMap,
     Json(req): Json<Login>,
 ) -> ApiResult<Response> {
+    if !state.config.password_login {
+        return Err(password_login_disabled());
+    }
     let store = state.store().clone();
     let attempted = req.login.trim().to_ascii_lowercase();
     let user = match blocking(move || auth::check_login(&store, &req.login, &req.password)).await {
@@ -428,6 +441,7 @@ async fn delete_board(
     boards::forget(state.store(), &user.login, &id)?;
     comments::delete_all(state.store(), &id)?;
     versions::delete_all(state.store(), &id)?;
+    crate::media::delete_all(state.store(), &id)?;
     state.hub.delete(&id)?;
     tracing::info!(board = %id, "ボード削除");
     Ok(StatusCode::NO_CONTENT)
