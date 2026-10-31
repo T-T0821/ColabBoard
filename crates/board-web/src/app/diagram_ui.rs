@@ -187,6 +187,15 @@ pub(super) fn install(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), Stri
         a.insert_group(&groups.value())
     })?;
 
+    on_click(doc, "diagram-layout-right", app, |a| {
+        a.run_action(super::actions::Action::AutoLayout(
+            diagram::Direction::Right,
+        ))
+    })?;
+    on_click(doc, "diagram-layout-down", app, |a| {
+        a.run_action(super::actions::Action::AutoLayout(diagram::Direction::Down))
+    })?;
+
     // サンプル
     let list: HtmlElement = by_id(doc, "diagram-samples")?;
     for (name, json) in samples::SAMPLES {
