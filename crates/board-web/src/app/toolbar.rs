@@ -8,6 +8,7 @@ use std::fmt::Write as _;
 use std::rc::Rc;
 
 use board_core::shape::Shape;
+use board_core::uml::Part;
 use board_core::{ShapeCategory, ShapeKind, Tool, Vec2};
 use wasm_bindgen::JsCast;
 use web_sys::{DragEvent, Element, HtmlElement, HtmlInputElement, MouseEvent};
@@ -16,6 +17,36 @@ use super::{App, by_id, js_err, listen};
 
 /// ドラッグ&ドロップで図形の種類を渡すときのデータ形式。
 const DRAG_TYPE: &str = "application/x-colabboard-shape";
+/// UML・ER の部品を渡すときのデータ形式。
+const PART_DRAG_TYPE: &str = "application/x-colabboard-uml";
+
+/// UML・ER の部品のアイコン(24×24 の SVG の中身)。
+fn part_icon(p: Part) -> &'static str {
+    match p {
+        Part::Class => r#"<rect x="4" y="3" width="16" height="18"/><path d="M4 8h16M4 14h16"/>"#,
+        Part::Interface => {
+            r#"<rect x="4" y="3" width="16" height="18"/><path d="M4 10h16M9 6.5h6"/>"#
+        }
+        Part::Entity => {
+            r#"<rect x="4" y="3" width="16" height="18"/><path d="M4 8h16M7 12h2M7 16h2M11 12h6M11 16h6"/>"#
+        }
+        Part::Lifeline => {
+            r#"<rect x="6" y="2" width="12" height="6"/><path d="M12 8v14" stroke-dasharray="2 2"/>"#
+        }
+        Part::Activation => {
+            r#"<path d="M12 2v4M12 18v4" stroke-dasharray="2 2"/><rect x="10" y="6" width="4" height="12"/>"#
+        }
+        Part::Fragment => r#"<rect x="3" y="4" width="18" height="16"/><path d="M3 9h6l2-2V4"/>"#,
+        Part::Actor => r#"<circle cx="12" cy="5" r="3"/><path d="M12 8v7M7 11h10M8 21l4-6 4 6"/>"#,
+        Part::UseCase => r#"<ellipse cx="12" cy="12" rx="9" ry="6"/>"#,
+        Part::State => r#"<rect x="3" y="6" width="18" height="12" rx="5"/>"#,
+        Part::InitialState => r#"<circle cx="12" cy="12" r="6" style="fill:currentColor"/>"#,
+        Part::FinalState => {
+            r#"<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.5" style="fill:currentColor"/>"#
+        }
+        Part::Note => r#"<path d="M4 3h11l5 5v13H4zM15 3v5h5"/>"#,
+    }
+}
 
 /// 図形ライブラリのアイコン(24×24 の SVG の中身)。
 pub fn icon(kind: ShapeKind) -> String {
@@ -93,6 +124,17 @@ fn render() -> String {
         }
         h.push_str("</div></section>");
     }
+    h.push_str(r#"<section class="shape-section"><h3>UML・ER</h3><div class="shape-grid">"#);
+    for p in Part::ALL {
+        let _ = write!(
+            h,
+            r#"<button class="shape-item" data-part="{name}" title="{label}" aria-label="{label}" draggable="true"><svg viewBox="0 0 24 24">{icon}</svg></button>"#,
+            name = p.name(),
+            label = p.label(),
+            icon = part_icon(p),
+        );
+    }
+    h.push_str("</div></section>");
     h.push_str(
         r#"<section class="shape-section"><h3>その他</h3><div class="shape-links">
 <button data-table><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="1"/><path d="M3 10h18M3 14.5h18M9 5v14M15 5v14"/></svg>表(3×3)</button>
@@ -103,6 +145,27 @@ fn render() -> String {
 }
 
 impl App {
+    /// UML・ER の部品を、ワールド座標 `at` を中心に置く。
+    fn drop_part(&mut self, part: Part, at: Vec2) {
+        if !self.can_edit() {
+            return;
+        }
+        let board = &mut self.board;
+        let mut els = part.build(Vec2::ZERO, &mut || board.alloc_id());
+        let Some(r) = els
+            .iter()
+            .map(board_core::Element::bounds)
+            .reduce(|a, b| a.union(&b))
+        else {
+            return;
+        };
+        let d = at - r.center();
+        for e in &mut els {
+            e.translate(d);
+        }
+        self.insert_elements(els);
+    }
+
     /// 図形をワールド座標 `at` を中心に既定の大きさで置く。
     fn drop_shape(&mut self, kind: ShapeKind, at: Vec2) {
         if !self.can_edit() {
@@ -222,6 +285,35 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
         })?;
     }
 
+    // UML・ER の部品: 押すと画面の中央に置き、ドラッグでその場所に置く。
+    let parts = panel.query_selector_all("[data-part]").map_err(js_err)?;
+    for i in 0..parts.length() {
+        let Some(el) = parts.item(i).and_then(|n| n.dyn_into::<Element>().ok()) else {
+            continue;
+        };
+        let Some(part) = el
+            .get_attribute("data-part")
+            .and_then(|k| Part::from_name(&k))
+        else {
+            continue;
+        };
+        {
+            let app = app.clone();
+            listen(el.as_ref(), "click", false, move |e: MouseEvent| {
+                e.stop_propagation();
+                let mut a = app.borrow_mut();
+                let at = a.view_center();
+                a.drop_part(part, at);
+            })?;
+        }
+        listen(el.as_ref(), "dragstart", false, move |e: DragEvent| {
+            if let Some(dt) = e.data_transfer() {
+                let _ = dt.set_data(PART_DRAG_TYPE, part.name());
+                dt.set_effect_allowed("copy");
+            }
+        })?;
+    }
+
     // 検索(名前の一部で絞り込む)。
     if let Some(search) = panel
         .query_selector(".shape-search")
@@ -232,6 +324,24 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
         let search2 = search.clone();
         listen(search.as_ref(), "input", false, move |_: web_sys::Event| {
             let q = search2.value().trim().to_lowercase();
+            if let Ok(parts) = panel.query_selector_all("[data-part]") {
+                for i in 0..parts.length() {
+                    let Some(el) = parts.item(i).and_then(|n| n.dyn_into::<HtmlElement>().ok())
+                    else {
+                        continue;
+                    };
+                    let hit = q.is_empty()
+                        || el
+                            .get_attribute("data-part")
+                            .and_then(|k| Part::from_name(&k))
+                            .is_some_and(|p| {
+                                p.label().to_lowercase().contains(&q)
+                                    || p.name().contains(&q)
+                                    || "uml er".contains(&q)
+                            });
+                    el.set_hidden(!hit);
+                }
+            }
             let Ok(items) = panel.query_selector_all("[data-shape]") else {
                 return;
             };
@@ -263,7 +373,7 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
                     let visible = if links {
                         q.is_empty()
                     } else {
-                        sec.query_selector("[data-shape]:not([hidden])")
+                        sec.query_selector("[data-shape]:not([hidden]), [data-part]:not([hidden])")
                             .ok()
                             .flatten()
                             .is_some()
@@ -300,6 +410,18 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
     {
         let app = app.clone();
         listen(canvas.as_ref(), "drop", false, move |e: DragEvent| {
+            if let Some(part) = e
+                .data_transfer()
+                .and_then(|dt| dt.get_data(PART_DRAG_TYPE).ok())
+                .and_then(|k| Part::from_name(&k))
+            {
+                e.prevent_default();
+                let mut a = app.borrow_mut();
+                let p = a.css_to_physical(e.client_x() as f64, e.client_y() as f64);
+                let at = a.camera.screen_to_world(p);
+                a.drop_part(part, at);
+                return;
+            }
             let Some(kind) = e
                 .data_transfer()
                 .and_then(|dt| dt.get_data(DRAG_TYPE).ok())

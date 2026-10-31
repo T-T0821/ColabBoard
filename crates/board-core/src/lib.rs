@@ -39,6 +39,7 @@ pub mod table;
 pub mod tabular;
 pub mod templates;
 pub mod tidy;
+pub mod uml;
 pub mod workshop;
 
 pub use board::Board;
