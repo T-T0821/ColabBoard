@@ -234,6 +234,13 @@ pub async fn run() -> Result<(), String> {
         let mut a = app.borrow_mut();
         if a.net.is_none() {
             a.initial_view();
+            let text = if a.board.is_collaborative() {
+                "オフライン(保存されません)"
+            } else {
+                "ダミー表示中(同期なし)"
+            };
+            a.hud.net.set_text_content(Some(text));
+            let _ = a.hud.net.set_attribute("data-status", "offline");
         }
     }
 
