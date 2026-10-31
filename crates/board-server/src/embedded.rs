@@ -13,6 +13,11 @@ pub fn available() -> bool {
     Assets::get("index.html").is_some()
 }
 
+/// 埋め込んだファイルの中身(OGP 画像のフォントなど)。
+pub fn file(path: &str) -> Option<Vec<u8>> {
+    Assets::get(path).map(|f| f.data.into_owned())
+}
+
 pub async fn serve(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
     let path = if path.is_empty() { "index.html" } else { path };

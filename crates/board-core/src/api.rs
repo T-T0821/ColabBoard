@@ -15,6 +15,7 @@
 //! | `PUT` | `/api/boards/{id}/members` | メンバーの追加・変更・削除([`SetMember`]、オーナーのみ) |
 //! | `PUT` | `/api/boards/{id}/link` | 共有リンクの設定([`SetLink`] → [`Sharing`]、オーナーのみ) |
 //! | `PUT` | `/api/boards/{id}/embed` | 埋め込み(iframe)の設定([`SetLink`] → [`Sharing`]、オーナーのみ) |
+//! | `PUT` | `/api/boards/{id}/public` | Web への公開([`SetPublic`] → [`Sharing`]、オーナーのみ) |
 //! | `GET` | `/api/boards/{id}/comments?key=` | コメント一覧([`Comment`] の配列、閲覧者以上) |
 //! | `POST` | `/api/boards/{id}/comments?key=` | コメント・返信([`NewComment`] → [`Posted`]、コメント可以上・要ログイン) |
 //! | `PATCH` | `/api/boards/{id}/comments/{cid}?key=` | 本文の編集(本人)・解決/再開(コメント可以上)([`EditComment`]) |
@@ -171,6 +172,33 @@ pub struct Sharing {
     /// 他のサイトに埋め込む(iframe)ときの鍵と権限。共有リンクとは別に作り直せる。
     #[serde(default)]
     pub embed: Option<LinkShare>,
+    /// Web に公開中なら、その公開ページ。
+    #[serde(default)]
+    pub public: Option<PublicShare>,
+}
+
+/// Web への公開。`/p/{board}/{slug}` を知っている人は誰でも(ログインなしで)見られる。
+/// 見るだけで、編集やコメントはできない。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicShare {
+    pub slug: String,
+    /// 公開した時刻(ミリ秒)。
+    pub since: u64,
+}
+
+impl PublicShare {
+    /// 公開ページのパス(`/p/{board}/{slug}`)。
+    pub fn path(&self, board: &str) -> String {
+        format!("/p/{board}/{}", self.slug)
+    }
+}
+
+/// `enabled` が false なら公開をやめる。`regenerate` で URL を作り直す(古い URL は使えなくなる)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetPublic {
+    pub enabled: bool,
+    #[serde(default)]
+    pub regenerate: bool,
 }
 
 /// `role` が `None` ならメンバーから外す。

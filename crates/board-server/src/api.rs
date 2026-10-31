@@ -11,8 +11,8 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use board_core::api::{
     ApiError, BoardInfo, Comment, EditComment, Login, MarkRead, Me, NewBoard, NewComment,
-    NewVersion, Notification, Posted, RenameBoard, Role, SetBoardTeam, SetLink, SetMember, Sharing,
-    Signup, VersionInfo,
+    NewVersion, Notification, Posted, RenameBoard, Role, SetBoardTeam, SetLink, SetMember,
+    SetPublic, Sharing, Signup, VersionInfo,
 };
 use board_core::protocol::{TOPIC_COMMENTS, TOPIC_VERSIONS};
 use serde::Deserialize;
@@ -42,6 +42,7 @@ pub fn routes() -> Router<Arc<AppState>> {
         .route("/boards/{id}/link", put(set_link))
         .route("/boards/{id}/embed", put(set_embed))
         .route("/boards/{id}/team", put(set_board_team))
+        .route("/boards/{id}/public", put(set_public))
         .route(
             "/boards/{id}/slack",
             get(slack::get_settings).put(slack::set_settings),
@@ -590,6 +591,25 @@ async fn set_board_team(
     state.hub.kick(&id);
     let (_, role) = board_access(&state, &id, Some(&user.login), None)?;
     Ok(Json(meta.info(role, None)))
+}
+
+async fn set_public(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(req): Json<SetPublic>,
+) -> ApiResult<Json<Sharing>> {
+    let user = require_user(&state, &headers)?;
+    let mut meta = owned_board(&state, &id, &user, None, Role::Owner)?;
+    let before = meta.public.clone();
+    boards::set_public(&mut meta, req.enabled, req.regenerate);
+    meta.updated = auth::now_ms();
+    boards::put(state.store(), &meta)?;
+    // 古い URL で見ている人は切る。
+    if before.is_some() && before != meta.public {
+        state.hub.kick(&id);
+    }
+    Ok(Json(meta.sharing()))
 }
 
 // ---- コメント ----

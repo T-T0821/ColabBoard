@@ -1713,3 +1713,24 @@ table.audit a { color: var(--accent); }
   border-radius: 3px; background: var(--accent); color: #fff;
 }
 :root[lang="en"] #tool-sticky[data-vertical]::after { content: "V"; }
+/* ---- Web に公開したページ(閲覧専用) ---- */
+body.public-view .toolbar,
+body.public-view .demo,
+body.public-view .collab,
+body.public-view .help,
+body.public-view #diagram-toggle,
+body.public-view #share,
+body.public-view #comments-toggle,
+body.public-view #history-toggle,
+body.public-view #notif-button,
+body.public-view #call-toggle,
+body.public-view .call-bar,
+body.public-view #comment-pins,
+body.public-view .hud > span:has(> .label),
+body.public-view .hud > .sep { display: none !important; }
+.share-panel .public-share { border-top: 1px solid var(--border); padding-top: 10px; }
+.share-panel .switch { cursor: pointer; }
+.share-panel .switch input { width: 16px; height: 16px; accent-color: var(--accent); }
+.share-panel .small { font-size: 12px; }
+.share-panel .public-share p { margin: 0; }
+.share-panel .public-share a { color: var(--accent); }
