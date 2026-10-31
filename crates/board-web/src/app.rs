@@ -22,8 +22,10 @@ mod export;
 mod follow;
 mod format_bar;
 mod history;
+mod imports;
 mod media;
 mod offline;
+mod prefs;
 mod reactions;
 mod search_ui;
 mod templates_ui;
@@ -387,6 +389,7 @@ pub async fn run() -> Result<(), String> {
     }));
     {
         let mut a = app.borrow_mut();
+        a.load_prefs();
         // 新しく作る付箋に、書いた人の名前(ログイン中は表示名)を入れる。
         let author = a.identity.name.clone();
         a.board.set_author(&author);
@@ -869,6 +872,7 @@ impl App {
 
     fn frame(&mut self, now: f64) {
         export::pump(self);
+        self.save_prefs();
         self.pump_net(now);
         self.save_local(now, false);
         self.collab_frame();
@@ -1233,10 +1237,19 @@ impl App {
         let _ = css.set_property("height", "0px");
         let content = self.text_editor.scroll_height() as f32;
         let _ = css.set_property("height", &px(size.y));
-        let pad = if tb.center_vertically {
-            ((size.y - content) * 0.5).max(0.0)
-        } else {
+        // 縦書きは入力欄も縦書きにする(縦方向の揃えは表示側だけ)。
+        let _ = css.set_property(
+            "writing-mode",
+            if tb.vertical {
+                "vertical-rl"
+            } else {
+                "horizontal-tb"
+            },
+        );
+        let pad = if tb.vertical {
             0.0
+        } else {
+            tb.valign.offset(size.y, content)
         };
         let _ = css.set_property("padding-top", &px(pad));
         let _ = css.set_property("box-sizing", "border-box");

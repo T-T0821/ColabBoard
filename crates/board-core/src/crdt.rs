@@ -81,6 +81,8 @@ pub fn encode(e: &Element, z: f64) -> Vec<(&'static str, Any)> {
                 ("text", Any::String(s.text.as_str().into())),
                 ("fs", float(s.font_size as f64)),
                 ("al", Any::String(s.align.name().into())),
+                ("va", Any::String(s.valign.name().into())),
+                ("vw", Any::Bool(s.vertical)),
                 ("tc", color(s.text_color)),
             ]);
             if let Some(img) = &s.image {
@@ -194,6 +196,12 @@ pub fn decode<T: ReadTxn>(id: ElementId, m: &MapRef, txn: &T) -> Option<(Element
                 // 古いデータには揃えがない。種類ごとの既定値にする。
                 _ => Shape::new(id, kind, Vec2::ZERO, Vec2::ONE, Rgba8::WHITE).align,
             },
+            valign: match m.get(txn, "va") {
+                Some(Out::Any(Any::String(a))) => crate::shape::VAlign::from_name(&a),
+                // 古いデータには縦方向の揃えがない。種類ごとの既定値にする。
+                _ => Shape::new(id, kind, Vec2::ZERO, Vec2::ONE, Rgba8::WHITE).valign,
+            },
+            vertical: matches!(m.get(txn, "vw"), Some(Out::Any(Any::Bool(true)))),
             text_color: rgba_or(m, txn, "tc", Rgba8::BLACK),
             meta: meta(m, txn),
             image: match m.get(txn, "img") {

@@ -19,6 +19,23 @@ impl Rgba8 {
         Self::rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
     }
 
+    /// `"#rrggbbaa"` 形式の文字列。
+    pub fn to_hex(self) -> String {
+        let [r, g, b, a] = self.0;
+        format!("#{r:02x}{g:02x}{b:02x}{a:02x}")
+    }
+
+    /// `"#rrggbb"` か `"#rrggbbaa"` を読む。
+    pub fn parse_hex(s: &str) -> Option<Self> {
+        let s = s.strip_prefix('#').unwrap_or(s);
+        if !matches!(s.len(), 6 | 8) || !s.is_ascii() {
+            return None;
+        }
+        let byte = |i: usize| u8::from_str_radix(&s[i..i + 2], 16).ok();
+        let a = if s.len() == 8 { byte(6)? } else { 0xff };
+        Some(Self([byte(0)?, byte(2)?, byte(4)?, a]))
+    }
+
     /// GPU の `unpack4x8unorm` で読める並び(リトルエンディアンで R が最下位)。
     pub fn to_u32(self) -> u32 {
         u32::from_le_bytes(self.0)

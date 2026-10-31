@@ -1,6 +1,7 @@
 //! ブラウザ用クライアント。canvas に wgpu で描画し、パン/ズームを受け付ける。
 
 pub mod bench;
+pub mod sheets;
 
 #[cfg(target_arch = "wasm32")]
 mod app;
