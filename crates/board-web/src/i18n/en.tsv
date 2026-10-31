@@ -786,7 +786,6 @@ Mermaid / PlantUML の図として読めませんでした	Could not read it as 
 本当にチームを削除	Really delete team
 チームを抜ける	Leave team
 チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。	Team boards are open to every member (can edit by default). Admins manage all team boards.
-<<<<<<< HEAD
 プラグイン	Plugins
 プラグイン(選択中の要素に実行)	Plugins (run on the selection)
 使えるプラグインはまだありません。ボード一覧の「開発者向け」から自分のプラグイン(.wasm)を入れるか、サーバーの管理者に PLUGIN_DIR を設定してもらってください。	No plugins yet. Add your own (.wasm) from "For developers" on the board list, or ask the server admin to set PLUGIN_DIR.
@@ -825,7 +824,6 @@ API トークン	API tokens
 プラグインを消しました	Plugin removed
 入れています…	Installing…
 ファイルを読めません	Cannot read the file
-=======
 操作ログ	Audit log
 全体の操作ログ	Audit log (all)
 日時	Time
@@ -929,4 +927,3 @@ URL を作り直す	Regenerate URL
 すべてたたむ	Collapse all
 すべての枝を開く	Expand all branches
 すべての枝をたたむ	Collapse all branches
->>>>>>> origin/main
