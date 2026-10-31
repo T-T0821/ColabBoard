@@ -406,7 +406,11 @@ body[data-role="commenter"] .toolbar,
 body[data-role="viewer"] .demo,
 body[data-role="commenter"] .demo,
 body[data-role="viewer"] .collab,
-body[data-role="commenter"] .collab { display: none; }
+body[data-role="commenter"] .collab,
+body[data-role="viewer"] .diagram-toggle,
+body[data-role="commenter"] .diagram-toggle,
+body[data-role="viewer"] .diagram-panel,
+body[data-role="commenter"] .diagram-panel { display: none; }
 
 /* ---- 共有パネル ---- */
 .share-panel {
