@@ -81,6 +81,14 @@ impl Cursors {
         self.peers.len()
     }
 
+    pub fn get(&self, peer: u32) -> Option<&Presence> {
+        self.peers.get(&peer).map(|p| &p.presence)
+    }
+
+    pub fn peers(&self) -> impl Iterator<Item = &Presence> {
+        self.peers.values().map(|p| &p.presence)
+    }
+
     pub fn upsert(&mut self, p: Presence) {
         let peer = match self.peers.get_mut(&p.peer) {
             Some(peer) => peer,

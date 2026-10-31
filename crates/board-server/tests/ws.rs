@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use board_core::protocol::{Message, Presence};
+use board_core::protocol::{Message, Presence, View};
 use board_core::{Board, Rgba8, Shape, Vec2};
 use board_server::{Config, Hub, Store, router};
 use futures_util::{SinkExt, StreamExt};
@@ -128,4 +128,43 @@ async fn rooms_are_isolated() {
 async fn rejects_bad_room_names() {
     let base = serve().await;
     assert!(connect_async(format!("{base}/bad.name")).await.is_err());
+}
+
+#[tokio::test]
+async fn views_are_relayed_and_replayed() {
+    let base = serve().await;
+    let (mut a, _, id_a) = join(&base, "present").await;
+    let (mut b, _, _) = join(&base, "present").await;
+    let view = View {
+        peer: 0,
+        min_x: 0.0,
+        min_y: 0.0,
+        max_x: 1600.0,
+        max_y: 900.0,
+        presenting: true,
+    };
+    send(&mut a, Message::View(view)).await;
+    let Message::View(v) = recv(&mut b).await else {
+        panic!()
+    };
+    assert_eq!(v, View { peer: id_a, ..view });
+
+    // 不正な範囲は配らない。
+    send(
+        &mut a,
+        Message::View(View {
+            max_x: f32::NAN,
+            ..view
+        }),
+    )
+    .await;
+    let got = tokio::time::timeout(Duration::from_millis(300), b.next()).await;
+    assert!(got.is_err(), "不正な View が配信された: {got:?}");
+
+    // 途中参加でもプレゼン中の範囲を受け取る。
+    let (mut c, _, _) = join(&base, "present").await;
+    let Message::View(v) = recv(&mut c).await else {
+        panic!()
+    };
+    assert!(v.presenting && v.peer == id_a);
 }
