@@ -2,6 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
+use board_core::protocol::{Message, Presence};
 use board_core::{
     Board, Camera, Editor, Element as BoardElement, ElementId, Modifiers, Navigator, Tool, Vec2,
 };
@@ -13,7 +14,12 @@ use web_sys::{
     HtmlTextAreaElement, KeyboardEvent, PointerEvent, WheelEvent, Window,
 };
 
+use crate::net::{Net, NetEvent, Status};
+use crate::presence::{Cursors, Identity};
 use crate::{format_count, format_zoom, parse_hex};
+
+/// カーソル位置を送る最短間隔(ミリ秒)。
+const PRESENCE_INTERVAL_MS: f64 = 40.0;
 
 struct App {
     window: Window,
@@ -39,6 +45,19 @@ struct App {
     last_frame: Option<f64>,
     hud_last_update: f64,
     hud: Hud,
+    /// 共同編集のルーム名(ダミー表示中は `None`)。
+    room: Option<String>,
+    net: Option<Net>,
+    identity: Identity,
+    cursors: Cursors,
+    cursors_dirty: bool,
+    /// 最初の表示位置を決めたか(共同編集では初回同期後に決める)。
+    view_initialized: bool,
+    /// 自分のカーソルのワールド座標(canvas の外なら `None`)。
+    cursor_world: Option<Vec2>,
+    presence_sent: Option<Option<Vec2>>,
+    presence_sent_at: f64,
+    last_status: Option<(Status, usize)>,
 }
 
 struct Hud {
@@ -46,6 +65,7 @@ struct Hud {
     count: HtmlElement,
     zoom: HtmlElement,
     fps: HtmlElement,
+    net: HtmlElement,
 }
 
 pub fn show_error(msg: &str) {
@@ -139,36 +159,40 @@ pub async fn run() -> Result<(), String> {
 
     let (canvas, renderer) = create_renderer(&window, canvas).await?;
 
-    // `?n=100000` で性能確認用のダミーボードを開く。
-    let demo_count = window
+    let params = window
         .location()
         .search()
         .ok()
         .and_then(|q| web_sys::UrlSearchParams::new_with_str(&q).ok())
-        .and_then(|p| p.get("n"))
+        .ok_or("URL を読めません")?;
+    // `?n=100000` で性能確認用のダミーボードを開く。
+    let demo_count = params
+        .get("n")
         .and_then(|n| n.parse::<usize>().ok())
         .map(|n| n.min(1_000_000));
+    // `?offline` でサーバーにつながず、このタブだけで動かす。
+    let offline = params.has("offline");
 
     let (w, h) = renderer.size();
-    let mut camera = Camera::new(Vec2::new(w as f32, h as f32));
-    let board = match demo_count {
-        Some(n) => Board::demo(n),
-        None => Board::welcome(),
-    };
-    if let Some(r) = board.bounds() {
-        camera.fit(r.min, r.max, 120.0);
-        if demo_count.is_none() {
-            // 最初は等倍に近い見た目にする。
-            let center = camera.viewport * 0.5;
-            camera.zoom_at(center, 1.0 / camera.zoom.max(1.0));
+    let camera = Camera::new(Vec2::new(w as f32, h as f32));
+    let (board, room, net) = match demo_count {
+        Some(n) => (Board::demo(n), None, None),
+        None if offline => (Board::welcome(), None, None),
+        None => {
+            let room = ensure_room(&window, &params);
+            let mut net = Net::new(server_url(&window, &params, &room)?);
+            net.connect();
+            // 共同編集のボードはサーバーから中身を受け取るまで空。
+            (Board::new(), Some(room), Some(net))
         }
-    }
+    };
 
     let hud = Hud {
         backend: by_id(&document, "hud-backend")?,
         count: by_id(&document, "hud-count")?,
         zoom: by_id(&document, "hud-zoom")?,
         fps: by_id(&document, "hud-fps")?,
+        net: by_id(&document, "hud-net")?,
     };
     hud.backend.set_text_content(Some(&renderer.backend_name()));
     hud.backend.set_title(renderer.adapter_name());
@@ -195,7 +219,23 @@ pub async fn run() -> Result<(), String> {
         last_frame: None,
         hud_last_update: 0.0,
         hud,
+        room,
+        net,
+        identity: Identity::load(&window),
+        cursors: Cursors::new(document.clone(), by_id(&document, "cursors")?),
+        cursors_dirty: false,
+        view_initialized: false,
+        cursor_world: None,
+        presence_sent: None,
+        presence_sent_at: 0.0,
+        last_status: None,
     }));
+    {
+        let mut a = app.borrow_mut();
+        if a.net.is_none() {
+            a.initial_view();
+        }
+    }
 
     install_pointer(&app, &canvas)?;
     install_text_editor(&app)?;
@@ -206,11 +246,211 @@ pub async fn run() -> Result<(), String> {
     Ok(())
 }
 
+/// `?room=` がなければ新しいルーム名を作って URL に載せる(そのまま共有できるように)。
+fn ensure_room(window: &Window, params: &web_sys::UrlSearchParams) -> String {
+    if let Some(room) = params.get("room").filter(|r| valid_room(r)) {
+        return room;
+    }
+    const CHARS: &[u8] = b"abcdefghijkmnpqrstuvwxyz23456789";
+    let room: String = (0..10)
+        .map(|_| {
+            CHARS[(js_sys::Math::random() * CHARS.len() as f64) as usize % CHARS.len()] as char
+        })
+        .collect();
+    params.set("room", &room);
+    if let Ok(history) = window.history() {
+        let _ = history.replace_state_with_url(
+            &JsValue::NULL,
+            "",
+            Some(&format!("?{}", String::from(params.to_string()))),
+        );
+    }
+    room
+}
+
+fn valid_room(r: &str) -> bool {
+    (1..=64).contains(&r.len())
+        && r.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
+/// 接続先。既定はページと同じホストの `/ws/{room}`。`?server=ws://host:port` で変えられる。
+fn server_url(
+    window: &Window,
+    params: &web_sys::UrlSearchParams,
+    room: &str,
+) -> Result<String, String> {
+    if let Some(base) = params.get("server") {
+        return Ok(format!("{}/ws/{room}", base.trim_end_matches('/')));
+    }
+    let loc = window.location();
+    let proto = if loc.protocol().map_err(js_err)? == "https:" {
+        "wss:"
+    } else {
+        "ws:"
+    };
+    Ok(format!(
+        "{proto}//{}/ws/{room}",
+        loc.host().map_err(js_err)?
+    ))
+}
+
 impl App {
     fn set_board(&mut self, board: Board) {
+        // ダミー表示に切り替えたら共同編集はやめる。
+        if let Some(net) = self.net.as_mut() {
+            net.disable();
+        }
+        self.cursors.clear();
         self.board = board;
         self.editor.clear_selection();
         self.fit();
+    }
+
+    /// 最初の表示位置: 全体が入るようにしつつ、等倍より大きくはしない。
+    fn initial_view(&mut self) {
+        self.view_initialized = true;
+        let Some(r) = self.board.bounds() else {
+            return;
+        };
+        let demo = !self.board.is_collaborative();
+        self.camera.fit(r.min, r.max, 120.0);
+        if !demo {
+            let center = self.camera.viewport * 0.5;
+            self.camera.zoom_at(center, 1.0 / self.camera.zoom.max(1.0));
+        }
+        self.dirty = true;
+    }
+
+    // ---- 同期 ----
+
+    fn pump_net(&mut self, now: f64) {
+        let Some(net) = self.net.as_mut() else {
+            return;
+        };
+        let events = net.poll(now);
+        for e in events {
+            match e {
+                NetEvent::Open => {}
+                NetEvent::Message(Message::Sync { you, state }) => {
+                    log::info!("同期しました(参加者番号 {you})");
+                    if let Err(e) = self.board.apply_remote(&state) {
+                        log::error!("初回同期に失敗: {e}");
+                    }
+                    // 切断中の変更も含めて手元の全体を送る(重複は CRDT が吸収する)。
+                    let _ = self.board.take_outgoing();
+                    if let (Some(net), Ok(full)) = (self.net.as_ref(), self.board.encode_diff(None))
+                    {
+                        net.send(&Message::Update(full));
+                    }
+                    self.cursors.clear();
+                    self.presence_sent = None;
+                    self.presence_sent_at = 0.0;
+                    if !self.view_initialized {
+                        self.initial_view();
+                    }
+                    self.editor.prune_selection(&self.board);
+                    self.dirty = true;
+                }
+                NetEvent::Message(Message::Update(u)) => {
+                    if let Err(e) = self.board.apply_remote(&u) {
+                        log::warn!("更新を取り込めません: {e}");
+                    }
+                    self.editor.prune_selection(&self.board);
+                    self.dirty = true;
+                }
+                NetEvent::Message(Message::Presence(p)) => {
+                    self.cursors.upsert(p);
+                    self.cursors_dirty = true;
+                }
+                NetEvent::Message(Message::Leave(peer)) => self.cursors.remove(peer),
+                NetEvent::Closed => {
+                    self.cursors.clear();
+                    let offline = self.net.as_ref().map(|n| n.status) == Some(Status::Offline);
+                    if offline && self.board.is_empty() && !self.view_initialized {
+                        log::warn!("サーバーにつながらないので、このタブだけで動かします");
+                        self.board.seed_welcome();
+                        self.initial_view();
+                    }
+                }
+            }
+        }
+
+        let Some(net) = self.net.as_ref() else {
+            return;
+        };
+        if net.status == Status::Online && net.is_open() {
+            for u in self.board.take_outgoing() {
+                net.send(&Message::Update(u));
+            }
+            if self.presence_sent != Some(self.cursor_world)
+                && now - self.presence_sent_at >= PRESENCE_INTERVAL_MS
+            {
+                let (x, y) = self
+                    .cursor_world
+                    .map_or((f32::NAN, f32::NAN), |w| (w.x, w.y));
+                net.send(&Message::Presence(Presence {
+                    peer: 0,
+                    x,
+                    y,
+                    color: self.identity.color,
+                    name: self.identity.name.clone(),
+                }));
+                self.presence_sent = Some(self.cursor_world);
+                self.presence_sent_at = now;
+            }
+        }
+
+        let status = (net.status, self.cursors.len());
+        if self.last_status != Some(status) {
+            self.last_status = Some(status);
+            let text = match status.0 {
+                Status::Connecting => "接続中…".to_string(),
+                Status::Online => format!("オンライン · {}人", status.1 + 1),
+                Status::Reconnecting => "再接続中…".to_string(),
+                Status::Offline => "オフライン(保存されません)".to_string(),
+                Status::Disabled => "ダミー表示中(同期なし)".to_string(),
+            };
+            self.hud.net.set_text_content(Some(&text));
+            let state = match status.0 {
+                Status::Online => "online",
+                Status::Connecting | Status::Reconnecting => "connecting",
+                Status::Offline | Status::Disabled => "offline",
+            };
+            let _ = self.hud.net.set_attribute("data-status", state);
+            self.hud.net.set_title(&format!(
+                "ルーム: {}\nあなた: {}",
+                self.room.as_deref().unwrap_or("-"),
+                self.identity.name
+            ));
+        }
+    }
+
+    fn layout_cursors(&mut self) {
+        self.cursors_dirty = false;
+        let rect = self.canvas.get_bounding_client_rect();
+        let dpr = self.window.device_pixel_ratio() as f32;
+        self.cursors.layout(
+            &self.camera,
+            dpr,
+            Vec2::new(rect.left() as f32, rect.top() as f32),
+        );
+    }
+
+    /// 招待用に今の URL をコピーする。
+    fn copy_link(&self) {
+        let Ok(href) = self.window.location().href() else {
+            return;
+        };
+        let _ = self.window.navigator().clipboard().write_text(&href);
+        if let Some(el) = self.document.get_element_by_id("share") {
+            el.set_text_content(Some("コピーしました"));
+            let el2 = el.clone();
+            let reset = Closure::once_into_js(move || el2.set_text_content(Some("リンクをコピー")));
+            let _ = self
+                .window
+                .set_timeout_with_callback_and_timeout_and_arguments_0(reset.unchecked_ref(), 1500);
+        }
     }
 
     fn fit(&mut self) {
@@ -312,6 +552,7 @@ impl App {
     }
 
     fn frame(&mut self, now: f64) {
+        self.pump_net(now);
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
         if (w, h) != self.renderer.size() {
@@ -331,6 +572,9 @@ impl App {
                 .set_text_content(Some(&format_count(self.board.len())));
         }
 
+        if self.cursors_dirty || self.dirty {
+            self.layout_cursors();
+        }
         if !(self.dirty || self.continuous) {
             self.last_frame = None;
             return;
@@ -411,6 +655,7 @@ impl App {
         if let Some(slot) = self.pointers.get_mut(&id) {
             *slot = p;
         }
+        self.cursor_world = Some(self.camera.screen_to_world(p));
         if self.navigating {
             if self.nav.pointer_move(&mut self.camera, id, p) {
                 self.dirty = true;
@@ -638,6 +883,12 @@ fn install_pointer(app: &Rc<RefCell<App>>, canvas: &HtmlCanvasElement) -> Result
             app.borrow_mut().on_pointer_move(&e);
         })?;
     }
+    {
+        let app = app.clone();
+        listen(target, "pointerleave", false, move |_: PointerEvent| {
+            app.borrow_mut().cursor_world = None;
+        })?;
+    }
     for name in ["pointerup", "pointercancel"] {
         let app = app.clone();
         listen(target, name, false, move |e: PointerEvent| {
@@ -820,8 +1071,15 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
         on_click(doc, id, app, move |a| a.set_board(Board::demo(count)))?;
     }
     on_click(doc, "demo-clear", app, |a| {
-        a.set_board(Board::welcome());
+        if a.room.is_some() {
+            // 共同編集のボードに戻る(ページを開き直す)。
+            let room = a.room.clone().unwrap_or_default();
+            let _ = a.window.location().set_search(&format!("?room={room}"));
+        } else {
+            a.set_board(Board::welcome());
+        }
     })?;
+    on_click(doc, "share", app, |a| a.copy_link())?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;

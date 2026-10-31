@@ -10,6 +10,7 @@
 </head>
 <body>
   <canvas id="board" tabindex="0" aria-label="ホワイトボード"></canvas>
+  <div id="cursors" aria-hidden="true"></div>
   <textarea id="text-editor" spellcheck="false" aria-label="文字を入力"></textarea>
 
   <header class="panel hud">
@@ -17,7 +18,9 @@
     <span class="sep"></span>
     <span><span class="label">描画</span> <span id="hud-backend">初期化中…</span></span>
     <span><span class="label">要素</span> <span id="hud-count">0</span></span>
-    <span><span class="label">速度</span> <span id="hud-fps">操作時のみ描画</span></span>
+    <span class="sep"></span>
+    <span id="hud-net" data-status="connecting">接続中…</span>
+    <button id="share" title="このボードの URL をコピーして共有">リンクをコピー</button>
   </header>
 
   <section class="panel demo" aria-label="性能確認">
@@ -28,6 +31,7 @@
     <button id="demo-1m">100万</button>
     <button id="demo-clear">初期化</button>
     <label class="check"><input id="continuous" type="checkbox" /> 常時再描画(計測)</label>
+    <span id="hud-fps">操作時のみ描画</span>
   </section>
 
   <nav class="panel toolbar" aria-label="ツール">

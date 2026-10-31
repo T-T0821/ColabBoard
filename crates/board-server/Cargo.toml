@@ -1,0 +1,21 @@
+[package]
+name = "board-server"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "ColabBoard の同期サーバー(WebSocket + 永続化)"
+
+[dependencies]
+board-core.workspace = true
+axum = { version = "0.8.9", features = ["ws"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
+tower-http = { version = "0.7.1", features = ["fs", "trace"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+redb = "4.4.0"
+yrs = "0.28"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+tokio-tungstenite = "0.28"
+tempfile = "3"
