@@ -56,26 +56,104 @@ impl PathStyle {
     }
 }
 
-/// 端の飾り。
+/// 端の飾り。UML(継承・集約・コンポジション)と ER 図(カラスの足)の記号も選べる。
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Cap {
     #[default]
     None,
+    /// 開いた矢じり(線 2 本)。
     Arrow,
+    /// 白抜きの三角(UML の継承・実現)。
+    Triangle,
+    /// 塗りつぶした三角(シーケンス図の同期メッセージなど)。
+    TriangleFilled,
+    /// 白抜きのひし形(UML の集約)。
+    Diamond,
+    /// 塗りつぶしたひし形(UML のコンポジション)。
+    DiamondFilled,
+    /// 白抜きの丸。
+    Circle,
+    /// ER: ちょうど 1(縦棒 2 本)。
+    One,
+    /// ER: 多(カラスの足)。
+    Many,
+    /// ER: 0 または 1(丸 + 縦棒)。
+    ZeroOrOne,
+    /// ER: 1 以上(縦棒 + カラスの足)。
+    OneOrMany,
+    /// ER: 0 以上(丸 + カラスの足)。
+    ZeroOrMany,
+}
+
+/// 端の飾りの形(描画用)。座標はワールド座標。
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CapShape {
+    /// 線分(線と同じ太さで描く)。
+    pub lines: Vec<(Vec2, Vec2)>,
+    /// 線の色で塗りつぶす凸多角形(空なら塗らない)。
+    pub fill: Vec<Vec2>,
+    /// 背景色で塗って線の色で縁取る丸(中心, 半径)。
+    pub circles: Vec<(Vec2, f32)>,
+    /// 線の端をこれだけ手前で止める(白抜きの記号の中に線を通さない)。
+    pub inset: f32,
 }
 
 impl Cap {
+    /// 書式バーに出す順。
+    pub const ALL: [Cap; 12] = [
+        Cap::None,
+        Cap::Arrow,
+        Cap::Triangle,
+        Cap::TriangleFilled,
+        Cap::Diamond,
+        Cap::DiamondFilled,
+        Cap::Circle,
+        Cap::One,
+        Cap::Many,
+        Cap::ZeroOrOne,
+        Cap::OneOrMany,
+        Cap::ZeroOrMany,
+    ];
+
     pub fn name(self) -> &'static str {
         match self {
             Cap::None => "none",
             Cap::Arrow => "arrow",
+            Cap::Triangle => "triangle",
+            Cap::TriangleFilled => "triangle-filled",
+            Cap::Diamond => "diamond",
+            Cap::DiamondFilled => "diamond-filled",
+            Cap::Circle => "circle",
+            Cap::One => "one",
+            Cap::Many => "many",
+            Cap::ZeroOrOne => "zero-or-one",
+            Cap::OneOrMany => "one-or-many",
+            Cap::ZeroOrMany => "zero-or-many",
         }
     }
 
     pub fn from_name(s: &str) -> Self {
-        match s {
-            "arrow" => Cap::Arrow,
-            _ => Cap::None,
+        Cap::ALL
+            .into_iter()
+            .find(|c| c.name() == s)
+            .unwrap_or(Cap::None)
+    }
+
+    /// 日本語の名前(書式バー用)。
+    pub fn label(self) -> &'static str {
+        match self {
+            Cap::None => "なし",
+            Cap::Arrow => "矢印",
+            Cap::Triangle => "白三角(継承)",
+            Cap::TriangleFilled => "黒三角",
+            Cap::Diamond => "白ひし形(集約)",
+            Cap::DiamondFilled => "黒ひし形(コンポジション)",
+            Cap::Circle => "丸",
+            Cap::One => "ER: 1",
+            Cap::Many => "ER: 多",
+            Cap::ZeroOrOne => "ER: 0..1",
+            Cap::OneOrMany => "ER: 1..多",
+            Cap::ZeroOrMany => "ER: 0..多",
         }
     }
 }
@@ -90,6 +168,8 @@ pub struct Connector {
     pub style: PathStyle,
     pub start_cap: Cap,
     pub end_cap: Cap,
+    /// 破線で描く(UML の依存・実現、シーケンス図の戻りなど)。
+    pub dashed: bool,
     /// 線の中ほどに出す文字。
     pub text: String,
     pub meta: Meta,
@@ -111,6 +191,7 @@ impl Connector {
             style: PathStyle::default(),
             start_cap: Cap::None,
             end_cap: Cap::Arrow,
+            dashed: false,
             text: String::new(),
             meta: Meta::default(),
             path: Vec::new(),
@@ -278,8 +359,8 @@ impl Connector {
         })
     }
 
-    /// 矢じりの 2 本の線(先端, 根元)。`at_end` が false なら始点側。
-    pub fn arrow_lines(&self, at_end: bool) -> Option<[(Vec2, Vec2); 2]> {
+    /// 端の先端と、線が向かってくる向き(先端へ向かう単位ベクトル)。
+    fn tip_dir(&self, at_end: bool) -> Option<(Vec2, Vec2)> {
         let pts = &self.path;
         if pts.len() < 2 {
             return None;
@@ -296,11 +377,96 @@ impl Connector {
             let prev = pts[1..].iter().find(|p| p.distance(tip) > 1e-3)?;
             (tip, *prev)
         };
-        let dir = (tip - prev).normalize_or_zero();
+        Some((tip, (tip - prev).normalize_or_zero()))
+    }
+
+    /// 矢じりの 2 本の線(先端, 根元)。`at_end` が false なら始点側。
+    pub fn arrow_lines(&self, at_end: bool) -> Option<[(Vec2, Vec2); 2]> {
+        let (tip, dir) = self.tip_dir(at_end)?;
         let n = Vec2::new(-dir.y, dir.x);
         let s = self.arrow_size();
         let base = tip - dir * s;
         Some([(tip, base + n * s * 0.5), (tip, base - n * s * 0.5)])
+    }
+
+    /// 端の飾りの形。飾りがなければ `None`。
+    pub fn cap_shape(&self, at_end: bool) -> Option<CapShape> {
+        let cap = if at_end { self.end_cap } else { self.start_cap };
+        if cap == Cap::None {
+            return None;
+        }
+        let (tip, d) = self.tip_dir(at_end)?;
+        let n = Vec2::new(-d.y, d.x);
+        let s = self.arrow_size();
+        // 先端から `back` だけ戻り、横に `side` ずれた点。
+        let at = |back: f32, side: f32| tip - d * back + n * side;
+        let mut out = CapShape::default();
+        let closed = |pts: &[Vec2]| -> Vec<(Vec2, Vec2)> {
+            (0..pts.len())
+                .map(|i| (pts[i], pts[(i + 1) % pts.len()]))
+                .collect()
+        };
+        let bar = |back: f32| (at(back, s * 0.5), at(back, -s * 0.5));
+        let foot = |len: f32| {
+            let root = at(len, 0.0);
+            vec![
+                (root, at(0.0, s * 0.6)),
+                (root, tip),
+                (root, at(0.0, -s * 0.6)),
+            ]
+        };
+        let r = s * 0.35;
+        match cap {
+            Cap::None => return None,
+            Cap::Arrow => {
+                out.lines = self.arrow_lines(at_end)?.to_vec();
+            }
+            Cap::Triangle | Cap::TriangleFilled => {
+                let tri = [tip, at(s, s * 0.6), at(s, -s * 0.6)];
+                out.lines = closed(&tri);
+                if cap == Cap::TriangleFilled {
+                    out.fill = tri.to_vec();
+                }
+                out.inset = s;
+            }
+            Cap::Diamond | Cap::DiamondFilled => {
+                let l = s * 1.6;
+                let dia = [
+                    tip,
+                    at(l * 0.5, s * 0.45),
+                    at(l, 0.0),
+                    at(l * 0.5, -s * 0.45),
+                ];
+                out.lines = closed(&dia);
+                if cap == Cap::DiamondFilled {
+                    out.fill = dia.to_vec();
+                }
+                out.inset = l;
+            }
+            Cap::Circle => {
+                out.circles.push((at(r, 0.0), r));
+                out.inset = 2.0 * r;
+            }
+            Cap::One => {
+                out.lines = vec![bar(s * 0.5), bar(s * 0.9)];
+            }
+            Cap::Many => {
+                out.lines = foot(s);
+            }
+            Cap::ZeroOrOne => {
+                out.lines = vec![bar(s * 0.5)];
+                out.circles.push((at(s + r, 0.0), r));
+            }
+            Cap::OneOrMany => {
+                out.lines = foot(s);
+                out.lines.push(bar(s * 1.3));
+            }
+            Cap::ZeroOrMany => {
+                out.lines = foot(s);
+                out.circles.push((at(s + r + 2.0, 0.0), r));
+            }
+        }
+        Some(out)
     }
 }
 
@@ -425,6 +591,33 @@ mod tests {
 
     fn rect(x: f32, y: f32) -> Rect {
         Rect::new(Vec2::new(x, y), Vec2::new(x + 100.0, y + 100.0))
+    }
+
+    #[test]
+    fn cap_names_round_trip_and_hollow_caps_inset() {
+        for c in Cap::ALL {
+            assert_eq!(Cap::from_name(c.name()), c);
+        }
+        assert_eq!(Cap::from_name("unknown"), Cap::None);
+        let mut c = Connector::new(
+            ElementId(1),
+            Endpoint::Free(Vec2::ZERO),
+            Endpoint::Free(Vec2::new(200.0, 0.0)),
+        );
+        c.style = PathStyle::Straight;
+        c.route(|_| None);
+        c.end_cap = Cap::Triangle;
+        let t = c.cap_shape(true).unwrap();
+        assert_eq!(t.lines.len(), 3);
+        assert_eq!(t.inset, c.arrow_size());
+        // 白抜きの三角の先端は線の端、根元は線の向きに垂直。
+        assert_eq!(t.lines[0].0, Vec2::new(200.0, 0.0));
+        c.start_cap = Cap::One;
+        let one = c.cap_shape(false).unwrap();
+        assert_eq!((one.lines.len(), one.inset), (2, 0.0));
+        assert!(one.lines.iter().all(|(a, b)| a.x == b.x && a.x > 0.0));
+        c.end_cap = Cap::None;
+        assert!(c.cap_shape(true).is_none());
     }
 
     #[test]

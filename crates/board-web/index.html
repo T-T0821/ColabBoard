@@ -41,6 +41,7 @@
     <span class="sep"></span>
     <span id="hud-net" data-status="connecting" role="status">接続中…</span>
     <button id="share" title="このボードを共有">リンクをコピー</button>
+    <button id="call-toggle" title="ボードを開いたまま、参加者と音声で話す" aria-pressed="false">通話</button>
     <button id="comments-toggle" title="コメント" aria-pressed="false">コメント</button>
     <button id="history-toggle" title="バージョン履歴" aria-pressed="false" hidden>履歴</button>
     <button id="notif-button" class="icon" title="通知" aria-label="通知"></button>
@@ -148,6 +149,18 @@
     <button id="timer-add" title="1 分延長">+1分</button>
     <button id="timer-stop" title="タイマーを消す" aria-label="タイマーを消す">×</button>
   </div>
+
+  <section id="call-bar" class="panel call-bar" aria-label="音声通話" hidden>
+    <span class="call-live" aria-hidden="true"></span>
+    <span id="call-people" class="call-people" role="list" aria-label="通話中の参加者"></span>
+    <span id="call-status" class="call-status" role="status" hidden></span>
+    <button id="call-mute" class="icon call-mute" title="ミュート" aria-label="ミュート" aria-pressed="false">
+      <svg class="mic" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21M8.5 21h7"/></svg>
+      <svg class="mic-off" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 9.5V6a3 3 0 00-5.8-1.1M9 9v2a3 3 0 004.9 2.3M5.5 11a6.5 6.5 0 0010.6 5M18.5 11a6.4 6.4 0 01-.6 2.7M12 17.5V21M8.5 21h7M4 4l16 16"/></svg>
+    </button>
+    <button id="call-leave" class="call-leave" title="通話から抜ける">退出</button>
+    <button id="call-dismiss" class="icon call-dismiss" title="閉じる" aria-label="閉じる">✕</button>
+  </section>
 
   <div id="follow-banner" class="panel follow" hidden>
     <span id="follow-text"></span>
