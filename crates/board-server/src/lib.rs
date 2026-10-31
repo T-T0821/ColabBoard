@@ -187,7 +187,10 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         ))
         .with_state(state);
     let app = match static_dir {
-        Some(dir) => app.fallback_service(ServeDir::new(dir)),
+        // `.br` / `.gz` があれば、ブラウザが受け取れる形式をそのまま返す(`tools/precompress`)。
+        Some(dir) => {
+            app.fallback_service(ServeDir::new(dir).precompressed_br().precompressed_gzip())
+        }
         #[cfg(feature = "embed")]
         None if embedded::available() => app.fallback(embedded::serve),
         None => app,

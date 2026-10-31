@@ -9,3 +9,10 @@ ws = true
 
 [[proxy]]
 backend = "http://127.0.0.1:8080/api"
+
+# リリースビルドでは、配信用に brotli / gzip で圧縮したファイル(`.br` `.gz`)も作る。
+# サーバーはブラウザが受け取れる形式をそのまま返す(wasm は brotli で約 1/4)。
+[[hooks]]
+stage = "post_build"
+command = "sh"
+command_arguments = ["-c", "if [ \"$TRUNK_PROFILE\" = release ]; then cargo run --quiet --release -p precompress -- \"$TRUNK_STAGING_DIR\"; fi"]

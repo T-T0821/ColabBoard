@@ -218,7 +218,7 @@ DATA_DIR=/var/lib/graboard PORT=8080 ./target/release/board-server
 
 `embed` なしでビルドした場合は `STATIC_DIR` でクライアントのディレクトリを指定する。
 
-PDF の取り込み(hayro)で wasm が数 MB 大きくなる。不要なら `trunk build --release --no-default-features` でクライアントから外せる。
+PDF の取り込み(hayro、約 3 MB)は別の wasm(`board-pdf_bg.wasm`)に分けてあり、PDF が貼られたときに Web Worker で初めて読み込む。初回表示の重さには入らない。
 
 HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/ws` も通す)を置き、`COOKIE_SECURE=1` にする。
 

@@ -54,73 +54,70 @@ pub fn prepare_image(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), String> {
     Ok((out.into_inner(), w, h))
 }
 
-/// PDF で取り込む最大ページ数。
-#[cfg(feature = "pdf")]
-const MAX_PDF_PAGES: usize = 20;
-/// PDF のページを画像にするときの長辺(ピクセル)。
-#[cfg(feature = "pdf")]
-const PDF_PIXELS: f32 = 1400.0;
-
-/// PDF の各ページを JPEG にする(hayro、Pure Rust のラスタライザ)。
-#[cfg(not(feature = "pdf"))]
-pub fn render_pdf(_bytes: Vec<u8>) -> Result<Vec<Vec<u8>>, String> {
-    Err("この版は PDF の取り込みに対応していません".into())
+/// PDF の取り込み部品(別の wasm、`crates/board-pdf`)を Web Worker で動かす。
+/// 本体の wasm に入れると約 3 MB 重くなるので、PDF が貼られたときに初めて読み込む。
+#[wasm_bindgen::prelude::wasm_bindgen(inline_js = r#"
+export function render_pdf_in_worker(url, bytes) {
+  // bytes は wasm のメモリを指すので、先に写しておく。
+  const copy = bytes.slice();
+  return new Promise((resolve, reject) => {
+    let w;
+    try { w = new Worker(url); } catch (e) { reject(String(e)); return; }
+    const done = (f, v) => { w.terminate(); f(v); };
+    w.onmessage = (e) => {
+      const d = e.data || {};
+      if (d.ready) { w.postMessage(copy, [copy.buffer]); return; }
+      if (d.error) done(reject, d.error);
+      else done(resolve, d.pages || []);
+    };
+    w.onerror = (e) => { e.preventDefault(); done(reject, 'PDF の読み込み部品を起動できません'); };
+  });
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen::prelude::wasm_bindgen(catch)]
+    fn render_pdf_in_worker(
+        url: &str,
+        bytes: &[u8],
+    ) -> Result<js_sys::Promise, wasm_bindgen::JsValue>;
 }
 
-/// PDF の各ページを JPEG にする(hayro、Pure Rust のラスタライザ)。
-#[cfg(feature = "pdf")]
-pub fn render_pdf(bytes: Vec<u8>) -> Result<Vec<Vec<u8>>, String> {
-    use hayro::hayro_interpret::InterpreterSettings;
-    use hayro::hayro_syntax::Pdf;
-    use hayro::vello_cpu::color::palette::css::WHITE;
-    let pdf = Pdf::new(bytes).map_err(|e| format!("PDF を読めません: {e:?}"))?;
-    let settings = InterpreterSettings::default();
-    let cache = hayro::RenderCache::new();
-    let mut out = Vec::new();
-    for page in pdf.pages().iter().take(MAX_PDF_PAGES) {
-        let (w, h) = page.render_dimensions();
-        let scale = (PDF_PIXELS / w.max(h).max(1.0)).min(4.0);
-        let pixmap = hayro::render(
-            page,
-            &cache,
-            &settings,
-            &hayro::RenderSettings::default(),
-            &hayro::PixmapSettings {
-                x_scale: scale,
-                y_scale: scale,
-                bg_color: WHITE,
-            },
-        );
-        let (pw, ph) = (u32::from(pixmap.width()), u32::from(pixmap.height()));
-        let rgba = pixmap.take_rgba8(hayro::vello_cpu::peniko::ImageAlphaType::Alpha);
-        let img = image::RgbaImage::from_raw(pw, ph, rgba).ok_or("ページを画像にできません")?;
-        let rgb = image::DynamicImage::ImageRgba8(img).to_rgb8();
-        let mut buf = std::io::Cursor::new(Vec::new());
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, 85)
-            .encode_image(&rgb)
-            .map_err(|e| e.to_string())?;
-        out.push(buf.into_inner());
+/// PDF の各ページを JPEG にする(Web Worker で)。
+async fn render_pdf(bytes: &[u8]) -> Result<Vec<Vec<u8>>, String> {
+    let err = |e: wasm_bindgen::JsValue| {
+        e.as_string()
+            .unwrap_or_else(|| "PDF を読めません".to_string())
+    };
+    let promise = render_pdf_in_worker("board-pdf_loader.js", bytes).map_err(err)?;
+    let pages = wasm_bindgen_futures::JsFuture::from(promise)
+        .await
+        .map_err(err)?;
+    Ok(js_sys::Array::from(&pages)
+        .iter()
+        .map(|p| js_sys::Uint8Array::new(&p).to_vec())
+        .collect())
+}
+
+/// PDF を読み込み、各ページを横に並べて置く。
+async fn insert_pdf(app: &Rc<RefCell<App>>, bytes: &[u8], at: Vec2) {
+    if !app.borrow().can_edit() {
+        return;
     }
-    if out.is_empty() {
-        return Err("PDF にページがありません".into());
+    match render_pdf(bytes).await {
+        Ok(pages) => app.borrow_mut().insert_pdf_pages(pages, at),
+        Err(e) => {
+            log::warn!("{e}");
+            super::show_error(&e);
+        }
     }
-    Ok(out)
 }
 
 impl App {
-    /// PDF の各ページを横に並べて置く。
-    pub(super) fn insert_pdf(&mut self, bytes: Vec<u8>, at: Vec2) {
+    /// PDF の各ページ(JPEG)を横に並べて置く。
+    fn insert_pdf_pages(&mut self, pages: Vec<Vec<u8>>, at: Vec2) {
         if !self.can_edit() {
             return;
         }
-        let pages = match render_pdf(bytes) {
-            Ok(p) => p,
-            Err(e) => {
-                log::warn!("{e}");
-                super::show_error(&e);
-                return;
-            }
-        };
         let mut items = Vec::new();
         for page in pages {
             let Ok((data, w, h)) = prepare_image(&page) else {
@@ -224,34 +221,36 @@ pub fn insert_files(app: &Rc<RefCell<App>>, files: Vec<File>, at: Option<Vec2>) 
                 continue;
             };
             let bytes = js_sys::Uint8Array::new(&buf).to_vec();
-            let mut a = app.borrow_mut();
-            let base = at.unwrap_or_else(|| a.cursor_world.unwrap_or_else(|| a.media_center()));
+            let base = {
+                let a = app.borrow();
+                at.unwrap_or_else(|| a.cursor_world.unwrap_or_else(|| a.media_center()))
+            };
             let base = base + Vec2::splat(32.0 * i as f32);
             if super::imports::is_diagram_file(&f.name()) {
                 let text = super::imports::decode_text(&bytes);
-                if !a.insert_diagram_text(&text) {
+                if !app.borrow_mut().insert_diagram_text(&text) {
                     super::show_error(
                         "Mermaid / PlantUML / draw.io / Miro の図として読めませんでした",
                     );
                 }
             } else if super::imports::is_csv(&f.name(), &f.type_()) {
-                a.insert_csv(&super::imports::decode_text(&bytes), base);
+                app.borrow_mut()
+                    .insert_csv(&super::imports::decode_text(&bytes), base);
             } else if super::imports::is_spreadsheet(&f.name()) {
                 match super::imports::read_spreadsheet(bytes) {
                     Ok(sheets) => {
-                        if !a.insert_sheets(sheets, base) {
+                        if !app.borrow_mut().insert_sheets(sheets, base) {
                             super::show_error("シートが空です");
                         }
                     }
                     Err(e) => super::show_error(&e),
                 }
             } else if is_markdown(&f) {
-                drop(a);
                 insert_markdown(&app, &String::from_utf8_lossy(&bytes), Some(base));
             } else if is_pdf(&f) {
-                a.insert_pdf(bytes, base);
+                insert_pdf(&app, &bytes, base).await;
             } else {
-                a.insert_image(&bytes, base);
+                app.borrow_mut().insert_image(&bytes, base);
             }
         }
     });
