@@ -10,7 +10,14 @@
 //! | `0x03` Leave | サーバー → クライアント | 参加者番号 `u32` |
 //! | `0x04` View | 双方向 | 参加者番号 `u32`, 見えている範囲 min x, min y, max x, max y `f32`, フラグ `u8` |
 //! | `0x05` Reaction | 双方向 | 参加者番号 `u32`, x `f32`, y `f32`, 絵文字(UTF-8) |
+//! | `0x06` Voice | 双方向 | 参加者番号 `u32`, フラグ `u8`(bit 0 通話中, bit 1 ミュート, bit 2 発話中) |
+//! | `0x07` Signal | 双方向 | 送り主 `u32`, 宛先 `u32`, 種類 `u8`, 中身(UTF-8。SDP か ICE 候補の JSON) |
 //! | `0x10` Refresh | サーバー → クライアント | 話題 `u8`([`TOPIC_COMMENTS`] など)。HTTP API で取り直す合図 |
+//!
+//! Voice と Signal は音声通話(WebRTC の P2P メッシュ)に使う。Voice は通話の参加状態で、
+//! サーバーが覚えておき途中参加の人にも送る。Signal は WebRTC の接続手順(offer / answer / ICE 候補)
+//! の中継で、サーバーは送り主の番号を書き換えて宛先の 1 人にだけ届ける。音声そのものは
+//! サーバーを通らない。
 //!
 //! Reaction はその場で浮かんで消える絵文字リアクション(保存しない)。
 //!
@@ -26,6 +33,11 @@ const PRESENCE: u8 = 0x02;
 const LEAVE: u8 = 0x03;
 const VIEW: u8 = 0x04;
 const REACTION: u8 = 0x05;
+const VOICE: u8 = 0x06;
+const SIGNAL: u8 = 0x07;
+
+/// Signal の中身の最大バイト数(SDP は数 KB に収まる)。
+pub const MAX_SIGNAL_BYTES: usize = 16 * 1024;
 
 /// リアクションの絵文字の最大バイト数。
 pub const MAX_REACTION_BYTES: usize = 32;
@@ -97,6 +109,59 @@ impl Reaction {
     }
 }
 
+/// 音声通話の参加状態。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Voice {
+    pub peer: u32,
+    pub in_call: bool,
+    pub muted: bool,
+    pub speaking: bool,
+}
+
+impl Voice {
+    fn flags(&self) -> u8 {
+        u8::from(self.in_call) | (u8::from(self.muted) << 1) | (u8::from(self.speaking) << 2)
+    }
+}
+
+/// WebRTC の接続手順の種類。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignalKind {
+    Offer,
+    Answer,
+    /// ICE 候補(`RTCIceCandidateInit` の JSON)。
+    Candidate,
+}
+
+impl SignalKind {
+    fn to_u8(self) -> u8 {
+        match self {
+            Self::Offer => 1,
+            Self::Answer => 2,
+            Self::Candidate => 3,
+        }
+    }
+
+    fn from_u8(v: u8) -> Option<Self> {
+        match v {
+            1 => Some(Self::Offer),
+            2 => Some(Self::Answer),
+            3 => Some(Self::Candidate),
+            _ => None,
+        }
+    }
+}
+
+/// 宛先 1 人に届ける WebRTC の接続手順。
+#[derive(Clone, Debug, PartialEq)]
+pub struct Signal {
+    /// 送り主(クライアントは 0 で送り、サーバーが書き換える)。
+    pub from: u32,
+    pub to: u32,
+    pub kind: SignalKind,
+    pub payload: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Message {
     Sync {
@@ -108,6 +173,8 @@ pub enum Message {
     Leave(u32),
     View(View),
     Reaction(Reaction),
+    Voice(Voice),
+    Signal(Signal),
     /// サーバーの持つ情報(コメントなど)が変わったので取り直してほしい。
     Refresh(u8),
 }
@@ -183,6 +250,22 @@ impl Message {
                 out.extend_from_slice(emoji.as_bytes());
                 out
             }
+            Self::Voice(v) => {
+                let mut out = vec![VOICE];
+                out.extend_from_slice(&v.peer.to_le_bytes());
+                out.push(v.flags());
+                out
+            }
+            Self::Signal(sig) => {
+                let payload = truncate_utf8(&sig.payload, MAX_SIGNAL_BYTES);
+                let mut out = Vec::with_capacity(10 + payload.len());
+                out.push(SIGNAL);
+                out.extend_from_slice(&sig.from.to_le_bytes());
+                out.extend_from_slice(&sig.to.to_le_bytes());
+                out.push(sig.kind.to_u8());
+                out.extend_from_slice(payload.as_bytes());
+                out
+            }
             Self::Refresh(topic) => vec![REFRESH, *topic],
         }
     }
@@ -236,6 +319,28 @@ impl Message {
                     x,
                     y,
                     emoji: truncate_utf8(&emoji, MAX_REACTION_BYTES).to_string(),
+                }))
+            }
+            VOICE => {
+                let flags = *body.get(4).ok_or(DecodeError::Truncated)?;
+                Ok(Self::Voice(Voice {
+                    peer: read_u32(body, 0)?,
+                    in_call: flags & 1 != 0,
+                    muted: flags & 2 != 0,
+                    speaking: flags & 4 != 0,
+                }))
+            }
+            SIGNAL => {
+                let from = read_u32(body, 0)?;
+                let to = read_u32(body, 4)?;
+                let kind = *body.get(8).ok_or(DecodeError::Truncated)?;
+                let kind = SignalKind::from_u8(kind).ok_or(DecodeError::UnknownKind(kind))?;
+                let payload = String::from_utf8_lossy(&body[9..]);
+                Ok(Self::Signal(Signal {
+                    from,
+                    to,
+                    kind,
+                    payload: truncate_utf8(&payload, MAX_SIGNAL_BYTES).to_string(),
                 }))
             }
             REFRESH => Ok(Self::Refresh(*body.first().ok_or(DecodeError::Truncated)?)),
@@ -294,6 +399,26 @@ mod tests {
             y: -2.0,
             emoji: "🎉".into(),
         }));
+        roundtrip(Message::Voice(Voice {
+            peer: 5,
+            in_call: true,
+            muted: true,
+            speaking: false,
+        }));
+        roundtrip(Message::Voice(Voice {
+            peer: 6,
+            in_call: true,
+            muted: false,
+            speaking: true,
+        }));
+        for kind in [SignalKind::Offer, SignalKind::Answer, SignalKind::Candidate] {
+            roundtrip(Message::Signal(Signal {
+                from: 1,
+                to: 2,
+                kind,
+                payload: "v=0\r\no=- 1 2 IN IP4 127.0.0.1".into(),
+            }));
+        }
         roundtrip(Message::View(View {
             peer: 3,
             min_x: -100.0,
@@ -356,6 +481,22 @@ mod tests {
         };
         assert_eq!(p.name.len(), 63);
         assert_eq!(p.name.chars().count(), 21);
+    }
+
+    #[test]
+    fn signal_rejects_unknown_kind_and_truncation() {
+        assert_eq!(
+            Message::decode(&[SIGNAL, 1, 0, 0, 0, 2, 0, 0, 0, 9]),
+            Err(DecodeError::UnknownKind(9))
+        );
+        assert_eq!(
+            Message::decode(&[SIGNAL, 1, 0, 0, 0, 2, 0, 0, 0]),
+            Err(DecodeError::Truncated)
+        );
+        assert_eq!(
+            Message::decode(&[VOICE, 1, 0, 0, 0]),
+            Err(DecodeError::Truncated)
+        );
     }
 
     #[test]

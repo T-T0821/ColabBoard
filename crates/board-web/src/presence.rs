@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use board_core::protocol::Presence;
+use board_core::protocol::{Presence, Voice};
 use board_core::{Camera, Vec2};
 use web_sys::{Document, HtmlElement, Window};
 
@@ -115,6 +115,24 @@ impl Cursors {
             label.set_text_content(Some(&p.name));
         }
         peer.presence = p;
+    }
+
+    /// カーソルの名札に通話の状態(マイク・ミュート・発話中)を出す。
+    pub fn set_voice(&mut self, peer: u32, voice: Option<Voice>) {
+        let Some(p) = self.peers.get(&peer) else {
+            return;
+        };
+        let el = &p.el;
+        match voice.filter(|v| v.in_call) {
+            Some(v) => {
+                let _ = el.set_attribute("data-voice", if v.muted { "muted" } else { "on" });
+                let _ = el.toggle_attribute_with_force("data-speaking", v.speaking && !v.muted);
+            }
+            None => {
+                let _ = el.remove_attribute("data-voice");
+                let _ = el.remove_attribute("data-speaking");
+            }
+        }
     }
 
     pub fn remove(&mut self, peer: u32) {

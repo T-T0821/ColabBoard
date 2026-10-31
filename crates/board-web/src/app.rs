@@ -16,6 +16,7 @@ use web_sys::{
 
 mod actions;
 mod ai;
+mod call_ui;
 mod collab;
 mod comments;
 mod export;
@@ -94,6 +95,9 @@ struct App {
     search: search_ui::Search,
     comments: comments::Comments,
     history: history::History,
+    /// 音声通話(サーバーにつながるボードだけ)。
+    voice: Option<crate::voice::VoiceCall>,
+    call_ui: call_ui::CallUi,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
     live_board: Option<Board>,
     /// 付箋の作者名を出すか。
@@ -278,12 +282,17 @@ pub async fn run() -> Result<(), String> {
     let (w, h) = renderer.size();
     let camera = Camera::new(Vec2::new(w as f32, h as f32));
     let mut local_store = None;
+    let mut voice = None;
     let (board, room, net) = match demo_count {
         Some(n) => (Board::demo(n), None, None),
         None if offline => (Board::welcome(), None, None),
         None => {
             let room = ensure_room(&window, &params);
             let mut net = Net::new(server_url(&window, &params, &room, key.as_deref())?);
+            // 通話のメッセージは最初の同期から受け取る(参加者番号を知るため)ので、つなぐ前に付ける。
+            let call = crate::voice::VoiceCall::new(net.sender());
+            net.set_tap(call.tap());
+            voice = Some(call);
             net.connect();
             // 前回この端末に保存した内容があれば、サーバーを待たずに表示する。
             let mut board = Board::new();
@@ -380,6 +389,8 @@ pub async fn run() -> Result<(), String> {
         search: search_ui::Search::default(),
         comments: comments::Comments::new(&document)?,
         history: history::History::new(&document)?,
+        voice,
+        call_ui: call_ui::CallUi::new(&document)?,
         live_board: None,
         show_authors: true,
         local_store,
@@ -667,6 +678,8 @@ impl App {
                 NetEvent::Message(Message::Refresh(TOPIC_COMMENTS)) => self.fetch_comments(),
                 NetEvent::Message(Message::Refresh(TOPIC_VERSIONS)) => self.versions_changed(),
                 NetEvent::Message(Message::Refresh(_)) => {}
+                // 通話のメッセージは voice が先に受け取っている。
+                NetEvent::Message(Message::Voice(_) | Message::Signal(_)) => {}
                 NetEvent::Closed => {
                     self.cursors.clear();
                     self.follow_reset();
@@ -882,6 +895,7 @@ impl App {
         self.comments_frame(now);
         self.history_frame();
         self.touch_frame(now);
+        self.call_frame();
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
         if (w, h) != self.renderer.size() {
@@ -1659,6 +1673,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     follow::install(app, doc)?;
     comments::install(app, doc)?;
     history::install(app)?;
+    call_ui::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;
