@@ -156,6 +156,8 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   .zoom { bottom: 76px; }
   .toolbar { left: 12px; right: 12px; transform: none; overflow-x: auto; }
   .swatches { grid-template-columns: repeat(10, 18px); }
+  .timer { bottom: 128px; }
+  .collab { width: auto; left: 12px; }
 }
 
 /* 接続状態 */
@@ -208,11 +210,11 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ファシリテーション(タイマー・投票) */
 .collab {
-  top: 56px;
+  top: 96px;
   right: 12px;
   display: block;
   width: 300px;
-  max-height: calc(100vh - 140px);
+  max-height: calc(100vh - 180px);
   overflow-y: auto;
 }
 .collab summary { cursor: pointer; font-weight: 600; padding: 2px 0; }
@@ -238,7 +240,7 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 #vote-results .votes { font-weight: 650; color: #e5484d; white-space: nowrap; }
 
 .timer {
-  top: 12px;
+  bottom: 76px;
   left: 50%;
   transform: translateX(-50%);
   gap: 6px;

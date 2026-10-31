@@ -136,6 +136,10 @@ impl Collab {
             Some(_) => format!("締め切りました · {}人が投票", tally.voters),
         };
         self.vote_status.set_text_content(Some(&status));
+        if let Some(v) = session {
+            // 投票を始めた人が決めた票数を全員の入力欄にも出す。
+            self.vote_limit.set_value(&v.limit.to_string());
+        }
         let _ = self.vote_status.set_attribute(
             "data-state",
             match session {
