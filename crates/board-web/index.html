@@ -41,6 +41,7 @@
     <span class="sep"></span>
     <span id="hud-net" data-status="connecting" role="status">接続中…</span>
     <button id="share" title="このボードを共有">リンクをコピー</button>
+    <button id="slides-start" title="フレームを 1 枚ずつスライドとして全画面で表示 (← → で移動、Esc で終了)">スライド</button>
     <button id="call-toggle" title="ボードを開いたまま、参加者と音声で話す" aria-pressed="false">通話</button>
     <button id="comments-toggle" title="コメント" aria-pressed="false">コメント</button>
     <button id="history-toggle" title="バージョン履歴" aria-pressed="false" hidden>履歴</button>
@@ -107,7 +108,7 @@
       </button>
       <div id="stamp-picker" class="popover stamp-picker" role="menu" aria-label="スタンプ・リアクション"></div>
     </div>
-    <button id="insert-image" class="tool" title="画像・PDF・マークダウン・CSV・Excel を挿入(貼り付け・ドロップでも置けます)">
+    <button id="insert-image" class="tool" title="画像・PDF・マークダウン・CSV・Excel・Mermaid・PlantUML を挿入(貼り付け・ドロップでも置けます)">
       <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-9 9"/></svg>
     </button>
     <div class="tool-group">
@@ -116,7 +117,7 @@
       </button>
       <div id="template-picker" class="popover template-picker" role="menu" aria-label="テンプレート"></div>
     </div>
-    <input id="image-file" type="file" accept="image/png,image/jpeg,application/pdf,.pdf,.md,.markdown,text/markdown,.csv,.tsv,text/csv,.xlsx,.xlsm,.xlsb,.xls,.ods" multiple hidden>
+    <input id="image-file" type="file" accept="image/png,image/jpeg,application/pdf,.pdf,.md,.markdown,text/markdown,.csv,.tsv,text/csv,.xlsx,.xlsm,.xlsb,.xls,.ods,.mmd,.mermaid,.puml,.plantuml,.pu,.iuml,.wsd" multiple hidden>
     <span class="sep"></span>
     <button id="tool-frame" aria-keyshortcuts="F" class="tool" title="フレーム (F)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><path d="M7 3v18M17 3v18M3 7h18M3 17h18"/></svg>
@@ -148,6 +149,15 @@
     <button id="timer-toggle">一時停止</button>
     <button id="timer-add" title="1 分延長">+1分</button>
     <button id="timer-stop" title="タイマーを消す" aria-label="タイマーを消す">×</button>
+  </div>
+
+  <div id="slide-spot" class="slide-spot" aria-hidden="true" hidden></div>
+  <div id="slide-bar" class="panel slide-bar" role="toolbar" aria-label="スライド" hidden>
+    <button id="slide-prev" class="icon" title="前へ (←)" aria-label="前のスライド">‹</button>
+    <span id="slide-counter" class="slide-counter"></span>
+    <span id="slide-title" class="slide-title"></span>
+    <button id="slide-next" class="icon" title="次へ (→ / Space)" aria-label="次のスライド">›</button>
+    <button id="slide-exit" title="スライドを終了 (Esc)">終了</button>
   </div>
 
   <section id="call-bar" class="panel call-bar" aria-label="音声通話" hidden>
