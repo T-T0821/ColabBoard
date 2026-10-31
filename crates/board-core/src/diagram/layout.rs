@@ -397,7 +397,7 @@ impl Layout {
 }
 
 /// 最長経路で段を決める。循環を作る矢印(深さ優先で見つかる後退辺)は無視する。
-fn ranks(n: usize, edges: &[(usize, usize)]) -> Vec<usize> {
+pub(crate) fn ranks(n: usize, edges: &[(usize, usize)]) -> Vec<usize> {
     let mut out_edges: Vec<Vec<usize>> = vec![Vec::new(); n];
     for &(a, b) in edges {
         out_edges[a].push(b);

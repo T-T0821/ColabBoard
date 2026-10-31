@@ -909,6 +909,35 @@ impl Shape {
         }
     }
 
+    /// 付箋の作者名を置く場所(作者がなければ `None`)。付箋の左下に小さく出す。
+    pub fn author_box(&self) -> Option<TextBox> {
+        if self.kind != ShapeKind::Sticky || self.meta.author.is_empty() {
+            return None;
+        }
+        let b = self.bounds();
+        // 小さな付箋でも読める大きさに、大きな付箋では控えめに。
+        let font_size = (b.size().y * 0.06).clamp(8.0, 14.0);
+        let line_height = font_size * 1.3;
+        let pad = font_size * 0.8;
+        let rect = Rect::new(
+            Vec2::new(b.min.x + pad, b.max.y - pad - line_height),
+            Vec2::new(b.max.x - pad, b.max.y - pad),
+        );
+        let [r, g, bl, _] = self.text_color.0;
+        Some(TextBox {
+            rect,
+            clip: rect,
+            style: TextStyle {
+                font_size,
+                line_height,
+                color: Rgba8([r, g, bl, 140]),
+                align: TextAlign::Left,
+            },
+            valign: VAlign::Top,
+            vertical: false,
+        })
+    }
+
     pub fn text_box(&self) -> TextBox {
         TextBox {
             rect: self.text_rect(),
