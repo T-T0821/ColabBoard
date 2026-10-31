@@ -200,6 +200,20 @@ impl Client {
             &[],
             &NewBoard {
                 title: title.to_string(),
+                team: None,
+            },
+        )
+        .await
+    }
+
+    /// チームのボードとして作る(自分がそのチームのメンバーである必要がある)。
+    pub async fn create_team_board(&self, title: &str, team: &str) -> Result<BoardInfo> {
+        self.post(
+            "/boards",
+            &[],
+            &NewBoard {
+                title: title.to_string(),
+                team: Some(team.to_string()),
             },
         )
         .await

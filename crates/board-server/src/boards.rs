@@ -4,14 +4,17 @@
 //!   メンバーとして招待するか、共有リンク(`?room=…&key=…`)を有効にすると他の人も開ける。
 //! - 情報のないボード(ログインせずに `?room=` で作ったもの)は、従来どおり誰でも編集できる。
 //!   サーバー設定 `ANONYMOUS_BOARDS=0` でこの種類のボードを禁止できる。
+//! - チームのボードは、チームのメンバーならチームの既定の権限(`team_access`)で開ける。
+//!   チームの管理者・オーナーはオーナー権限を持つ。
 
 use std::collections::BTreeMap;
 
-use board_core::api::{BoardInfo, LinkShare, Role, Sharing};
+use board_core::api::{BoardInfo, LinkShare, Role, Sharing, TeamRole};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::{now_ms, random_hex, random_id};
-use crate::store::{BOARDS, Store, StoreError, USER_BOARDS};
+use crate::store::{BOARDS, Store, StoreError, TEAM_BOARDS, USER_BOARDS};
+use crate::teams;
 
 pub const MAX_TITLE_CHARS: usize = 80;
 
@@ -35,6 +38,12 @@ pub struct BoardMeta {
     /// 削除済み。ID を使い回して誰でも開けるボードとして復活しないよう、印だけ残す。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deleted: bool,
+    /// 属しているチーム。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    /// チームのメンバーに与える権限(省略時は編集可)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_access: Option<Role>,
 }
 
 impl BoardMeta {
@@ -56,7 +65,13 @@ impl BoardMeta {
             created: self.created,
             updated: self.updated,
             key,
+            team: self.team.clone(),
         }
+    }
+
+    /// チームのメンバーに与える権限。
+    pub fn team_access(&self) -> Role {
+        self.team_access.unwrap_or(Role::Editor).min(Role::Editor)
     }
 }
 
@@ -78,7 +93,14 @@ pub struct Visitor<'a> {
 }
 
 /// 権限を決める。開けないなら `None`。
-pub fn role_of(meta: Option<&BoardMeta>, who: Visitor<'_>, anonymous_boards: bool) -> Option<Role> {
+///
+/// `team_role` は、ボードの属するチームでの訪問者の役割([`role_for`] が調べる)。
+pub fn role_of(
+    meta: Option<&BoardMeta>,
+    who: Visitor<'_>,
+    team_role: Option<TeamRole>,
+    anonymous_boards: bool,
+) -> Option<Role> {
     let Some(meta) = meta else {
         return anonymous_boards.then_some(Role::Editor);
     };
@@ -95,6 +117,14 @@ pub fn role_of(meta: Option<&BoardMeta>, who: Visitor<'_>, anonymous_boards: boo
         }
         best = meta.members.get(login).copied();
     }
+    if meta.team.is_some() {
+        let from_team = match team_role {
+            Some(r) if r.is_admin() => Some(Role::Owner),
+            Some(_) => Some(meta.team_access()),
+            None => None,
+        };
+        best = best.max(from_team);
+    }
     if let (Some(link), Some(key)) = (&meta.link, who.key)
         && constant_time_eq(link.key.as_bytes(), key.as_bytes())
     {
@@ -106,6 +136,20 @@ pub fn role_of(meta: Option<&BoardMeta>, who: Visitor<'_>, anonymous_boards: boo
         best = best.max(Some(embed.role));
     }
     best
+}
+
+/// 保存先からチームの役割を引いて権限を決める。
+pub fn role_for(
+    store: &Store,
+    meta: Option<&BoardMeta>,
+    who: Visitor<'_>,
+    anonymous_boards: bool,
+) -> Result<Option<Role>, StoreError> {
+    let team_role = match (meta.and_then(|m| m.team.as_deref()), who.login) {
+        (Some(team), Some(login)) => teams::role_in(store, team, login)?,
+        _ => None,
+    };
+    Ok(role_of(meta, who, team_role, anonymous_boards))
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -134,8 +178,13 @@ pub fn put(store: &Store, meta: &BoardMeta) -> Result<(), StoreError> {
     store.put_json(BOARDS, &meta.id, meta)
 }
 
-/// 新しいボードを作る。
-pub fn create(store: &Store, owner: &str, title: &str) -> Result<BoardMeta, StoreError> {
+/// 新しいボードを作る。`team` を渡すとそのチームのボードにする(メンバーかは呼ぶ側で確かめる)。
+pub fn create(
+    store: &Store,
+    owner: &str,
+    title: &str,
+    team: Option<&str>,
+) -> Result<BoardMeta, StoreError> {
     let now = now_ms();
     loop {
         let meta = BoardMeta {
@@ -149,6 +198,8 @@ pub fn create(store: &Store, owner: &str, title: &str) -> Result<BoardMeta, Stor
             embed: None,
             slack: None,
             deleted: false,
+            team: team.map(str::to_string),
+            team_access: None,
         };
         // ID がぶつかるのはまずないが、ぶつかったら作り直す。既存の(情報のない)ルームとも避ける。
         if store.load(&meta.id)?.is_some() {
@@ -156,6 +207,9 @@ pub fn create(store: &Store, owner: &str, title: &str) -> Result<BoardMeta, Stor
         }
         if store.insert_new_json(BOARDS, &meta.id, &meta)? {
             remember(store, owner, &meta.id, None)?;
+            if let Some(team) = team {
+                attach(store, team, &meta.id)?;
+            }
             return Ok(meta);
         }
     }
@@ -178,33 +232,55 @@ pub fn forget(store: &Store, login: &str, id: &str) -> Result<(), StoreError> {
     store.remove_pair(USER_BOARDS, login, id)
 }
 
+/// チームのボード一覧に載せる。
+pub fn attach(store: &Store, team: &str, id: &str) -> Result<(), StoreError> {
+    store.put_pair(TEAM_BOARDS, team, id, &now_ms())
+}
+
+/// チームのボード一覧から外す。
+pub fn detach(store: &Store, team: &str, id: &str) -> Result<(), StoreError> {
+    store.remove_pair(TEAM_BOARDS, team, id)
+}
+
+/// チームに属するボードの ID。
+pub fn team_board_ids(store: &Store, team: &str) -> Result<Vec<String>, StoreError> {
+    Ok(store
+        .scan_pair::<u64>(TEAM_BOARDS, team)?
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect())
+}
+
 /// ユーザーのボード一覧(最近開いた順)。開けなくなったものは除く。
+/// 自分の入っているチームのボードも含める(開いたことがなければ更新時刻の順)。
 pub fn list_for(
     store: &Store,
     login: &str,
     anonymous_boards: bool,
 ) -> Result<Vec<BoardInfo>, StoreError> {
     let mut out: Vec<(u64, BoardInfo)> = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
     for (id, ub) in store.scan_pair::<UserBoard>(USER_BOARDS, login)? {
         let meta = get(store, &id)?;
         let who = Visitor {
             login: Some(login),
             key: ub.key.as_deref(),
         };
-        let Some(role) = role_of(meta.as_ref(), who, anonymous_boards) else {
+        let Some(role) = role_for(store, meta.as_ref(), who, anonymous_boards)? else {
             continue;
         };
         let info = match meta {
             Some(m) => {
                 // 鍵が不要になった(メンバーになった)なら URL に付けない。
-                let need_key = role_of(
+                let need_key = role_for(
+                    store,
                     Some(&m),
                     Visitor {
                         login: Some(login),
                         key: None,
                     },
                     anonymous_boards,
-                )
+                )?
                 .is_none_or(|r| r < role);
                 m.info(role, if need_key { ub.key.clone() } else { None })
             }
@@ -221,10 +297,29 @@ pub fn list_for(
                     created: ub.opened,
                     updated: ub.opened,
                     key: None,
+                    team: None,
                 }
             }
         };
+        seen.insert(id);
         out.push((ub.opened, info));
+    }
+    for team in teams::team_ids_of(store, login)? {
+        for id in team_board_ids(store, &team)? {
+            if seen.contains(&id) {
+                continue;
+            }
+            let Some(m) = get(store, &id)? else { continue };
+            let who = Visitor {
+                login: Some(login),
+                key: None,
+            };
+            let Some(role) = role_for(store, Some(&m), who, anonymous_boards)? else {
+                continue;
+            };
+            seen.insert(id);
+            out.push((m.updated, m.info(role, None)));
+        }
     }
     out.sort_by_key(|a| std::cmp::Reverse(a.0));
     Ok(out.into_iter().map(|(_, i)| i).collect())
@@ -273,6 +368,8 @@ mod tests {
             embed: None,
             slack: None,
             deleted: false,
+            team: None,
+            team_access: None,
         }
     }
 
@@ -284,29 +381,41 @@ mod tests {
     fn roles() {
         let m = meta();
         assert_eq!(
-            role_of(Some(&m), who(Some("alice"), None), true),
+            role_of(Some(&m), who(Some("alice"), None), None, true),
             Some(Role::Owner)
         );
         assert_eq!(
-            role_of(Some(&m), who(Some("bob"), None), true),
+            role_of(Some(&m), who(Some("bob"), None), None, true),
             Some(Role::Viewer)
         );
         // リンクの方が強ければそちら。
         assert_eq!(
-            role_of(Some(&m), who(Some("bob"), Some("secret")), true),
+            role_of(Some(&m), who(Some("bob"), Some("secret")), None, true),
             Some(Role::Commenter)
         );
         assert_eq!(
-            role_of(Some(&m), who(None, Some("secret")), true),
+            role_of(Some(&m), who(None, Some("secret")), None, true),
             Some(Role::Commenter)
         );
-        assert_eq!(role_of(Some(&m), who(None, Some("wrong")), true), None);
-        assert_eq!(role_of(Some(&m), who(Some("carol"), None), true), None);
+        assert_eq!(
+            role_of(Some(&m), who(None, Some("wrong")), None, true),
+            None
+        );
+        assert_eq!(
+            role_of(Some(&m), who(Some("carol"), None), None, true),
+            None
+        );
         // 情報のないボード。
-        assert_eq!(role_of(None, who(None, None), true), Some(Role::Editor));
-        assert_eq!(role_of(None, who(None, None), false), None);
+        assert_eq!(
+            role_of(None, who(None, None), None, true),
+            Some(Role::Editor)
+        );
+        assert_eq!(role_of(None, who(None, None), None, false), None);
         let gone = BoardMeta { deleted: true, ..m };
-        assert_eq!(role_of(Some(&gone), who(Some("alice"), None), true), None);
+        assert_eq!(
+            role_of(Some(&gone), who(Some("alice"), None), None, true),
+            None
+        );
     }
 
     #[test]
@@ -316,17 +425,17 @@ mod tests {
         let ek = m.embed.clone().unwrap().key;
         assert_ne!(ek, "secret");
         assert_eq!(
-            role_of(Some(&m), who(None, Some(&ek)), true),
+            role_of(Some(&m), who(None, Some(&ek)), None, true),
             Some(Role::Viewer)
         );
         // 共有リンクを止めても埋め込みは使える。
         set_link(&mut m, None, false);
         assert_eq!(
-            role_of(Some(&m), who(None, Some(&ek)), true),
+            role_of(Some(&m), who(None, Some(&ek)), None, true),
             Some(Role::Viewer)
         );
         set_embed(&mut m, None, false);
-        assert_eq!(role_of(Some(&m), who(None, Some(&ek)), true), None);
+        assert_eq!(role_of(Some(&m), who(None, Some(&ek)), None, true), None);
     }
 
     #[test]
@@ -347,9 +456,9 @@ mod tests {
     #[test]
     fn listing() {
         let store = Store::memory();
-        let a = create(&store, "alice", "  企画  ").unwrap();
+        let a = create(&store, "alice", "  企画  ", None).unwrap();
         assert_eq!(a.title, "企画");
-        let b = create(&store, "alice", "").unwrap();
+        let b = create(&store, "alice", "", None).unwrap();
         assert_eq!(b.title, "無題のボード");
         let list = list_for(&store, "alice", true).unwrap();
         assert_eq!(list.len(), 2);

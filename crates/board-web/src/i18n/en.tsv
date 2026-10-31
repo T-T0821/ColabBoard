@@ -745,3 +745,19 @@ Tab で要素を順に選択、Alt+矢印で近くの要素へ移動、矢印で
 Mermaid / PlantUML の図として読めませんでした	Could not read it as a Mermaid / PlantUML diagram
 日本語	Japanese
 選択ツール	Select tool
+すべて	All
+個人	Personal
+＋ チーム	+ Team
+チームを作る	Create a team
+チームの名前	Team name
+作る	Create
+管理者	Admin
+{n} 人	{n} members
+追加するログイン名	Login name to add
+メンバーに追加	Add member
+このチームへ移す	Move to this team
+移すボード	Board to move
+チームを削除	Delete team
+本当にチームを削除	Really delete team
+チームを抜ける	Leave team
+チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。	Team boards are open to every member (can edit by default). Admins manage all team boards.

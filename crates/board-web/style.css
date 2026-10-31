@@ -1634,3 +1634,21 @@ body.embed-mode .history-panel { display: none !important; }
   display: none;
 }
 #home:not([hidden]) ~ .lang-fab { display: inline-flex; align-items: center; }
+/* ---- チーム ---- */
+.team-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 18px; }
+.home-card .team-tabs .tab { height: 32px; padding: 0 12px; border-radius: 999px; font-size: 13px; background: transparent; border-color: var(--border); color: var(--muted); }
+.home-card .team-tabs .tab.on { background: var(--accent-soft); border-color: transparent; color: var(--accent); font-weight: 600; }
+.home-card .team-tabs .tab.add { border-style: dashed; }
+.home-card form.team-create, .home-card form.inline { flex-direction: row; gap: 6px; margin: 0; align-items: center; }
+.home-card form.team-create input, .home-card form.inline input, .home-card form.inline select { height: 32px; min-width: 0; flex: 1; }
+.home-card form.team-create button, .home-card form.inline button { height: 32px; }
+.team-panel { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin: 0 0 16px; display: flex; flex-direction: column; gap: 10px; }
+.team-panel header { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.team-panel h2 { margin: 0; font-size: 15px; }
+.team-panel .spacer { flex: 1; }
+.home-card .team-panel header button { height: 30px; }
+.team-members { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.team-members li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; }
+.team-members .actions { display: flex; gap: 4px; align-items: center; }
+.home-card .team-members select { height: 28px; }
+.home-card .team-members button { height: 28px; padding: 0 10px; }
