@@ -380,6 +380,10 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 .peer-list { display: flex; flex-wrap: wrap; gap: 4px; color: var(--muted); font-size: 12px; }
 .peer { border-color: var(--c, var(--border)); border-left-width: 4px; }
 
+/* AI */
+#ai-status[data-state="busy"] { color: var(--accent); }
+#ai-status[data-state="error"] { color: #e5484d; }
+#ai-status[data-state="done"] { color: #30a46c; }
 /* ---- ボード名・権限・アカウント ---- */
 #board-title { font-weight: 600; max-width: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #board-title:empty { display: none; }

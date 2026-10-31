@@ -1,13 +1,14 @@
 //! ColabBoard の同期サーバー。
 //!
 //! - `GET /ws/{room}?key=`: WebSocket。メッセージ形式は [`board_core::protocol`]。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
 //! 他の参加者へ配る。状態は定期的に redb へ保存する。
 //! 接続時に権限([`boards::role_of`])を確かめ、編集権限のない人からの更新は捨てる。
 
+pub mod ai;
 pub mod api;
 pub mod auth;
 pub mod boards;
@@ -23,7 +24,7 @@ use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use board_core::api::Role;
 use board_core::protocol::Message;
 use futures_util::{SinkExt, StreamExt};
@@ -44,6 +45,8 @@ pub struct Config {
     pub anonymous_boards: bool,
     /// Cookie に `Secure` を付けるか(HTTPS で公開するとき)。
     pub secure_cookies: bool,
+    /// AI 機能(付箋の要約・クラスタリング)。`None` なら無効。
+    pub ai: Option<Arc<ai::Ai>>,
 }
 
 impl Default for Config {
@@ -52,6 +55,7 @@ impl Default for Config {
             static_dir: None,
             anonymous_boards: true,
             secure_cookies: false,
+            ai: None,
         }
     }
 }
@@ -74,6 +78,8 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
     let app = Router::new()
         .route("/ws/{room}", get(ws_handler))
         .route("/healthz", get(|| async { "ok" }))
+        .route("/api/boards/{id}/ai/summarize", post(ai::summarize))
+        .route("/api/boards/{id}/ai/cluster", post(ai::cluster))
         .nest("/api", api::routes())
         .with_state(state);
     match static_dir {
