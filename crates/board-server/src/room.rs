@@ -401,6 +401,40 @@ impl Hub {
         self.store.load(name)
     }
 
+    /// ボードの中身を読む(REST API・プラグイン用)。開いていなければ開く。
+    pub fn read<R>(&self, name: &str, f: impl FnOnce(&Board) -> R) -> Result<R, String> {
+        let member = self.join(name);
+        let mut board = Board::new();
+        board.apply_remote(&member.room.snapshot())?;
+        Ok(f(&board))
+    }
+
+    /// サーバー側でボードを編集し、変更を参加者全員に配る(REST API・プラグイン用)。
+    ///
+    /// 今の状態を写した使い捨てのボードで `f` を実行し、`Ok` のときだけ変更をルームに取り込む。
+    /// その間に届いた他の人の編集とは yrs がそのまま合わせる。
+    pub fn edit<R, E: From<String>>(
+        &self,
+        name: &str,
+        f: impl FnOnce(&mut Board) -> Result<R, E>,
+    ) -> Result<R, E> {
+        let member = self.join(name);
+        let mut board = Board::new();
+        board.apply_remote(&member.room.snapshot())?;
+        let out = f(&mut board)?;
+        let updates = board.take_outgoing();
+        if !updates.is_empty() {
+            let merged = yrs::merge_updates_v1(updates.iter().map(Vec::as_slice))
+                .map_err(|e| e.to_string())?;
+            member.room.apply(&merged)?;
+            member.room.broadcast(
+                0,
+                Arc::from(board_core::protocol::Message::Update(merged).encode()),
+            );
+        }
+        Ok(out)
+    }
+
     /// 昔の状態に戻し、参加者全員に配る。
     pub fn restore(&self, name: &str, old_state: &[u8]) -> Result<(), String> {
         // 開いていなければ開く(戻した結果は次の保存で書き出される)。

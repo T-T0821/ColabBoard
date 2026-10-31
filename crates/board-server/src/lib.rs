@@ -1,6 +1,7 @@
 //! グラボード の同期サーバー。
 //!
 //! - `GET /ws/{room}?key=`: WebSocket。メッセージ形式は [`board_core::protocol`]。
+//! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
 //! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])と図の生成([`ai_diagram`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
@@ -14,8 +15,10 @@ pub mod api;
 pub mod auth;
 pub mod boards;
 pub mod comments;
+pub mod rest;
 pub mod room;
 pub mod store;
+pub mod tokens;
 pub mod versions;
 
 use std::path::PathBuf;
@@ -85,7 +88,8 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/boards/{id}/ai/cluster", post(ai::cluster))
         .route("/api/boards/{id}/ai/diagram", post(ai_diagram::generate))
         .route("/api/ai/status", get(ai_diagram::status))
-        .nest("/api", api::routes())
+        .nest("/api/v1", rest::routes())
+        .nest("/api", api::routes().merge(rest::token_routes()))
         .with_state(state);
     match static_dir {
         Some(dir) => app.fallback_service(ServeDir::new(dir)),
