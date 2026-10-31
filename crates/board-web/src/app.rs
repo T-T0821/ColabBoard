@@ -18,6 +18,7 @@ mod actions;
 mod collab;
 mod follow;
 mod format_bar;
+mod reactions;
 mod toolbar;
 
 use crate::net::{Net, NetEvent, Status};
@@ -322,6 +323,7 @@ pub async fn run() -> Result<(), String> {
     actions::install_context_menu(&app)?;
     toolbar::install(&app)?;
     format_bar::install(&app)?;
+    reactions::install(&app)?;
     start_loop(app);
     Ok(())
 }
@@ -513,6 +515,7 @@ impl App {
                     self.on_peer_leave(peer);
                 }
                 NetEvent::Message(Message::View(v)) => self.on_view(v),
+                NetEvent::Message(Message::Reaction(r)) => self.on_reaction(r),
                 NetEvent::Closed => {
                     self.cursors.clear();
                     self.follow_reset();

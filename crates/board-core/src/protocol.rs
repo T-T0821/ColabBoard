@@ -9,6 +9,9 @@
 //! | `0x02` Presence | 双方向 | 参加者番号 `u32`, x `f32`, y `f32`, 色 `u32`, 名前(UTF-8) |
 //! | `0x03` Leave | サーバー → クライアント | 参加者番号 `u32` |
 //! | `0x04` View | 双方向 | 参加者番号 `u32`, 見えている範囲 min x, min y, max x, max y `f32`, フラグ `u8` |
+//! | `0x05` Reaction | 双方向 | 参加者番号 `u32`, x `f32`, y `f32`, 絵文字(UTF-8) |
+//!
+//! Reaction はその場で浮かんで消える絵文字リアクション(保存しない)。
 //!
 //! View は各自の表示範囲(ワールド座標)。フォロー(他の人の画面に追従)とプレゼンに使う。
 //! フラグの bit 0 はプレゼン中(全員にフォローしてほしい)。
@@ -21,6 +24,10 @@ const UPDATE: u8 = 0x01;
 const PRESENCE: u8 = 0x02;
 const LEAVE: u8 = 0x03;
 const VIEW: u8 = 0x04;
+const REACTION: u8 = 0x05;
+
+/// リアクションの絵文字の最大バイト数。
+pub const MAX_REACTION_BYTES: usize = 32;
 
 /// 名前の最大バイト数(超えた分は切り詰める)。
 pub const MAX_NAME_BYTES: usize = 64;
@@ -66,6 +73,22 @@ impl View {
     }
 }
 
+/// 絵文字リアクション(ワールド座標の位置に浮かべる)。
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reaction {
+    pub peer: u32,
+    pub x: f32,
+    pub y: f32,
+    pub emoji: String,
+}
+
+impl Reaction {
+    /// 配ってよい内容か(位置が数値で、絵文字が空でない)。
+    pub fn is_valid(&self) -> bool {
+        self.x.is_finite() && self.y.is_finite() && !self.emoji.trim().is_empty()
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Message {
     Sync { you: u32, state: Vec<u8> },
@@ -73,6 +96,7 @@ pub enum Message {
     Presence(Presence),
     Leave(u32),
     View(View),
+    Reaction(Reaction),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -136,6 +160,16 @@ impl Message {
                 out.push(u8::from(v.presenting));
                 out
             }
+            Self::Reaction(r) => {
+                let emoji = truncate_utf8(&r.emoji, MAX_REACTION_BYTES);
+                let mut out = Vec::with_capacity(13 + emoji.len());
+                out.push(REACTION);
+                out.extend_from_slice(&r.peer.to_le_bytes());
+                out.extend_from_slice(&r.x.to_le_bytes());
+                out.extend_from_slice(&r.y.to_le_bytes());
+                out.extend_from_slice(emoji.as_bytes());
+                out
+            }
         }
     }
 
@@ -176,6 +210,18 @@ impl Message {
                     max_x: f(12)?,
                     max_y: f(16)?,
                     presenting: flags & 1 != 0,
+                }))
+            }
+            REACTION => {
+                let peer = read_u32(body, 0)?;
+                let x = f32::from_bits(read_u32(body, 4)?);
+                let y = f32::from_bits(read_u32(body, 8)?);
+                let emoji = String::from_utf8_lossy(&body[12..]);
+                Ok(Self::Reaction(Reaction {
+                    peer,
+                    x,
+                    y,
+                    emoji: truncate_utf8(&emoji, MAX_REACTION_BYTES).to_string(),
                 }))
             }
             k => Err(DecodeError::UnknownKind(k)),
@@ -226,6 +272,12 @@ mod tests {
             name: "ゲスト・カワウソ".into(),
         }));
         roundtrip(Message::Leave(u32::MAX));
+        roundtrip(Message::Reaction(Reaction {
+            peer: 3,
+            x: 1.5,
+            y: -2.0,
+            emoji: "🎉".into(),
+        }));
         roundtrip(Message::View(View {
             peer: 3,
             min_x: -100.0,

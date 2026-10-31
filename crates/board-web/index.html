@@ -80,6 +80,12 @@
     <button id="tool-eraser" class="tool" title="消しゴム (E)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><path d="M8 20h12M5 15l9-9 5 5-7 7H8z M9.5 10.5l5 5"/></svg>
     </button>
+    <div class="tool-group">
+      <button id="tool-stamp" class="tool" title="スタンプ・リアクション" aria-pressed="false" aria-haspopup="true">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5a4 4 0 007 0M9 9.5h.01M15 9.5h.01"/></svg>
+      </button>
+      <div id="stamp-picker" class="popover stamp-picker" role="menu" aria-label="スタンプ・リアクション"></div>
+    </div>
     <span class="sep"></span>
     <button id="tool-frame" class="tool" title="フレーム (F)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><path d="M7 3v18M17 3v18M3 7h18M3 17h18"/></svg>

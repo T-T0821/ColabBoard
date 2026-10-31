@@ -80,6 +80,7 @@ impl From<&Shape> for ShapeInstance {
                 ShapeKind::Star => KIND_STAR,
                 ShapeKind::Hexagon => KIND_HEXAGON,
                 ShapeKind::Parallelogram => KIND_PARALLELOGRAM,
+                ShapeKind::Stamp => KIND_STAMP,
             },
             _pad: 0,
         }
@@ -95,6 +96,8 @@ pub const KIND_DIAMOND: u32 = 5;
 pub const KIND_STAR: u32 = 6;
 pub const KIND_HEXAGON: u32 = 7;
 pub const KIND_PARALLELOGRAM: u32 = 8;
+/// スタンプ: 影付きの丸。
+pub const KIND_STAMP: u32 = 9;
 
 impl ShapeInstance {
     fn segment(a: [f32; 2], b: [f32; 2], s: &Stroke) -> Self {
