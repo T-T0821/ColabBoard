@@ -6,6 +6,8 @@
 
 pub mod catalog;
 mod layout;
+pub mod mermaid;
+pub mod plantuml;
 pub mod samples;
 
 use glam::Vec2;

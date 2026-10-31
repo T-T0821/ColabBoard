@@ -291,6 +291,9 @@ pub fn install_clipboard(app: &Rc<RefCell<App>>) -> Result<(), String> {
                 e.prevent_default();
             } else if app.borrow_mut().paste_text(&text, None) {
                 e.prevent_default();
+            } else if app.borrow_mut().insert_diagram_text(&text) {
+                // Mermaid / PlantUML は図にする。
+                e.prevent_default();
             } else if board_core::tabular::looks_like_tsv(&text) {
                 // 表計算ソフトからコピーした範囲は表にする。
                 e.prevent_default();

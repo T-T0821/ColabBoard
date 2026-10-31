@@ -28,6 +28,8 @@ pub enum Change {
     Path(PathStyle),
     StartCap(Cap),
     EndCap(Cap),
+    /// 破線にする / 実線に戻す(コネクタ)。
+    Dashed(bool),
     /// 線の太さ(コネクタ・手書き線・図形の枠線)。
     Width(f32),
     Link(String),
@@ -50,6 +52,7 @@ pub struct Summary {
     pub path: Option<PathStyle>,
     pub start_cap: Option<Cap>,
     pub end_cap: Option<Cap>,
+    pub dashed: Option<bool>,
     pub has_width: bool,
     pub width: Option<f32>,
     pub link: Option<String>,
@@ -86,6 +89,7 @@ pub fn summarize(board: &Board, ids: &[ElementId]) -> Summary {
     let (mut fs, mut al, mut kind, mut path, mut sc, mut ec, mut w, mut link) =
         (None, None, None, None, None, None, None, None);
     let (mut va, mut vw) = (None, None);
+    let mut dash = None;
     for e in ids.iter().filter_map(|&id| board.get(id)) {
         out.count += 1;
         out.locked |= e.is_locked();
@@ -113,6 +117,7 @@ pub fn summarize(board: &Board, ids: &[ElementId]) -> Summary {
                 merge(&mut path, c.style);
                 merge(&mut sc, c.start_cap);
                 merge(&mut ec, c.end_cap);
+                merge(&mut dash, c.dashed);
                 out.has_width = true;
                 merge(&mut w, c.width);
             }
@@ -130,6 +135,7 @@ pub fn summarize(board: &Board, ids: &[ElementId]) -> Summary {
     out.path = path.flatten();
     out.start_cap = sc.flatten();
     out.end_cap = ec.flatten();
+    out.dashed = dash.flatten();
     out.width = w.flatten();
     out.link = link.flatten();
     out
@@ -175,6 +181,7 @@ fn apply_one(e: &mut Element, change: &Change) {
         (Element::Connector(c), Change::Path(p)) => c.style = *p,
         (Element::Connector(c), Change::StartCap(cap)) => c.start_cap = *cap,
         (Element::Connector(c), Change::EndCap(cap)) => c.end_cap = *cap,
+        (Element::Connector(c), Change::Dashed(d)) => c.dashed = *d,
         (Element::Connector(c), Change::Width(w)) => c.width = *w,
         (Element::Stroke(s), Change::Width(w)) => s.width = *w,
         (e, Change::Link(l)) => e.meta_mut().link = l.trim().to_string(),

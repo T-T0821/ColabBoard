@@ -19,6 +19,8 @@ use crate::shape::{FRAME_TITLE_HEIGHT, Shape};
 const COL_GAP: f32 = 110.0;
 /// 同じ列の中の間隔(下の枠の見出しが入る分)。
 const ROW_GAP: f32 = FRAME_TITLE_HEIGHT + 24.0;
+/// 列をまたぐ矢印のために空ける通り道の最小の幅。
+const LANE: f32 = 40.0;
 /// グループの内側の余白。
 const GROUP_PAD: f32 = 32.0;
 /// グループ上端の余白(中の枠の見出しが入る分)。
@@ -113,7 +115,7 @@ impl Ctx<'_> {
 
     /// 兄弟の項目どうしの段。中身のノードの間に矢印があれば「項目 → 項目」の矢印とみなし、
     /// 最長経路で決める(グループの外から入ってくる矢印は外側の段で考慮済み)。
-    fn sibling_ranks(&self, items: &[Item]) -> Vec<usize> {
+    fn sibling_ranks(&self, items: &[Item]) -> (Vec<usize>, Vec<(usize, usize)>) {
         let mut owner: HashMap<usize, usize> = HashMap::new();
         for (k, item) in items.iter().enumerate() {
             let mut nodes = Vec::new();
@@ -132,12 +134,12 @@ impl Ctx<'_> {
             .collect();
         edges.sort_unstable();
         edges.dedup();
-        ranks(items.len(), &edges)
+        (ranks(items.len(), &edges), edges)
     }
 
     /// 項目を列に並べる。返り値は各項目の左上位置と全体の大きさ。
     fn arrange(&self, items: &[Item]) -> (Vec<Vec2>, Vec2) {
-        let mut ranks = self.sibling_ranks(items);
+        let (mut ranks, edges) = self.sibling_ranks(items);
         let mut cols: Vec<usize> = ranks.clone();
         cols.sort_unstable();
         cols.dedup();
@@ -154,8 +156,24 @@ impl Ctx<'_> {
             col_cross[c] += self.cross(s);
             col_count[c] += 1;
         }
+        // 列を 2 つ以上またぐ矢印は、間の列に通り道を空ける(ノードの上を通らないように)。
+        // 通り道は列の後ろ側に取るので、間の列のノードは脇にずれる。
+        let mut lanes = vec![0usize; ncols];
+        for &(a, b) in &edges {
+            let (ca, cb) = (ranks[a], ranks[b]);
+            for lane in lanes.iter_mut().take(cb.max(ca)).skip(ca.min(cb) + 1) {
+                *lane += 1;
+            }
+        }
+        // 通り道の幅は列のいちばん大きい項目と同じにする(ノードが矢印から完全に外れるように)。
+        let mut col_widest = vec![LANE; ncols];
+        for (item, &c) in items.iter().zip(&ranks) {
+            col_widest[c] = col_widest[c].max(self.cross(self.size(*item)));
+        }
         for c in 0..ncols {
-            col_cross[c] += ROW_GAP * col_count[c].saturating_sub(1) as f32;
+            let slots = col_count[c] + lanes[c];
+            col_cross[c] +=
+                col_widest[c] * lanes[c] as f32 + ROW_GAP * slots.saturating_sub(1) as f32;
         }
         let total_cross = col_cross.iter().copied().fold(0.0, f32::max);
         let mut col_start = vec![0.0f32; ncols];
