@@ -2,7 +2,7 @@
 //!
 //! - `GET /ws/{room}?key=`: WebSocket。メッセージ形式は [`board_core::protocol`]。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])と図の生成([`ai_diagram`])、Slack 通知([`slack`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])と図の生成([`ai_diagram`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -17,6 +17,7 @@ pub mod boards;
 pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
+pub mod issues;
 pub mod rest;
 pub mod room;
 pub mod slack;
@@ -62,6 +63,8 @@ pub struct Config {
     pub ai: Option<Arc<ai::Ai>>,
     /// Slack 通知(送ってよい Webhook URL とメッセージのリンク)。
     pub slack: slack::SlackConfig,
+    /// GitHub・Jira の課題カード。
+    pub issues: issues::IssuesConfig,
 }
 
 impl Default for Config {
@@ -73,6 +76,7 @@ impl Default for Config {
             secure_cookies: false,
             ai: None,
             slack: slack::SlackConfig::default(),
+            issues: issues::IssuesConfig::default(),
         }
     }
 }
@@ -99,6 +103,7 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/boards/{id}/ai/cluster", post(ai::cluster))
         .route("/api/boards/{id}/ai/diagram", post(ai_diagram::generate))
         .route("/api/ai/status", get(ai_diagram::status))
+        .route("/api/boards/{id}/issues", post(issues::lookup))
         .nest("/api/v1", rest::routes())
         .nest("/api", api::routes().merge(rest::token_routes()))
         .with_state(state);

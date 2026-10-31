@@ -23,6 +23,7 @@ mod follow;
 mod format_bar;
 mod history;
 mod imports;
+mod issues;
 mod media;
 mod offline;
 mod prefs;
@@ -430,6 +431,7 @@ pub async fn run() -> Result<(), String> {
     media::install(&app)?;
     templates_ui::install(&app)?;
     search_ui::install(&app)?;
+    issues::install(&app)?;
     start_loop(app);
     Ok(())
 }

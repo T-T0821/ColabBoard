@@ -286,7 +286,10 @@ pub fn install_clipboard(app: &Rc<RefCell<App>>) -> Result<(), String> {
             else {
                 return;
             };
-            if app.borrow_mut().paste_text(&text, None) {
+            if super::issues::paste(&app, &text) {
+                // GitHub・Jira の課題の URL はカードにする。
+                e.prevent_default();
+            } else if app.borrow_mut().paste_text(&text, None) {
                 e.prevent_default();
             } else if board_core::tabular::looks_like_tsv(&text) {
                 // 表計算ソフトからコピーした範囲は表にする。
