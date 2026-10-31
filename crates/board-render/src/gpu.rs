@@ -44,6 +44,7 @@ pub struct Renderer {
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
     srgb_output: bool,
+    dark: bool,
     backend: wgpu::Backend,
     adapter_name: String,
 
@@ -186,6 +187,7 @@ impl Renderer {
             queue,
             surface,
             srgb_output: format.is_srgb(),
+            dark: false,
             config,
             backend: info.backend,
             adapter_name: info.name,
@@ -224,6 +226,16 @@ impl Renderer {
     }
 
     /// 文字描画用のフォント(TTF/OTF)を読み込む。
+    /// ダークモードの切り替え。次の `render` から反映される。
+    pub fn set_dark(&mut self, dark: bool) {
+        self.dark = dark;
+        self.text.set_dark(dark);
+    }
+
+    pub fn dark(&self) -> bool {
+        self.dark
+    }
+
     pub fn load_font(&mut self, data: Vec<u8>) {
         self.text.load_font(data);
     }
@@ -326,7 +338,8 @@ impl Renderer {
             viewport: camera.viewport.to_array(),
             zoom: camera.zoom,
             srgb_output: self.srgb_output as u32,
-            _pad: [0; 2],
+            dark: self.dark as u32,
+            _pad: 0,
         };
         self.queue
             .write_buffer(&self.globals_buf, 0, bytemuck::bytes_of(&globals));

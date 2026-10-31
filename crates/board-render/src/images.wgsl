@@ -6,7 +6,7 @@ struct Globals {
     viewport: vec2f,
     zoom: f32,
     srgb_output: u32,
-    _pad0: u32,
+    dark: u32,
     _pad1: u32,
 };
 

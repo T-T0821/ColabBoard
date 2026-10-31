@@ -12,6 +12,8 @@ mod net;
 mod presence;
 #[cfg(target_arch = "wasm32")]
 mod session;
+#[cfg(target_arch = "wasm32")]
+mod theme;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -21,6 +23,11 @@ use wasm_bindgen::prelude::*;
 pub fn start() {
     console_error_panic_hook::set_once();
     let _ = console_log::init_with_level(log::Level::Info);
+    if let Some(w) = web_sys::window()
+        && let Some(d) = w.document()
+    {
+        theme::init(&w, &d);
+    }
     wasm_bindgen_futures::spawn_local(async {
         if let Err(e) = app::run().await {
             log::error!("{e}");

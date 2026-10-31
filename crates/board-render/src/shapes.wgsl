@@ -7,7 +7,7 @@ struct Globals {
     viewport: vec2f,
     zoom: f32,
     srgb_output: u32,
-    _pad0: u32,
+    dark: u32,
     _pad1: u32,
 };
 
@@ -25,6 +25,9 @@ const KIND_HEXAGON: u32 = 7u;
 const KIND_PARALLELOGRAM: u32 = 8u;
 const KIND_STAMP: u32 = 9u;
 
+// 下地になる面(フレームなど)。lib.rs の FLAG_SURFACE と同じ。
+const FLAG_SURFACE: u32 = 1u;
+
 struct Instance {
     @location(0) pos: vec2f,
     @location(1) size: vec2f,
@@ -33,6 +36,7 @@ struct Instance {
     @location(4) stroke_width: f32,
     @location(5) radius: f32,
     @location(6) kind: u32,
+    @location(7) flags: u32,
 };
 
 struct VsOut {
@@ -108,9 +112,48 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     out.half = half;
     out.fill = unpack4x8unorm(inst.fill);
     out.stroke = unpack4x8unorm(inst.stroke);
+    if (g.dark == 1u) {
+        if (inst.kind == KIND_SEGMENT) {
+            out.fill = ink(out.fill); // 手書き線・コネクタの線は fill に色が入っている
+        } else if ((inst.flags & FLAG_SURFACE) != 0u) {
+            out.fill = surface(out.fill);
+            out.stroke = surface_line(out.stroke);
+        } else if (out.fill.a < 0.5) {
+            // 塗りのない図形の枠線は背景が暗いので明るくする。塗りのある図形の枠線はそのまま。
+            out.stroke = ink(out.stroke);
+        }
+    }
     out.params = vec2f(inst.stroke_width, radius);
     out.kind = inst.kind;
     return out;
+}
+
+// ダークモードでは黒に近い線を明るい色に置き換える(暗い背景で見えなくならないように)。
+// 塗りの色はそのまま(付箋などは明るいまま、その上の黒文字も読める)。
+fn luma(c: vec3f) -> f32 {
+    return dot(c, vec3f(0.2126, 0.7152, 0.0722));
+}
+
+fn ink(c: vec4f) -> vec4f {
+    if (luma(c.rgb) < 0.25) {
+        return vec4f(0.90, 0.91, 0.94, c.a);
+    }
+    return c;
+}
+
+// 白に近い下地は、暗いパネルの色(style.css の --panel-solid)にする。
+fn surface(c: vec4f) -> vec4f {
+    if (luma(c.rgb) > 0.85) {
+        return vec4f(0.141, 0.149, 0.180, c.a);
+    }
+    return c;
+}
+
+fn surface_line(c: vec4f) -> vec4f {
+    if (luma(c.rgb) > 0.6) {
+        return vec4f(0.24, 0.25, 0.29, c.a);
+    }
+    return ink(c);
 }
 
 fn sd_round_box(p: vec2f, half: vec2f, r: f32) -> f32 {
