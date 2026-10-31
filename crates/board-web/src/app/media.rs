@@ -227,7 +227,18 @@ pub fn insert_files(app: &Rc<RefCell<App>>, files: Vec<File>, at: Option<Vec2>) 
             let mut a = app.borrow_mut();
             let base = at.unwrap_or_else(|| a.cursor_world.unwrap_or_else(|| a.media_center()));
             let base = base + Vec2::splat(32.0 * i as f32);
-            if is_markdown(&f) {
+            if super::imports::is_csv(&f.name(), &f.type_()) {
+                a.insert_csv(&super::imports::decode_text(&bytes), base);
+            } else if super::imports::is_spreadsheet(&f.name()) {
+                match super::imports::read_spreadsheet(bytes) {
+                    Ok(sheets) => {
+                        if !a.insert_sheets(sheets, base) {
+                            super::show_error("シートが空です");
+                        }
+                    }
+                    Err(e) => super::show_error(&e),
+                }
+            } else if is_markdown(&f) {
                 drop(a);
                 insert_markdown(&app, &String::from_utf8_lossy(&bytes), Some(base));
             } else if is_pdf(&f) {
@@ -249,7 +260,11 @@ fn is_markdown(f: &File) -> bool {
 }
 
 fn is_supported(f: &File) -> bool {
-    f.type_().starts_with("image/") || is_pdf(f) || is_markdown(f)
+    f.type_().starts_with("image/")
+        || is_pdf(f)
+        || is_markdown(f)
+        || super::imports::is_csv(&f.name(), &f.type_())
+        || super::imports::is_spreadsheet(&f.name())
 }
 
 /// マークダウンを読んで並べる(中心は `at`、なければカーソルか画面中央)。

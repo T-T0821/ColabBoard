@@ -32,6 +32,8 @@ const KIND_DOCUMENT: u32 = 14u;
 const KIND_DELAY: u32 = 15u;
 const KIND_PREDEFINED: u32 = 16u;
 const KIND_STORAGE: u32 = 17u;
+// ハンコ(朱色の丸枠)。radius > 0 なら日付印の 2 本の線の位置。
+const KIND_HANKO: u32 = 18u;
 // これ以上は多角形(頂点表は lib.rs の shapes_wgsl() が polygon_of として生成する)。
 const KIND_POLYGON: u32 = 32u;
 
@@ -291,7 +293,37 @@ fn cylinder_ry(half: vec2f) -> f32 {
 }
 
 // 内側に引く線(円柱の上の楕円、定義済み処理の縦線など)までの距離。線がなければ大きな値。
-fn detail_sdf(p: vec2f, half: vec2f, kind: u32) -> f32 {
+// ハンコのかすれ: 0.55..1 の濃さ。細かい粒と、ところどころの薄い斑。
+fn hanko_grain(p: vec2f, half: vec2f) -> f32 {
+    let n = p / max(half.x, 1.0);
+    let fine = value_noise(n * 40.0);
+    let blot = value_noise(n * 3.0 + vec2f(7.3, 1.9));
+    let thin = smoothstep(0.6, 0.9, blot) * 0.3;
+    let speck = smoothstep(0.78, 0.95, fine) * 0.3;
+    return clamp(1.0 - thin - speck, 0.55, 1.0);
+}
+
+fn hash21(p: vec2f) -> f32 {
+    let h = dot(p, vec2f(127.1, 311.7));
+    return fract(sin(h) * 43758.5453);
+}
+
+fn value_noise(p: vec2f) -> f32 {
+    let i = floor(p);
+    let f = fract(p);
+    let u = f * f * (3.0 - 2.0 * f);
+    let a = hash21(i);
+    let b = hash21(i + vec2f(1.0, 0.0));
+    let c = hash21(i + vec2f(0.0, 1.0));
+    let d = hash21(i + vec2f(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+
+fn detail_sdf(p: vec2f, half: vec2f, kind: u32, radius: f32) -> f32 {
+    if (kind == KIND_HANKO && radius > 0.0) {
+        // 日付印の段を分ける横線(丸の内側だけ)。
+        return max(abs(abs(p.y) - radius), sd_ellipse(p, half));
+    }
     if (kind == KIND_CYLINDER) {
         let ry = cylinder_ry(half);
         return abs(sd_ellipse(p - vec2f(0.0, -(half.y - ry)), vec2f(half.x, ry)));
@@ -345,7 +377,7 @@ fn shape_sdf(p: vec2f, half: vec2f, kind: u32, radius: f32) -> f32 {
         let left = sd_round_box(p + vec2f(half.x * 0.5, 0.0), vec2f(half.x * 0.5, half.y), 0.0);
         return min(left, sd_ellipse(p, half));
     }
-    if (kind == KIND_ELLIPSE || kind == KIND_STAMP) {
+    if (kind == KIND_ELLIPSE || kind == KIND_STAMP || kind == KIND_HANKO) {
         return sd_ellipse(p, half);
     }
     if (kind == KIND_TRIANGLE) {
@@ -402,13 +434,18 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
 
     // 内側の線(円柱の楕円など)。
     if (sw > 0.0 && in.stroke.a > 0.0) {
-        let dd = detail_sdf(in.local, in.half, in.kind);
+        let dd = detail_sdf(in.local, in.half, in.kind, in.params.y);
         let line = clamp(0.5 - (dd - max(sw, px) * 0.5) / px, 0.0, 1.0);
         let stroke = vec4f(to_output(in.stroke.rgb) * in.stroke.a, in.stroke.a);
         color = mix(color, stroke, line);
     }
 
     var out = color * coverage;
+
+    // ハンコは朱肉のかすれを付ける(位置から決まる模様なので動かしてもちらつかない)。
+    if (in.kind == KIND_HANKO) {
+        out = out * hanko_grain(in.local, in.half);
+    }
 
     // 付箋は柔らかい影を下に敷く。
     if (in.kind == KIND_STICKY || in.kind == KIND_STAMP) {

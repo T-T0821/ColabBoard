@@ -1,7 +1,8 @@
 //! グラボード の同期サーバー。
 //!
 //! - `GET /ws/{room}?key=`: WebSocket。メッセージ形式は [`board_core::protocol`]。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])と図の生成([`ai_diagram`])。
+//! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])と図の生成([`ai_diagram`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -14,8 +15,14 @@ pub mod api;
 pub mod auth;
 pub mod boards;
 pub mod comments;
+#[cfg(feature = "embed")]
+mod embedded;
+pub mod issues;
+pub mod rest;
 pub mod room;
+pub mod slack;
 pub mod store;
+pub mod tokens;
 pub mod versions;
 
 use std::path::PathBuf;
@@ -37,28 +44,39 @@ use tower_http::services::ServeDir;
 pub use room::Hub;
 pub use store::Store;
 
-/// 1 通の上限(大きなボードの初回同期を考えて余裕を持たせる)。
-const MAX_MESSAGE_BYTES: usize = 32 * 1024 * 1024;
+/// 1 通の上限の既定値(大きなボードの初回同期を考えて余裕を持たせる。10 万要素で約 28 MB)。
+pub const DEFAULT_MAX_MESSAGE_BYTES: usize = 128 * 1024 * 1024;
 /// 保存の間隔。
 pub const FLUSH_INTERVAL: Duration = Duration::from_secs(2);
 
 pub struct Config {
+    /// 配信する Web クライアントのディレクトリ。`None` なら、バイナリに埋め込んだもの
+    /// (`embed` 機能付きでビルドしたとき)を配る。
     pub static_dir: Option<PathBuf>,
+    /// WebSocket で受け取る 1 通の上限(バイト)。
+    pub max_message_bytes: usize,
     /// ログインせずに `?room=` で作る「誰でも編集できるボード」を許すか。
     pub anonymous_boards: bool,
     /// Cookie に `Secure` を付けるか(HTTPS で公開するとき)。
     pub secure_cookies: bool,
     /// AI 機能(付箋の要約・クラスタリング)。`None` なら無効。
     pub ai: Option<Arc<ai::Ai>>,
+    /// Slack 通知(送ってよい Webhook URL とメッセージのリンク)。
+    pub slack: slack::SlackConfig,
+    /// GitHub・Jira の課題カード。
+    pub issues: issues::IssuesConfig,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             static_dir: None,
+            max_message_bytes: DEFAULT_MAX_MESSAGE_BYTES,
             anonymous_boards: true,
             secure_cookies: false,
             ai: None,
+            slack: slack::SlackConfig::default(),
+            issues: issues::IssuesConfig::default(),
         }
     }
 }
@@ -85,11 +103,27 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/boards/{id}/ai/cluster", post(ai::cluster))
         .route("/api/boards/{id}/ai/diagram", post(ai_diagram::generate))
         .route("/api/ai/status", get(ai_diagram::status))
-        .nest("/api", api::routes())
+        .route("/api/boards/{id}/issues", post(issues::lookup))
+        .nest("/api/v1", rest::routes())
+        .nest("/api", api::routes().merge(rest::token_routes()))
         .with_state(state);
     match static_dir {
         Some(dir) => app.fallback_service(ServeDir::new(dir)),
+        #[cfg(feature = "embed")]
+        None if embedded::available() => app.fallback(embedded::serve),
         None => app,
+    }
+}
+
+/// バイナリに Web クライアントが埋め込まれているか。
+pub fn has_embedded_client() -> bool {
+    #[cfg(feature = "embed")]
+    {
+        embedded::available()
+    }
+    #[cfg(not(feature = "embed"))]
+    {
+        false
     }
 }
 
@@ -138,7 +172,7 @@ async fn ws_handler(
         Err(e) => return e.into_response(),
     };
     let hub = state.hub.clone();
-    ws.max_message_size(MAX_MESSAGE_BYTES)
+    ws.max_message_size(state.config.max_message_bytes)
         .on_upgrade(move |socket| session(socket, hub, room, role))
 }
 

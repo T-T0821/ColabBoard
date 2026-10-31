@@ -94,6 +94,9 @@ impl From<&Shape> for ShapeInstance {
                 // 角の丸みは大きさに合わせる(シェーダーが半分の大きさで頭打ちにする)。
                 ShapeKind::RoundRect => s.corner_radius.max(s.size.min_element() * 0.18),
                 ShapeKind::Pill => f32::MAX,
+                // 日付印: 段の間の線の位置(中心からの距離)。
+                ShapeKind::Stamp if s.is_date_hanko() => s.text_style().line_height * 0.5,
+                ShapeKind::Stamp => 0.0,
                 _ => s.corner_radius,
             },
             kind: match s.kind {
@@ -107,6 +110,7 @@ impl From<&Shape> for ShapeInstance {
                 ShapeKind::Star => KIND_STAR,
                 ShapeKind::Hexagon => KIND_HEXAGON,
                 ShapeKind::Parallelogram => KIND_PARALLELOGRAM,
+                ShapeKind::Stamp if s.is_hanko() => KIND_HANKO,
                 ShapeKind::Stamp => KIND_STAMP,
                 ShapeKind::RoundRect | ShapeKind::Pill => KIND_RECT,
                 ShapeKind::Heart => KIND_HEART,
@@ -153,6 +157,8 @@ pub const KIND_DOCUMENT: u32 = 14;
 pub const KIND_DELAY: u32 = 15;
 pub const KIND_PREDEFINED: u32 = 16;
 pub const KIND_STORAGE: u32 = 17;
+/// ハンコ: 朱色の丸枠(影なし、かすれあり)。`radius` > 0 なら日付印の段の線。
+pub const KIND_HANKO: u32 = 18;
 /// 多角形の図形: `KIND_POLYGON + board_core::shape::POLYGONS での番号`。
 pub const KIND_POLYGON: u32 = 32;
 

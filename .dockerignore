@@ -1,0 +1,8 @@
+target
+data
+crates/board-web/dist
+.git
+.github
+docs
+tools/perf-gif/node_modules
+target-main

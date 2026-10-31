@@ -252,6 +252,11 @@ impl Renderer {
 
     /// 文字描画用のフォント(TTF/OTF)を読み込む。
     /// ダークモードの切り替え。次の `render` から反映される。
+    /// 付箋の作者名を出すか。
+    pub fn set_show_authors(&mut self, on: bool) {
+        self.text.set_show_authors(on);
+    }
+
     pub fn set_dark(&mut self, dark: bool) {
         self.dark = dark;
         self.text.set_dark(dark);

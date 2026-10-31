@@ -312,6 +312,28 @@ mod tests {
     }
 
     #[test]
+    fn anonymous_mode_does_not_record_author() {
+        let mut b = Board::new();
+        b.set_author("Alice");
+        b.set_anonymous(true);
+        let id = b.alloc_id();
+        b.push(Shape::sticky(
+            id,
+            Vec2::ZERO,
+            crate::color::STICKY_COLORS[0],
+        ));
+        assert!(b.get(id).unwrap().meta().author.is_empty());
+        b.set_anonymous(false);
+        let id = b.alloc_id();
+        b.push(Shape::sticky(
+            id,
+            Vec2::ZERO,
+            crate::color::STICKY_COLORS[0],
+        ));
+        assert_eq!(b.get(id).unwrap().meta().author, "Alice");
+    }
+
+    #[test]
     fn breakout_rooms_and_members() {
         let mut b = Board::new();
         let frames = b.start_breakout(3, Vec2::ZERO);

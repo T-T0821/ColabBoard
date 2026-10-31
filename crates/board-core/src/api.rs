@@ -25,6 +25,10 @@
 //! | `GET` | `/api/boards/{id}/versions/{vid}?key=` | そのバージョンの状態(yrs v1 更新のバイナリ) |
 //! | `PATCH` | `/api/boards/{id}/versions/{vid}?key=` | 名前の変更([`NewVersion`]、編集者以上) |
 //! | `POST` | `/api/boards/{id}/versions/{vid}/restore?key=` | そのバージョンに戻す(編集者以上。戻す前の状態も保存する) |
+//! | `GET` | `/api/boards/{id}/slack` | Slack 通知の設定([`SlackSettings`]、オーナーのみ) |
+//! | `PUT` | `/api/boards/{id}/slack` | Slack 通知の設定を変える([`SetSlack`] → [`SlackSettings`]、オーナーのみ) |
+//! | `POST` | `/api/boards/{id}/slack/test` | Slack にテストのメッセージを送る(オーナーのみ) |
+//! | `POST` | `/api/boards/{id}/issues?key=` | GitHub・Jira の課題の状態を引く([`IssueQuery`] → [`IssueLookup`] の配列、編集者以上) |
 //!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
 
@@ -292,6 +296,122 @@ pub struct VersionInfo {
 pub struct NewVersion {
     #[serde(default)]
     pub label: Option<String>,
+}
+
+/// Slack に知らせる出来事。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlackEvents {
+    /// すべてのコメントと返信。
+    #[serde(default)]
+    pub comments: bool,
+    /// メンションを含むコメント(`comments` がオフでも送る)。
+    #[serde(default)]
+    pub mentions: bool,
+    /// 名前を付けたバージョンの保存と、バージョンの復元。
+    #[serde(default)]
+    pub versions: bool,
+}
+
+impl Default for SlackEvents {
+    fn default() -> Self {
+        Self {
+            comments: true,
+            mentions: true,
+            versions: true,
+        }
+    }
+}
+
+/// ボードの Slack 通知の設定。Webhook URL は秘密なので末尾だけ返す。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SlackSettings {
+    /// Webhook URL が設定されているか。
+    pub enabled: bool,
+    /// 設定済みの Webhook URL の見分け用(末尾の数文字)。
+    #[serde(default)]
+    pub hint: Option<String>,
+    pub events: SlackEvents,
+}
+
+/// `webhook` が `None` なら URL はそのまま、空文字なら通知をやめる。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetSlack {
+    #[serde(default)]
+    pub webhook: Option<String>,
+    #[serde(default)]
+    pub events: SlackEvents,
+}
+
+/// 課題の置き場所。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IssueProvider {
+    Github,
+    Jira,
+}
+
+impl IssueProvider {
+    pub fn label(self) -> &'static str {
+        match self {
+            IssueProvider::Github => "GitHub",
+            IssueProvider::Jira => "Jira",
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IssueProvider::Github => "github",
+            IssueProvider::Jira => "jira",
+        }
+    }
+}
+
+/// 課題の状態を大まかに分けたもの(カードの色に使う)。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IssueState {
+    /// 未着手・オープン。
+    Open,
+    /// 進行中(Jira の「進行中」カテゴリ、GitHub の下書き PR)。
+    InProgress,
+    /// 完了(クローズ・マージ・Jira の完了カテゴリ)。
+    Done,
+    /// 対応しないで閉じた。
+    Closed,
+}
+
+/// 課題 1 件の情報。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct IssueInfo {
+    pub provider: IssueProvider,
+    /// 表示用の番号(`owner/repo#12`、`PROJ-34`)。
+    pub key: String,
+    pub title: String,
+    pub state: IssueState,
+    /// サービス上の状態の名前(`Open`、`Merged`、`進行中` など)。
+    pub status: String,
+    /// 担当者(いなければ `None`)。
+    #[serde(default)]
+    pub assignee: Option<String>,
+    /// プルリクエストか。
+    #[serde(default)]
+    pub pull: bool,
+    pub url: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IssueQuery {
+    pub urls: Vec<String>,
+}
+
+/// 1 件分の結果。取れなければ `error`。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct IssueLookup {
+    pub url: String,
+    #[serde(default)]
+    pub issue: Option<IssueInfo>,
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 /// 本文から `@ログイン名` を拾う(重複なし、出てきた順)。

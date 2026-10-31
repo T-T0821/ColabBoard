@@ -134,6 +134,8 @@ impl App {
         }
         self.workshop.last_anon = Some(anon);
         self.workshop.anon_toggle.set_checked(anon);
+        self.renderer.set_show_authors(self.show_authors && !anon);
+        self.dirty = true;
         let _ = self
             .workshop
             .body

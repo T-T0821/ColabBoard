@@ -8,7 +8,7 @@ use std::fmt::Write as _;
 use std::rc::Rc;
 
 use board_core::format::{self, Change, FONT_SIZES, Summary, WIDTHS};
-use board_core::{Cap, PathStyle, ShapeKind, TextAlign};
+use board_core::{Cap, PathStyle, ShapeKind, TextAlign, VAlign};
 use wasm_bindgen::JsCast;
 use web_sys::{Element, HtmlElement, HtmlInputElement, HtmlSelectElement};
 
@@ -58,6 +58,22 @@ fn align_icon(a: TextAlign) -> &'static str {
         }
     }
 }
+
+fn valign_icon(v: VAlign) -> &'static str {
+    match v {
+        VAlign::Top => r#"<svg viewBox="0 0 24 24"><path d="M4 4h16M12 20V8M8 12l4-4 4 4"/></svg>"#,
+        VAlign::Middle => {
+            r#"<svg viewBox="0 0 24 24"><path d="M4 12h16M12 3v5M9 6l3 3 3-3M12 21v-5M9 18l3-3 3 3"/></svg>"#
+        }
+        VAlign::Bottom => {
+            r#"<svg viewBox="0 0 24 24"><path d="M4 20h16M12 4v12M8 12l4 4 4-4"/></svg>"#
+        }
+    }
+}
+
+/// 縦書きのアイコン(縦に並んだ文字と、右から左への矢印)。
+const VERTICAL_ICON: &str =
+    r#"<svg viewBox="0 0 24 24"><path d="M15 4v12M9 4v8M18 20H6M8 18l-2 2 2 2"/></svg>"#;
 
 /// 書式バーの中身(HTML)。
 fn render(s: &Summary, link_open: bool) -> String {
@@ -132,6 +148,27 @@ fn render(s: &Summary, link_open: bool) -> String {
                 align_icon(a)
             );
         }
+        groups.push(g);
+
+        let mut g = String::new();
+        for (v, title) in [
+            (VAlign::Top, "上揃え"),
+            (VAlign::Middle, "上下中央揃え"),
+            (VAlign::Bottom, "下揃え"),
+        ] {
+            let _ = write!(
+                g,
+                r#"<button data-act="valign" data-value="{}" title="{title}" aria-pressed="{}">{}</button>"#,
+                v.name(),
+                pressed(s.valign == Some(v)),
+                valign_icon(v)
+            );
+        }
+        let _ = write!(
+            g,
+            r#"<button data-act="vertical" title="縦書き" aria-pressed="{}">{VERTICAL_ICON}</button>"#,
+            pressed(s.vertical == Some(true)),
+        );
         groups.push(g);
     }
 
@@ -366,6 +403,8 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
                     "font-down" => a.apply_format(Change::FontStep(-1)),
                     "font-up" => a.apply_format(Change::FontStep(1)),
                     "align" => a.apply_format(Change::Align(TextAlign::from_name(&value))),
+                    "valign" => a.apply_format(Change::VAlign(VAlign::from_name(&value))),
+                    "vertical" => a.apply_format(Change::Vertical(s.vertical != Some(true))),
                     "start-cap" => {
                         a.apply_format(Change::StartCap(if s.start_cap == Some(Cap::Arrow) {
                             Cap::None
