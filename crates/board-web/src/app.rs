@@ -16,6 +16,7 @@ use web_sys::{
 
 mod actions;
 mod collab;
+mod follow;
 mod toolbar;
 
 use crate::net::{Net, NetEvent, Status};
@@ -63,6 +64,7 @@ struct App {
     presence_sent_at: f64,
     last_status: Option<(Status, usize)>,
     collab: collab::Collab,
+    follow: follow::Follow,
 }
 
 struct Hud {
@@ -235,6 +237,7 @@ pub async fn run() -> Result<(), String> {
         presence_sent_at: 0.0,
         last_status: None,
         collab: collab::Collab::new(&document)?,
+        follow: follow::Follow::new(&document)?,
     }));
     {
         let mut a = app.borrow_mut();
@@ -379,9 +382,14 @@ impl App {
                     self.cursors.upsert(p);
                     self.cursors_dirty = true;
                 }
-                NetEvent::Message(Message::Leave(peer)) => self.cursors.remove(peer),
+                NetEvent::Message(Message::Leave(peer)) => {
+                    self.cursors.remove(peer);
+                    self.on_peer_leave(peer);
+                }
+                NetEvent::Message(Message::View(v)) => self.on_view(v),
                 NetEvent::Closed => {
                     self.cursors.clear();
+                    self.follow_reset();
                     let offline = self.net.as_ref().map(|n| n.status) == Some(Status::Offline);
                     if offline && self.board.is_empty() && !self.view_initialized {
                         log::warn!("サーバーにつながらないので、このタブだけで動かします");
@@ -570,6 +578,7 @@ impl App {
     fn frame(&mut self, now: f64) {
         self.pump_net(now);
         self.collab_frame();
+        self.follow_frame(now);
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
         if (w, h) != self.renderer.size() {
@@ -1120,6 +1129,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     })?;
     on_click(doc, "share", app, |a| a.copy_link())?;
     collab::install(app, doc)?;
+    follow::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
     on_click(doc, "zoom-in", app, |a| a.zoom_center(1.25))?;

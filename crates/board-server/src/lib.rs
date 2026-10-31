@@ -177,6 +177,12 @@ async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String, role: Role
                         room.set_presence(me, encoded.clone());
                         room.broadcast(me, encoded);
                     }
+                    Ok(Message::View(mut v)) if v.is_valid() => {
+                        v.peer = me;
+                        let encoded: Arc<[u8]> = Message::View(v).encode().into();
+                        room.set_view(me, encoded.clone());
+                        room.broadcast(me, encoded);
+                    }
                     Ok(other) => tracing::warn!(peer = me, "想定外のメッセージ: {other:?}"),
                     Err(e) => tracing::warn!(peer = me, "読めないメッセージ: {e}"),
                 }

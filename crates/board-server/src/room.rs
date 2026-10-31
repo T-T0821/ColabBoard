@@ -33,6 +33,8 @@ pub struct Room {
     pub tx: broadcast::Sender<Outgoing>,
     /// 参加者ごとの最新のカーソル(エンコード済み)。新しく来た人に送る。
     presence: Mutex<HashMap<u32, Arc<[u8]>>>,
+    /// 参加者ごとの最新の表示範囲(エンコード済み)。途中参加でもプレゼンに追従できるように。
+    views: Mutex<HashMap<u32, Arc<[u8]>>>,
     dirty: AtomicBool,
     peers: AtomicUsize,
 }
@@ -51,6 +53,7 @@ impl Room {
             lock: Mutex::new(()),
             tx: broadcast::channel(1024).0,
             presence: Mutex::default(),
+            views: Mutex::default(),
             dirty: AtomicBool::new(false),
             peers: AtomicUsize::new(0),
         };
@@ -86,13 +89,21 @@ impl Room {
         self.presence.lock().unwrap().insert(peer, encoded);
     }
 
-    /// カーソルを消す。表示していたなら true。
-    pub fn remove_presence(&self, peer: u32) -> bool {
-        self.presence.lock().unwrap().remove(&peer).is_some()
+    pub fn set_view(&self, peer: u32, encoded: Arc<[u8]>) {
+        self.views.lock().unwrap().insert(peer, encoded);
     }
 
+    /// カーソルと表示範囲を消す。どちらかを配っていたなら true。
+    pub fn remove_presence(&self, peer: u32) -> bool {
+        let view = self.views.lock().unwrap().remove(&peer).is_some();
+        self.presence.lock().unwrap().remove(&peer).is_some() || view
+    }
+
+    /// 新しく来た人に送る、他の参加者のカーソルと表示範囲。
     pub fn presences(&self) -> Vec<Arc<[u8]>> {
-        self.presence.lock().unwrap().values().cloned().collect()
+        let mut out: Vec<_> = self.presence.lock().unwrap().values().cloned().collect();
+        out.extend(self.views.lock().unwrap().values().cloned());
+        out
     }
 
     pub fn peer_count(&self) -> usize {

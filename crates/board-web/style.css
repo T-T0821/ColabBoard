@@ -346,3 +346,16 @@ button:hover { border-color: var(--accent); color: var(--accent); }
   stroke-width: 1.6;
   stroke-linejoin: round;
 }
+/* フォロー・プレゼン */
+.follow {
+  top: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.follow[hidden] { display: none; }
+.follow[data-state="presenting"] { border-color: #e5484d; color: #e5484d; }
+.follow[data-state="available"] { border-color: var(--border); color: var(--text); }
+.peer-list { display: flex; flex-wrap: wrap; gap: 4px; color: var(--muted); font-size: 12px; }
+.peer { border-color: var(--c, var(--border)); border-left-width: 4px; }

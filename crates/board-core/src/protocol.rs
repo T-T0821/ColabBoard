@@ -8,6 +8,10 @@
 //! | `0x01` Update | 双方向 | yrs v1 更新 |
 //! | `0x02` Presence | 双方向 | 参加者番号 `u32`, x `f32`, y `f32`, 色 `u32`, 名前(UTF-8) |
 //! | `0x03` Leave | サーバー → クライアント | 参加者番号 `u32` |
+//! | `0x04` View | 双方向 | 参加者番号 `u32`, 見えている範囲 min x, min y, max x, max y `f32`, フラグ `u8` |
+//!
+//! View は各自の表示範囲(ワールド座標)。フォロー(他の人の画面に追従)とプレゼンに使う。
+//! フラグの bit 0 はプレゼン中(全員にフォローしてほしい)。
 //!
 //! Presence の参加者番号はクライアントからは 0 で送り、サーバーが送り主の番号に書き換えて配る。
 //! 座標はワールド座標。カーソルがボードの外に出たら x, y を NaN にする。
@@ -16,6 +20,7 @@ const SYNC: u8 = 0x00;
 const UPDATE: u8 = 0x01;
 const PRESENCE: u8 = 0x02;
 const LEAVE: u8 = 0x03;
+const VIEW: u8 = 0x04;
 
 /// 名前の最大バイト数(超えた分は切り詰める)。
 pub const MAX_NAME_BYTES: usize = 64;
@@ -38,12 +43,36 @@ impl Presence {
     }
 }
 
+/// 参加者の表示範囲(ワールド座標)。
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct View {
+    pub peer: u32,
+    pub min_x: f32,
+    pub min_y: f32,
+    pub max_x: f32,
+    pub max_y: f32,
+    /// プレゼン中(全員にフォローしてほしい)。
+    pub presenting: bool,
+}
+
+impl View {
+    /// 範囲として使える値か(NaN や裏返しを弾く)。
+    pub fn is_valid(&self) -> bool {
+        [self.min_x, self.min_y, self.max_x, self.max_y]
+            .iter()
+            .all(|v| v.is_finite())
+            && self.max_x > self.min_x
+            && self.max_y > self.min_y
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Message {
     Sync { you: u32, state: Vec<u8> },
     Update(Vec<u8>),
     Presence(Presence),
     Leave(u32),
+    View(View),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -97,6 +126,16 @@ impl Message {
                 out.extend_from_slice(&peer.to_le_bytes());
                 out
             }
+            Self::View(v) => {
+                let mut out = Vec::with_capacity(22);
+                out.push(VIEW);
+                out.extend_from_slice(&v.peer.to_le_bytes());
+                for f in [v.min_x, v.min_y, v.max_x, v.max_y] {
+                    out.extend_from_slice(&f.to_le_bytes());
+                }
+                out.push(u8::from(v.presenting));
+                out
+            }
         }
     }
 
@@ -127,6 +166,18 @@ impl Message {
                 }))
             }
             LEAVE => Ok(Self::Leave(read_u32(body, 0)?)),
+            VIEW => {
+                let f = |at| read_u32(body, at).map(f32::from_bits);
+                let flags = *body.get(20).ok_or(DecodeError::Truncated)?;
+                Ok(Self::View(View {
+                    peer: read_u32(body, 0)?,
+                    min_x: f(4)?,
+                    min_y: f(8)?,
+                    max_x: f(12)?,
+                    max_y: f(16)?,
+                    presenting: flags & 1 != 0,
+                }))
+            }
             k => Err(DecodeError::UnknownKind(k)),
         }
     }
@@ -175,6 +226,35 @@ mod tests {
             name: "ゲスト・カワウソ".into(),
         }));
         roundtrip(Message::Leave(u32::MAX));
+        roundtrip(Message::View(View {
+            peer: 3,
+            min_x: -100.0,
+            min_y: 20.5,
+            max_x: 1820.0,
+            max_y: 1100.0,
+            presenting: true,
+        }));
+    }
+
+    #[test]
+    fn view_validation() {
+        let mut v = View {
+            peer: 0,
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 10.0,
+            max_y: 10.0,
+            presenting: false,
+        };
+        assert!(v.is_valid());
+        v.max_x = f32::NAN;
+        assert!(!v.is_valid());
+        v.max_x = -1.0;
+        assert!(!v.is_valid());
+        assert_eq!(
+            Message::decode(&[VIEW, 0, 0, 0, 0]),
+            Err(DecodeError::Truncated)
+        );
     }
 
     #[test]
