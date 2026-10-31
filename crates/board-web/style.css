@@ -1355,3 +1355,19 @@ body[data-preview="on"] #board { box-shadow: inset 0 0 0 3px var(--warning); }
   .search-box { top: calc(56px + env(safe-area-inset-top)); left: 8px; right: 8px; transform: none; }
   .search-box input { width: auto; flex: 1; min-width: 0; }
 }
+
+/* AI の結果のお知らせ(画面下の中央) */
+.ai-toast {
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 8px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  z-index: 30;
+}
+.ai-toast[hidden] { display: none; }
+.ai-toast[data-state="busy"] { color: var(--accent); border-color: var(--accent-ring); }
+.ai-toast[data-state="error"] { color: var(--danger-text); border-color: var(--danger-border); }
+.ai-toast[data-state="done"] { color: var(--success); }

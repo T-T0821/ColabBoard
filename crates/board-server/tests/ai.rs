@@ -198,3 +198,58 @@ async fn errors_without_key_or_room() {
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(seen.lock().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn ink_sends_image_and_validates_items() {
+    use board_core::Stroke;
+    let hub = Arc::new(Hub::new(Arc::new(Store::memory())));
+    let m = hub.join("ink-room");
+    let mut b = Board::new();
+    b.apply_remote(&m.room.snapshot()).unwrap();
+    let mut ids = Vec::new();
+    for y in [0.0, 300.0] {
+        let id = b.alloc_id();
+        let mut s = Stroke::new(id, Vec2::new(0.0, y), Rgba8::BLACK, 4.0);
+        s.points.push(Vec2::new(200.0, y + 100.0));
+        b.push(s);
+        ids.push(hex(id));
+    }
+    for u in b.take_outgoing() {
+        m.room.apply(&u).unwrap();
+    }
+    let (url, seen) = fake_claude(json!({
+        "items": [
+            { "kind": "rect", "strokes": [ids[0], "deadbeef"], "text": "" },
+            { "kind": "text", "strokes": [ids[1]], "text": "受付" },
+            { "kind": "frame", "strokes": [ids[1]], "text": "" },
+        ]
+    }))
+    .await;
+    let app = router(
+        hub.clone(),
+        Config {
+            ai: ai(&url),
+            ..Config::default()
+        },
+    );
+    let (status, body) =
+        post_json(&app, "/api/boards/ink-room/ai/ink", json!({ "ids": ids })).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        body["items"],
+        json!([
+            { "kind": "rect", "strokes": [ids[0]], "text": "" },
+            { "kind": "text", "strokes": [ids[1]], "text": "受付" },
+        ])
+    );
+    let seen = seen.lock().unwrap();
+    let content = &seen[0].1["messages"][0]["content"];
+    assert_eq!(content[0]["type"], "image");
+    assert_eq!(content[0]["source"]["media_type"], "image/png");
+    assert!(content[1]["text"].as_str().unwrap().contains(&ids[1]));
+    drop(seen);
+
+    // 線を選んでいなければ Claude を呼ばずに断る。
+    let (status, _) = post_json(&app, "/api/boards/ink-room/ai/ink", json!({ "ids": [] })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}

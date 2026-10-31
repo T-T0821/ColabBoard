@@ -22,6 +22,7 @@ mod export;
 mod follow;
 mod format_bar;
 mod history;
+mod ink_ui;
 mod media;
 mod offline;
 mod reactions;
