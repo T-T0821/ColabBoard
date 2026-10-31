@@ -134,7 +134,7 @@ impl Cursors {
             wasm_bindgen::JsCast::dyn_into(self.document.create_element("div").ok()?).ok()?;
         el.set_class_name("cursor");
         el.set_inner_html(
-            r#"<svg viewBox="0 0 16 20" width="16" height="20" aria-hidden="true"><path d="M1 1l13 8.5-6 1.2L5 18z"/></svg><span class="cursor-name"></span>"#,
+            r#"<svg viewBox="0 0 18 22" width="18" height="22" aria-hidden="true"><path d="M2.5 2.5v14.2l3.9-3.6 2.6 5.9 2.6-1.1-2.5-5.8h5.4z"/></svg><span class="cursor-name"></span>"#,
         );
         self.layer.append_child(&el).ok()?;
         Some(el)

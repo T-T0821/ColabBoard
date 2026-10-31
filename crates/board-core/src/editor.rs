@@ -14,7 +14,7 @@ use crate::geom::Rect;
 use crate::shape::{Shape, ShapeKind};
 
 /// 選択枠や範囲選択の色。
-pub const ACCENT: Rgba8 = Rgba8::hex(0x2f6fed);
+pub const ACCENT: Rgba8 = Rgba8::hex(0x4c5cf5);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tool {
@@ -898,10 +898,11 @@ impl Editor {
         if let Some(r) = self.selection_bounds(board) {
             out.push(outline(r, 1.5));
             if show_handles || resizing {
-                let hs = 8.0 * px;
+                // つまみは白い丸に細いアクセント色の縁(FigJam・Miro と同じ見た目)。
+                let hs = 10.0 * px;
                 for h in Handle::ALL {
                     let c = h.position(&r);
-                    let mut s = Shape::rect(
+                    let mut s = Shape::ellipse(
                         ElementId(0),
                         c - Vec2::splat(hs * 0.5),
                         Vec2::splat(hs),
@@ -909,7 +910,6 @@ impl Editor {
                     );
                     s.stroke = ACCENT;
                     s.stroke_width = 1.5 * px;
-                    s.corner_radius = 1.5 * px;
                     out.push(s);
                 }
             }
@@ -920,7 +920,7 @@ impl Editor {
                 ElementId(0),
                 r.min,
                 r.size(),
-                Rgba8([0x2f, 0x6f, 0xed, 0x18]),
+                Rgba8([0x4c, 0x5c, 0xf5, 0x14]),
             );
             s.stroke = ACCENT;
             s.stroke_width = px;
