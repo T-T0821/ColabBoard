@@ -32,6 +32,8 @@ struct Cached {
 /// 文字を描く 1 要素分。
 struct Item<'a> {
     id: ElementId,
+    /// 0 は本文、1 は付箋の作者名。
+    slot: u8,
     text: &'a str,
     tb: TextBox,
     /// 塗りのない要素(文字だけ・枠だけの図形)。背景がキャンバスそのものになる。
@@ -48,9 +50,11 @@ pub struct TextLayer {
     /// 段ごとに準備できたか。
     prepared: Vec<bool>,
     viewport: Viewport,
-    buffers: HashMap<ElementId, Cached>,
+    buffers: HashMap<(ElementId, u8), Cached>,
     has_font: bool,
     dark: bool,
+    /// 付箋の作者名を出すか。
+    show_authors: bool,
 }
 
 impl TextLayer {
@@ -77,6 +81,7 @@ impl TextLayer {
             buffers: HashMap::new(),
             has_font: false,
             dark: false,
+            show_authors: true,
         }
     }
 
@@ -94,6 +99,10 @@ impl TextLayer {
 
     pub fn set_dark(&mut self, dark: bool) {
         self.dark = dark;
+    }
+
+    pub fn set_show_authors(&mut self, on: bool) {
+        self.show_authors = on;
     }
 
     /// 見えている図形の文字を準備する。`skip` は編集中で別の欄に表示している要素。
@@ -122,20 +131,43 @@ impl TextLayer {
             Some(c) => Box::new(c.iter().map(|&i| (i, &elements[i]))),
             None => Box::new(elements.iter().enumerate()),
         };
+        let show_authors = self.show_authors;
         let visible: Vec<(usize, Item<'_>)> = near
-            .filter(|(_, e)| !e.text().is_empty() && Some(e.id()) != skip)
-            .filter_map(|(i, e)| {
-                Some((
-                    i,
-                    Item {
-                        id: e.id(),
-                        text: e.text(),
-                        tb: e.text_box()?,
-                        on_canvas: e
-                            .as_shape()
-                            .is_none_or(|s| s.fill.0[3] < 128 || s.kind == ShapeKind::Frame),
-                    },
-                ))
+            .flat_map(|(i, e)| {
+                let body = (!e.text().is_empty() && Some(e.id()) != skip)
+                    .then(|| e.text_box())
+                    .flatten()
+                    .map(|tb| {
+                        (
+                            i,
+                            Item {
+                                id: e.id(),
+                                slot: 0,
+                                text: e.text(),
+                                tb,
+                                on_canvas: e.as_shape().is_none_or(|s| {
+                                    s.fill.0[3] < 128 || s.kind == ShapeKind::Frame
+                                }),
+                            },
+                        )
+                    });
+                let author = e
+                    .as_shape()
+                    .filter(|_| show_authors)
+                    .and_then(|s| Some((s, s.author_box()?)))
+                    .map(|(s, tb)| {
+                        (
+                            i,
+                            Item {
+                                id: e.id(),
+                                slot: 1,
+                                text: s.meta.author.as_str(),
+                                tb,
+                                on_canvas: false,
+                            },
+                        )
+                    });
+                body.into_iter().chain(author)
             })
             .filter(|(_, s)| s.tb.style.font_size * camera.zoom >= MIN_SCREEN_FONT_PX)
             .filter(|(_, s)| s.tb.clip.intersects(&view))
@@ -165,7 +197,7 @@ impl TextLayer {
         for (_, s) in &visible {
             let style = s.tb.style;
             let width = s.tb.rect.size().x.max(1.0);
-            let entry = buffers.entry(s.id).or_insert_with(|| Cached {
+            let entry = buffers.entry((s.id, s.slot)).or_insert_with(|| Cached {
                 text: String::new(),
                 width: -1.0,
                 font_size: 0.0,
@@ -220,7 +252,7 @@ impl TextLayer {
         );
 
         let area = |s: &Item<'_>| {
-            let c = buffers.get(&s.id)?;
+            let c = buffers.get(&(s.id, s.slot))?;
             let rect = s.tb.rect;
             // 縦方向も中央に寄せる(はみ出す場合は上詰め)。
             let top = if s.tb.center_vertically {
