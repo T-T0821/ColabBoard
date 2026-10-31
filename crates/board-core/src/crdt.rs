@@ -111,6 +111,9 @@ pub fn encode(e: &Element, z: f64) -> Vec<(&'static str, Any)> {
             if !s.icon.is_empty() {
                 f.push(("icon", Any::String(s.icon.as_str().into())));
             }
+            if !s.media.is_empty() {
+                f.push(("media", Any::String(s.media.as_str().into())));
+            }
         }
         Element::Connector(c) => {
             f.extend([
@@ -250,6 +253,7 @@ pub fn decode<T: ReadTxn>(id: ElementId, m: &MapRef, txn: &T) -> Option<(Element
                 _ => None,
             },
             icon: string(m, txn, "icon"),
+            media: string(m, txn, "media"),
         };
         return Some((Element::Shape(shape), z));
     }

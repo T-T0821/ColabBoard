@@ -985,6 +985,29 @@ mod tests {
     use super::*;
 
     #[test]
+    fn video_memos_sync_poster_and_url() {
+        let mut a = Board::new();
+        let id = a.alloc_id();
+        let poster = crate::ImageData::new(vec![0xff, 0xd8, 1, 2, 3]);
+        let url = "/api/boards/b1/media/42".to_string();
+        a.push(Shape::video(
+            id,
+            Vec2::ZERO,
+            Vec2::new(320.0, 180.0),
+            poster.clone(),
+            url.clone(),
+        ));
+        let mut b = Board::new();
+        b.apply_remote(&a.encode_diff(None).unwrap()).unwrap();
+        let s = b.get(id).unwrap().as_shape().unwrap();
+        assert_eq!(s.kind, ShapeKind::Video);
+        assert_eq!(s.media, url);
+        assert_eq!(s.image.as_ref().unwrap().bytes(), poster.bytes());
+        // 文字は持たない。
+        assert!(b.get(id).unwrap().text_box().is_none());
+    }
+
+    #[test]
     fn new_stickies_get_author_and_sync_it() {
         let mut a = Board::new();
         a.set_author("  つのもん ");
