@@ -1,15 +1,19 @@
 //! ルーム(1 枚のボード)と、その集合。
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use board_core::Board;
 use tokio::sync::broadcast;
+use yrs::types::ToJson;
 use yrs::updates::decoder::Decode;
-use yrs::{Doc, ReadTxn, StateVector, Transact, Update};
+use yrs::{Any, Doc, Map, MapPrelim, Out, ReadTxn, StateVector, Transact, Update};
 
 use crate::store::Store;
+
+/// ボードの要素を入れるルートマップの名前(`board_core::Board` と同じ)。
+const ELEMENTS: &str = "elements";
 
 /// ルーム内に配る 1 通。送り主には返さない。
 #[derive(Clone, Debug)]
@@ -37,6 +41,10 @@ pub struct Room {
     views: Mutex<HashMap<u32, Arc<[u8]>>>,
     dirty: AtomicBool,
     peers: AtomicUsize,
+    /// 最後のバージョン(履歴)以降に変更があるか。
+    unversioned: AtomicBool,
+    /// 最後にバージョンを作った時刻(UNIX ミリ秒。0 はまだ調べていない)。
+    last_version: AtomicU64,
 }
 
 impl Room {
@@ -56,24 +64,109 @@ impl Room {
             views: Mutex::default(),
             dirty: AtomicBool::new(false),
             peers: AtomicUsize::new(0),
+            unversioned: AtomicBool::new(false),
+            last_version: AtomicU64::new(0),
         };
         if let Some(state) = initial
             && let Err(e) = room.apply(&state)
         {
             tracing::error!(room = %room.name, "保存データを読み込めません: {e}");
         }
+        // 読み込んだだけではバージョンを作らない。
+        room.unversioned.store(false, Ordering::Release);
         room
+    }
+
+    /// ボードの中身(要素)を、昔の状態(yrs v1 更新)と同じにする。
+    /// 変更は普通の編集として記録されるので、全員にそのまま配れる。返り値はその更新。
+    ///
+    /// 戻すのは要素だけ。タイマーや投票の状態は今のままにする。
+    pub fn restore(&self, old_state: &[u8]) -> Result<Vec<u8>, String> {
+        let old = Doc::new();
+        old.transact_mut()
+            .apply_update(Update::decode_v1(old_state).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+        let old_map = old.get_or_insert_map(ELEMENTS);
+        let old_txn = old.transact();
+        let to_any = |o: Out| match o {
+            Out::Any(a) => a,
+            other => other.to_json(&old_txn),
+        };
+        // 昔の要素: キー → フィールド。
+        let mut wanted: HashMap<String, Vec<(String, Any)>> = HashMap::new();
+        for (k, v) in old_map.iter(&old_txn) {
+            if let Out::YMap(m) = v {
+                let fields = m
+                    .iter(&old_txn)
+                    .map(|(fk, fv)| (fk.to_string(), to_any(fv)))
+                    .collect();
+                wanted.insert(k.to_string(), fields);
+            }
+        }
+
+        let _g = self.lock.lock().unwrap();
+        let map = self.doc.get_or_insert_map(ELEMENTS);
+        let before = self.doc.transact().state_vector();
+        {
+            let mut txn = self.doc.transact_mut();
+            let current: Vec<String> = map.keys(&txn).map(str::to_string).collect();
+            for k in &current {
+                if !wanted.contains_key(k) {
+                    map.remove(&mut txn, k);
+                }
+            }
+            for (k, fields) in wanted {
+                match map.get(&txn, &k) {
+                    Some(Out::YMap(m)) => {
+                        // 違うフィールドだけ書き換え、昔になかったフィールドは消す。
+                        let now: Vec<(String, Any)> = m
+                            .iter(&txn)
+                            .map(|(fk, fv)| {
+                                let a = match fv {
+                                    Out::Any(a) => a,
+                                    other => other.to_json(&txn),
+                                };
+                                (fk.to_string(), a)
+                            })
+                            .collect();
+                        for (fk, _) in &now {
+                            if !fields.iter().any(|(k2, _)| k2 == fk) {
+                                m.remove(&mut txn, fk);
+                            }
+                        }
+                        for (fk, fv) in fields {
+                            if !now.iter().any(|(k2, v2)| *k2 == fk && *v2 == fv) {
+                                m.insert(&mut txn, fk, fv);
+                            }
+                        }
+                    }
+                    _ => {
+                        let prelim: MapPrelim = fields.into_iter().collect();
+                        map.insert(&mut txn, k, prelim);
+                    }
+                }
+            }
+        }
+        let update = self.doc.transact().encode_state_as_update_v1(&before);
+        self.dirty.store(true, Ordering::Release);
+        self.unversioned.store(true, Ordering::Release);
+        Ok(update)
     }
 
     /// 更新を取り込む。
     pub fn apply(&self, update: &[u8]) -> Result<(), String> {
         let update = Update::decode_v1(update).map_err(|e| e.to_string())?;
         let _g = self.lock.lock().unwrap();
-        self.doc
-            .transact_mut()
-            .apply_update(update)
-            .map_err(|e| e.to_string())?;
+        let mut txn = self.doc.transact_mut();
+        let before = txn.state_vector();
+        txn.apply_update(update).map_err(|e| e.to_string())?;
+        // つなぎ直しで手元の全体が届いただけなど、何も変わらなければ印を付けない。
+        let changed = txn.state_vector() != before || !txn.delete_set().is_empty();
+        drop(txn);
         self.dirty.store(true, Ordering::Release);
+        if changed {
+            self.unversioned.store(true, Ordering::Release);
+        }
         Ok(())
     }
 
@@ -126,6 +219,8 @@ pub struct Hub {
     rooms: Mutex<HashMap<String, Arc<Room>>>,
     store: Arc<Store>,
     next_peer: AtomicU32,
+    /// 自動でバージョンを作る最短間隔(ミリ秒)。
+    version_interval_ms: AtomicU64,
 }
 
 /// 参加中の印。落とすと退出になる。
@@ -146,6 +241,7 @@ impl Hub {
             rooms: Mutex::default(),
             store,
             next_peer: AtomicU32::new(1),
+            version_interval_ms: AtomicU64::new(crate::versions::AUTO_INTERVAL_MS),
         }
     }
 
@@ -229,6 +325,8 @@ impl Hub {
     fn save(&self, room: &Room) {
         let store = &self.store;
         if !room.dirty.swap(false, Ordering::AcqRel) {
+            // 保存は済んでいても、バージョンはまだかもしれない(全員が抜けたときなど)。
+            self.auto_version(room, None);
             return;
         }
         let state = room.snapshot();
@@ -237,8 +335,88 @@ impl Hub {
             Err(e) => {
                 room.dirty.store(true, Ordering::Release);
                 tracing::error!(room = %room.name, "保存に失敗: {e}");
+                return;
             }
         }
+        self.auto_version(room, Some(&state));
+    }
+
+    /// 自動のバージョン: 変更があり、前回から一定時間たったか、全員が抜けたときに作る。
+    fn auto_version(&self, room: &Room, state: Option<&[u8]>) {
+        if !room.unversioned.load(Ordering::Acquire) {
+            return;
+        }
+        let now = crate::auth::now_ms();
+        let mut last = room.last_version.load(Ordering::Acquire);
+        if last == 0 {
+            last = crate::versions::latest_time(&self.store, &room.name)
+                .ok()
+                .flatten()
+                .unwrap_or(1);
+            room.last_version.store(last, Ordering::Release);
+        }
+        let interval = self.version_interval_ms.load(Ordering::Relaxed);
+        if now.saturating_sub(last) < interval && room.peer_count() > 0 {
+            return;
+        }
+        room.unversioned.store(false, Ordering::Release);
+        let snapshot;
+        let state = match state {
+            Some(s) => s,
+            None => {
+                snapshot = room.snapshot();
+                &snapshot
+            }
+        };
+        match crate::versions::create(&self.store, &room.name, state, None, None) {
+            Ok(v) => {
+                room.last_version.store(v.created, Ordering::Release);
+                room.broadcast(
+                    0,
+                    Arc::from(
+                        board_core::protocol::Message::Refresh(
+                            board_core::protocol::TOPIC_VERSIONS,
+                        )
+                        .encode(),
+                    ),
+                );
+            }
+            Err(e) => {
+                room.unversioned.store(true, Ordering::Release);
+                tracing::error!(room = %room.name, "バージョンを保存できません: {e}");
+            }
+        }
+    }
+
+    /// 自動バージョンの間隔を変える(テスト用)。
+    pub fn set_version_interval(&self, ms: u64) {
+        self.version_interval_ms.store(ms, Ordering::Relaxed);
+    }
+
+    /// ボードの今の状態。開いていればメモリから、なければ保存データから。
+    pub fn current_state(&self, name: &str) -> Result<Option<Vec<u8>>, crate::store::StoreError> {
+        if let Some(room) = self.get(name) {
+            return Ok(Some(room.snapshot()));
+        }
+        self.store.load(name)
+    }
+
+    /// 昔の状態に戻し、参加者全員に配る。
+    pub fn restore(&self, name: &str, old_state: &[u8]) -> Result<(), String> {
+        // 開いていなければ開く(戻した結果は次の保存で書き出される)。
+        let member = self.join(name);
+        let update = member.room.restore(old_state)?;
+        member.room.broadcast(
+            0,
+            Arc::from(board_core::protocol::Message::Update(update).encode()),
+        );
+        member
+            .room
+            .last_version
+            .store(crate::auth::now_ms(), Ordering::Release);
+        drop(member);
+        self.flush();
+        Ok(())
     }
 }
 
@@ -289,6 +467,105 @@ mod tests {
         let hub = Hub::new(Arc::new(Store::open(&path).unwrap()));
         let m = hub.join("r");
         assert_eq!(state_len(&m.room), Board::welcome().len() + 1);
+    }
+
+    fn client_of(room: &Room) -> Board {
+        let mut b = Board::new();
+        b.apply_remote(&room.snapshot()).unwrap();
+        b
+    }
+
+    #[test]
+    fn restore_brings_back_old_elements() {
+        let hub = Hub::new(Arc::new(Store::memory()));
+        let m = hub.join("r");
+        let mut a = client_of(&m.room);
+        let old = m.room.snapshot();
+        let old_ids: Vec<_> = a.elements().iter().map(|e| e.id()).collect();
+
+        // 1 つ消し、1 つ動かし、1 つ足す。
+        a.remove(&old_ids[..1]);
+        a.update(old_ids[1], |e| {
+            if let board_core::Element::Shape(s) = e {
+                s.pos += board_core::Vec2::new(500.0, 0.0);
+            }
+        });
+        let id = a.alloc_id();
+        a.push(board_core::Shape::rect(
+            id,
+            board_core::Vec2::ZERO,
+            board_core::Vec2::ONE,
+            board_core::Rgba8::WHITE,
+        ));
+        for u in a.take_outgoing() {
+            m.room.apply(&u).unwrap();
+        }
+        assert!(client_of(&m.room).get(id).is_some());
+
+        // 別の参加者 b は戻す前の状態を持っていて、戻した更新を受け取る。
+        let mut b = client_of(&m.room);
+        let update = m.room.restore(&old).unwrap();
+        b.apply_remote(&update).unwrap();
+        for board in [client_of(&m.room), b] {
+            let ids: Vec<_> = board.elements().iter().map(|e| e.id()).collect();
+            assert_eq!(ids.len(), old_ids.len());
+            assert!(board.get(id).is_none());
+            for oid in &old_ids {
+                assert!(board.get(*oid).is_some());
+            }
+            assert_eq!(
+                board.get(old_ids[1]),
+                Board::welcome().get(old_ids[1]).or(board.get(old_ids[1]))
+            );
+        }
+        let restored = client_of(&m.room);
+        let mut original = Board::new();
+        original.apply_remote(&old).unwrap();
+        assert_eq!(restored.get(old_ids[1]), original.get(old_ids[1]));
+    }
+
+    #[test]
+    fn auto_versions() {
+        let hub = Hub::new(Arc::new(Store::memory()));
+        hub.set_version_interval(0);
+        let m = hub.join("v");
+        // 読み込んだだけでは作らない。
+        hub.flush();
+        assert!(crate::versions::list(hub.store(), "v").unwrap().is_empty());
+        let mut a = client_of(&m.room);
+        let id = a.alloc_id();
+        a.push(board_core::Shape::rect(
+            id,
+            board_core::Vec2::ZERO,
+            board_core::Vec2::ONE,
+            board_core::Rgba8::WHITE,
+        ));
+        for u in a.take_outgoing() {
+            m.room.apply(&u).unwrap();
+        }
+        hub.flush();
+        assert_eq!(crate::versions::list(hub.store(), "v").unwrap().len(), 1);
+        // 変更がなければ増えない(つなぎ直しで全体が届いただけのときも)。
+        let full = m.room.snapshot();
+        m.room.apply(&full).unwrap();
+        hub.flush();
+        assert_eq!(crate::versions::list(hub.store(), "v").unwrap().len(), 1);
+
+        // 間隔が長くても、全員が抜けたら作る。
+        hub.set_version_interval(u64::MAX);
+        a.update(id, |e| {
+            if let board_core::Element::Shape(s) = e {
+                s.pos.x = 10.0;
+            }
+        });
+        for u in a.take_outgoing() {
+            m.room.apply(&u).unwrap();
+        }
+        hub.flush();
+        assert_eq!(crate::versions::list(hub.store(), "v").unwrap().len(), 1);
+        drop(m);
+        hub.flush();
+        assert_eq!(crate::versions::list(hub.store(), "v").unwrap().len(), 2);
     }
 
     #[test]

@@ -117,6 +117,31 @@ pub async fn send<B: Serialize, T: DeserializeOwned>(
     parse(call(method, path, Some(body)).await?)
 }
 
+/// バイナリを受け取る(バージョンの中身など)。
+pub async fn get_bytes(path: &str) -> Result<Vec<u8>, HttpError> {
+    let window = web_sys::window().ok_or(HttpError::Unavailable)?;
+    let init = RequestInit::new();
+    init.set_method("GET");
+    init.set_credentials(RequestCredentials::Include);
+    let req = Request::new_with_str_and_init(&format!("{}/api{path}", base()), &init)
+        .map_err(|_| HttpError::Unavailable)?;
+    let res: Response = JsFuture::from(window.fetch_with_request(&req))
+        .await
+        .map_err(|_| HttpError::Unavailable)?
+        .dyn_into()
+        .map_err(|_| HttpError::Unavailable)?;
+    if !res.ok() {
+        return Err(HttpError::Status(
+            res.status(),
+            format!("エラー({})", res.status()),
+        ));
+    }
+    let buf = JsFuture::from(res.array_buffer().map_err(|_| HttpError::Unavailable)?)
+        .await
+        .map_err(|_| HttpError::Unavailable)?;
+    Ok(js_sys::Uint8Array::new(&buf).to_vec())
+}
+
 /// 応答の中身を使わない呼び出し。
 pub async fn send_empty(method: &str, path: &str) -> Result<(), HttpError> {
     call(method, path, None).await.map(|_| ())
