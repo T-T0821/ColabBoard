@@ -2,12 +2,14 @@
 //!
 //! - `GET /ws/{room}?key=`: WebSocket。メッセージ形式は [`board_core::protocol`]。
 //! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])。
+//! - `/api/ai/...`: 生成 AI による図の作成([`ai`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
 //! 他の参加者へ配る。状態は定期的に redb へ保存する。
 //! 接続時に権限([`boards::role_of`])を確かめ、編集権限のない人からの更新は捨てる。
 
+pub mod ai;
 pub mod api;
 pub mod auth;
 pub mod boards;
@@ -44,6 +46,8 @@ pub struct Config {
     pub anonymous_boards: bool,
     /// Cookie に `Secure` を付けるか(HTTPS で公開するとき)。
     pub secure_cookies: bool,
+    /// 生成 AI(Claude API)。`None` なら無効。
+    pub ai: Option<Arc<ai::Ai>>,
 }
 
 impl Default for Config {
@@ -52,6 +56,7 @@ impl Default for Config {
             static_dir: None,
             anonymous_boards: true,
             secure_cookies: false,
+            ai: None,
         }
     }
 }
@@ -75,6 +80,7 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/ws/{room}", get(ws_handler))
         .route("/healthz", get(|| async { "ok" }))
         .nest("/api", api::routes())
+        .nest("/api/ai", ai::routes())
         .with_state(state);
     match static_dir {
         Some(dir) => app.fallback_service(ServeDir::new(dir)),

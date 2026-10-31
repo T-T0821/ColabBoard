@@ -6,6 +6,8 @@
 //! - `STATIC_DIR`(既定 `crates/board-web/dist`): 配信する Web クライアント。
 //! - `ANONYMOUS_BOARDS`(既定 `1`): `0` でログインなしのボード作成を禁止する。
 //! - `COOKIE_SECURE`(既定 `0`): `1` でログイン Cookie に `Secure` を付ける(HTTPS 用)。
+//! - `ANTHROPIC_API_KEY`: 設定すると生成 AI(文章から図を作る)が使える
+//! - `CLAUDE_MODEL`(既定 `claude-opus-5-5`)、`ANTHROPIC_BASE_URL`(既定 `https://api.anthropic.com`)
 //! - `RUST_LOG`(既定 `info`)
 
 use std::net::SocketAddr;
@@ -61,7 +63,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         static_dir,
         anonymous_boards: flag("ANONYMOUS_BOARDS", true),
         secure_cookies: flag("COOKIE_SECURE", false),
+        ai: board_server::ai::Ai::from_env(),
     };
+    match &config.ai {
+        Some(ai) => tracing::info!("生成 AI: 有効({})", ai.model()),
+        None => tracing::info!("生成 AI: 無効(ANTHROPIC_API_KEY が未設定)"),
+    }
     if !config.anonymous_boards {
         tracing::info!("ログインなしのボードは無効です");
     }

@@ -329,6 +329,13 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 .diagram-row select { flex: 1; min-width: 0; font: inherit; padding: 3px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
 .diagram-samples { display: flex; flex-direction: column; gap: 4px; }
 .diagram-samples button { text-align: left; }
+.diagram-panel textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; resize: vertical; min-height: 72px; }
+.diagram-panel textarea:focus { outline: 2px solid #c7d7fb; border-color: var(--accent); }
+.diagram-panel hr { width: 100%; border: none; border-top: 1px solid var(--border); margin: 2px 0; }
+.diagram-panel button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.diagram-panel button.primary:disabled { opacity: 0.6; cursor: progress; }
+.ai-status { margin: 0; color: var(--muted); font-size: 12px; min-height: 1.4em; }
+.ai-status[data-kind="error"] { color: #b42318; }
 @media (max-width: 1100px) { .diagram-toggle { top: 100px; } .diagram-panel { top: 144px; } }
 
 /* 図形ライブラリ */

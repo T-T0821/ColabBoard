@@ -61,7 +61,8 @@ enum Item {
 struct Ctx<'a> {
     dir: Direction,
     spec: &'a DiagramSpec,
-    node_rank: Vec<usize>,
+    /// 矢印でつながっていないノードは `None`(段を決める材料にしない)。
+    node_rank: Vec<Option<usize>>,
     node_size: Vec<Vec2>,
     group_children: Vec<Vec<Item>>,
     /// グループの大きさと、中身の(グループ左上からの)位置。
@@ -98,21 +99,23 @@ impl Ctx<'_> {
         }
     }
 
-    /// 中身の最小ランク(空のグループは 0)。
-    fn rank(&self, item: Item) -> usize {
+    /// 中身の最小ランク。矢印でつながったノードを含まなければ `None`。
+    fn rank(&self, item: Item) -> Option<usize> {
         match item {
             Item::Node(i) => self.node_rank[i],
             Item::Group(g) => self.group_children[g]
                 .iter()
-                .map(|c| self.rank(*c))
-                .min()
-                .unwrap_or(0),
+                .filter_map(|c| self.rank(*c))
+                .min(),
         }
     }
 
     /// 項目を列に並べる。返り値は各項目の左上位置と全体の大きさ。
     fn arrange(&self, items: &[Item]) -> (Vec<Vec2>, Vec2) {
-        let mut ranks: Vec<usize> = items.iter().map(|i| self.rank(*i)).collect();
+        let known: Vec<Option<usize>> = items.iter().map(|i| self.rank(*i)).collect();
+        // 段の決まらない項目(孤立したノードなど)は最初の列に一緒に積む。
+        let first = known.iter().flatten().copied().min().unwrap_or(0);
+        let mut ranks: Vec<usize> = known.iter().map(|r| r.unwrap_or(first)).collect();
         let mut cols: Vec<usize> = ranks.clone();
         cols.sort_unstable();
         cols.dedup();
@@ -266,7 +269,16 @@ impl Layout {
                 (a != b).then_some((a, b, e.label.as_str()))
             })
             .collect();
-        let node_rank = ranks(spec.nodes.len(), &edges);
+        let mut connected = vec![false; spec.nodes.len()];
+        for &(a, b, _) in &edges {
+            connected[a] = true;
+            connected[b] = true;
+        }
+        let node_rank = ranks(spec.nodes.len(), &edges)
+            .into_iter()
+            .zip(&connected)
+            .map(|(r, &c)| c.then_some(r))
+            .collect();
 
         let node_shapes: Vec<Shape> = spec
             .nodes
@@ -513,6 +525,36 @@ mod tests {
                 assert!(!overlap, "{} / {}", a.id, b.id);
             }
         }
+    }
+
+    #[test]
+    fn isolated_nodes_do_not_pull_groups_upstream() {
+        // サブネットに矢印のない NAT Gateway があっても、VPC は利用者より右に来る。
+        let spec = DiagramSpec {
+            groups: vec![
+                GroupSpec {
+                    id: "vpc".into(),
+                    kind: "vpc".into(),
+                    ..Default::default()
+                },
+                GroupSpec {
+                    id: "pub".into(),
+                    kind: "public_subnet".into(),
+                    parent: Some("vpc".into()),
+                    ..Default::default()
+                },
+            ],
+            nodes: vec![
+                node("user", None),
+                node("nat", Some("pub")),
+                node("web", Some("vpc")),
+            ],
+            edges: vec![edge("user", "web")],
+            ..Default::default()
+        };
+        let l = Layout::compute(&spec);
+        let vpc = l.groups.iter().find(|g| g.depth == 0).unwrap().rect;
+        assert!(l.node("user").unwrap().bounds().max.x < vpc.min.x);
     }
 
     #[test]
