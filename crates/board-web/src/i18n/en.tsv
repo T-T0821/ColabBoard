@@ -672,3 +672,76 @@ Web アプリ	Web app
 コンテナ API	Container API
 問い合わせ対応	Customer inquiries
 リアクション	Reaction
+キャンバスへ移動	Skip to canvas
+ツールへ移動	Skip to tools
+Tab で要素を順に選択、Alt+矢印で近くの要素へ移動、矢印で選んだ要素を移動、Alt+Shift+矢印でつなぐ、Enter で文字を入力。S で付箋ツールにして Enter で置けます。? でキーボード操作の一覧。	Tab selects elements in order, Alt+arrow moves to a nearby element, arrows move the selection, Alt+Shift+arrow connects, Enter edits text. Press S for the sticky note tool and Enter to place one. Press ? for all keyboard shortcuts.
+ボードの要素	Board elements
+フレームを {n} 枚ずつスライドとして全画面で表示 (← → で移動、Esc で終了)	Show frames one at a time as full-screen slides (← → to move, Esc to exit)
+スライド	Slides
+ボードを開いたまま、参加者と音声で話す	Talk with participants by voice while keeping the board open
+通話	Call
+画像・PDF・マークダウン・CSV・Excel・Mermaid・PlantUML を挿入(貼り付け・ドロップでも置けます)	Insert image, PDF, Markdown, CSV, Excel, Mermaid or PlantUML (you can also paste or drop)
+前へ (←)	Previous (←)
+前のスライド	Previous slide
+次へ (→ / Space)	Next (→ / Space)
+次のスライド	Next slide
+スライドを終了 (Esc)	Exit slides (Esc)
+音声通話	Voice call
+通話中の参加者	People in the call
+ミュート	Mute
+ミュートを解除	Unmute
+通話から抜ける	Leave the call
+退出	Leave
+自分にだけ中身が見えるフレームを作ります。付箋をエリアの外へ出すか、公開すると全員に見えます	Creates a frame whose contents only you can see. Move sticky notes out of it or reveal it to show everyone
+個人作業	Private work
+自分のエリアを作る	Create my area
+自分のを公開	Reveal mine
+全員分を公開	Reveal all
+全員の画面で、ほかの人のカーソルを灰色にして名前を隠します	Grays out other people's cursors and hides names on everyone's screen
+匿名	Anonymous
+だれが書いたかわからなくする	Hide who wrote what
+部屋(フレーム)を作り、参加者を人の少ない部屋へ自動で振り分けます	Creates rooms (frames) and assigns participants to the emptiest room
+小部屋	Breakout rooms
+部屋	Rooms
+分かれる	Split up
+全員を戻す	Bring everyone back
+キーボード操作 (?)	Keyboard shortcuts (?)
+キーボード操作の一覧	All keyboard shortcuts
+キーボード操作	Keyboard shortcuts
+スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ ダブルクリック/Enter: 文字入力 ・ Delete: 削除 ・ Ctrl/⌘+Z: 元に戻す ・ ?: キーボード操作	Scroll: pan · Ctrl/⌘+scroll: zoom · Space+drag: pan · Shift: add to selection / keep aspect · Double-click/Enter: edit text · Delete: delete · Ctrl/⌘+Z: undo · ?: keyboard shortcuts
+要素を読む順(上から下、左から右)に選ぶ	Select elements in reading order (top to bottom, left to right)
++矢印	+arrow
+その方向で一番近い要素へ移る	Move to the nearest element in that direction
+その方向の要素とコネクタでつなぐ(なければ新しく置いてつなぐ)	Connect to the element in that direction (or place a new one and connect)
+付箋・四角形・楕円・テキスト・フレームを画面の中央に置く	Place a sticky note, rectangle, ellipse, text or frame in the center
+選んだ要素を消す	Delete the selection
+元に戻す / やり直す	Undo / redo
+複製 / グループ化	Duplicate / group
+拡大・縮小・{n}%・全体を表示	Zoom in, zoom out, {n}%, fit all
+選択を解除	Deselect
+画面読み上げを使っているときは、見出し「ボードの要素」の一覧から要素を選ぶこともできます。	With a screen reader, you can also pick elements from the “Board elements” list.
+通話は {n} 人までです	Calls are limited to {n} people
+このブラウザではマイクを使えません(HTTPS か localhost で開いてください)	This browser can't use the microphone (open the page over HTTPS or localhost)
+マイクを使えません	Cannot use the microphone
+通話の設定を読めません	Cannot read the call settings
+マイクの使用が許可されていません(ブラウザのアドレスバーから許可できます)	Microphone access is blocked (you can allow it from the address bar)
+マイクが見つかりません	No microphone found
+マイクを他のアプリが使っています	Another app is using the microphone
+フレームがありません。フレーム (F) で囲んだ範囲が {n} 枚のスライドになります	There are no frames. Each area you enclose with a frame (F) becomes a slide
+無題のフレーム	Untitled frame
+選択なし	Nothing selected
+{n} 個を選択	{n} selected
+削除しました	Deleted
+ロック中のため動かせません	Locked, so it can't be moved
+つなぐには要素を {n} つだけ選んでください	Select exactly one element to connect
+破線	Dashed
+（ミュート中）	(muted)
+（話しています）	(speaking)
+（接続中…）	(connecting…)
+通話中	In call
+通話に参加 · {n}人	Join call · {n} people
+ほかの人が入るのを待っています	Waiting for others to join
+通話はサーバーにつながっているボードで使えます	Calls are available on boards connected to the server
+Mermaid / PlantUML の図として読めませんでした	Could not read it as a Mermaid / PlantUML diagram
+日本語	Japanese
+選択ツール	Select tool
