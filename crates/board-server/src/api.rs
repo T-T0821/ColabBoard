@@ -21,8 +21,9 @@ use crate::audit::{self, Entry};
 use crate::auth::{self, AuthError, SESSION_COOKIE, UserRecord};
 use crate::boards::{self, BoardMeta, Visitor};
 use crate::comments::{self, CommentError};
+use crate::guard::{self, ClientIp};
 use crate::slack;
-use crate::store::StoreError;
+use crate::store::{StoreError, USERS};
 use crate::versions;
 use crate::{AppState, valid_room_name};
 
@@ -239,12 +240,24 @@ async fn blocking<T: Send + 'static>(
 async fn signup(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    ClientIp(ip): ClientIp,
     Json(req): Json<Signup>,
 ) -> ApiResult<Response> {
     if !state.config.password_login {
         return Err(password_login_disabled());
     }
+    if let Some(wait) = state.guard.signup_attempt(ip) {
+        return Ok(guard::too_many(wait, "アカウントの作成が続いています"));
+    }
+    let max = state.config.limits.max_users;
+    if max > 0 && state.store().count(USERS)? >= max as u64 {
+        return Err(Error::new(
+            StatusCode::FORBIDDEN,
+            "このサーバーはアカウント数の上限に達しているため、新しく作れません",
+        ));
+    }
     let store = state.store().clone();
+    let _slot = state.guard.hash_slots.acquire().await;
     let user = blocking(move || auth::signup(&store, &req.login, &req.name, &req.password)).await?;
     tracing::info!(login = %user.login, "アカウント作成");
     audit::record(
@@ -262,16 +275,26 @@ async fn signup(
 async fn login(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    ClientIp(ip): ClientIp,
     Json(req): Json<Login>,
 ) -> ApiResult<Response> {
     if !state.config.password_login {
         return Err(password_login_disabled());
     }
+    if let Some(wait) = state.guard.login_blocked(ip, &req.login) {
+        tracing::warn!(login = %req.login, ?ip, "ログインの失敗が続いているので断りました");
+        return Ok(guard::too_many(wait, "ログインの失敗が続いています"));
+    }
     let store = state.store().clone();
+    let name = req.login.clone();
     let attempted = req.login.trim().to_ascii_lowercase();
+    let _slot = state.guard.hash_slots.acquire().await;
     let user = match blocking(move || auth::check_login(&store, &req.login, &req.password)).await {
         Ok(u) => u,
         Err(e) => {
+            if e.0 == StatusCode::BAD_REQUEST {
+                state.guard.login_failed(ip, &name);
+            }
             if board_core::api::valid_login(&attempted) {
                 audit::record(
                     &state,
@@ -282,6 +305,7 @@ async fn login(
             return Err(e);
         }
     };
+    state.guard.login_succeeded(&name);
     audit::record(
         &state,
         &headers,
@@ -334,6 +358,13 @@ async fn create_board(
     Json(req): Json<NewBoard>,
 ) -> ApiResult<(StatusCode, Json<BoardInfo>)> {
     let user = require_user(&state, &headers)?;
+    let max = state.config.limits.max_boards_per_user;
+    if max > 0 && boards::owned_count(state.store(), &user.login)? >= max {
+        return Err(Error::new(
+            StatusCode::FORBIDDEN,
+            format!("持てるボードは {max} 個までです。使わないボードを削除してください"),
+        ));
+    }
     if let Some(team) = &req.team {
         crate::teams::member_team(state.store(), team, &user.login)?;
     }

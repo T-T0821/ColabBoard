@@ -27,7 +27,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use redb::backends::InMemoryBackend;
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -221,6 +221,16 @@ impl Store {
         }
         txn.commit()?;
         Ok(true)
+    }
+
+    /// 表の件数。
+    pub(crate) fn count(&self, table: TableDefinition<&str, &[u8]>) -> Result<u64, StoreError> {
+        let txn = self.db.begin_read()?;
+        match txn.open_table(table) {
+            Ok(t) => Ok(t.len()?),
+            Err(redb::TableError::TableDoesNotExist(_)) => Ok(0),
+            Err(e) => Err(e.into()),
+        }
     }
 
     pub(crate) fn remove(

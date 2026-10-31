@@ -23,6 +23,7 @@ pub mod boards;
 pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
+pub mod guard;
 pub mod issues;
 pub mod media;
 pub mod og;
@@ -92,6 +93,8 @@ pub struct Config {
     pub oidc: Option<Arc<oidc::Oidc>>,
     /// パスワードでのログイン・アカウント作成を許すか(SSO だけにするなら false)。
     pub password_login: bool,
+    /// 回数制限・利用上限・セキュリティヘッダー。
+    pub limits: guard::Limits,
 }
 
 impl Config {
@@ -137,6 +140,7 @@ impl Default for Config {
             trust_proxy: false,
             oidc: None,
             password_login: true,
+            limits: guard::Limits::default(),
         }
     }
 }
@@ -149,6 +153,7 @@ pub struct AppState {
     pub og: public::OgCache,
     /// OGP 画像の文字に使うフォント(Web クライアントと同じもの)。
     pub font: Option<ab_glyph::FontArc>,
+    pub guard: Arc<guard::Guard>,
 }
 
 impl AppState {
@@ -159,13 +164,14 @@ impl AppState {
 
 pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
     let static_dir = config.static_dir.take();
-    let frame_policy: Arc<str> = format!("frame-ancestors {}", config.embed_origins).into();
     let font = load_font(static_dir.as_deref());
+    let guard = Arc::new(guard::Guard::new(config.limits.clone()));
     let state = Arc::new(AppState {
         hub,
         config,
         og: public::OgCache::default(),
         font,
+        guard,
     });
     let app = Router::new()
         .route("/ws/{room}", get(ws_handler))
@@ -200,7 +206,7 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
             state.clone(),
             audit::client_ip,
         ))
-        .with_state(state);
+        .with_state(state.clone());
     let app = match static_dir {
         // `.br` / `.gz` があれば、ブラウザが受け取れる形式をそのまま返す(`tools/precompress`)。
         Some(dir) => {
@@ -210,44 +216,14 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         None if embedded::available() => app.fallback(embedded::serve),
         None => app,
     };
-    app.layer(axum::middleware::from_fn(
-        move |req: axum::extract::Request, next: axum::middleware::Next| {
-            let policy = frame_policy.clone();
-            async move {
-                let embed = is_embed_request(req.uri().query());
-                let mut res = next.run(req).await;
-                set_frame_policy(&mut res, embed, &policy);
-                res
-            }
-        },
+    app.layer(axum::middleware::from_fn_with_state(
+        state.clone(),
+        guard::rate_limit,
     ))
-}
-
-/// `?embed=1` が付いているか。
-fn is_embed_request(query: Option<&str>) -> bool {
-    query.is_some_and(|q| q.split('&').any(|p| p == "embed=1"))
-}
-
-/// HTML のページに、iframe で埋め込んでよい相手を付ける。埋め込み用(`?embed=1`)のページは
-/// `EMBED_ALLOWED_ORIGINS` のサイトから、それ以外は同じサイトからだけ(クリックジャッキング対策)。
-fn set_frame_policy(res: &mut Response, embed: bool, embed_policy: &str) {
-    let is_html = res
-        .headers()
-        .get(axum::http::header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|v| v.starts_with("text/html"));
-    if !is_html {
-        return;
-    }
-    let value = if embed {
-        embed_policy
-    } else {
-        "frame-ancestors 'self'"
-    };
-    if let Ok(v) = axum::http::HeaderValue::from_str(value) {
-        res.headers_mut()
-            .insert(axum::http::header::CONTENT_SECURITY_POLICY, v);
-    }
+    .layer(axum::middleware::from_fn_with_state(
+        state,
+        guard::security_headers,
+    ))
 }
 
 /// バイナリに Web クライアントが埋め込まれているか。
@@ -318,14 +294,21 @@ async fn ws_handler(
     Path(room): Path<String>,
     Query(q): Query<api::KeyQuery>,
     headers: HeaderMap,
+    guard::ClientIp(ip): guard::ClientIp,
     State(state): State<Arc<AppState>>,
 ) -> Response {
     if !valid_room_name(&room) {
         return (StatusCode::BAD_REQUEST, "invalid room name").into_response();
     }
-    let user = match api::current_user(&state, &headers) {
-        Ok(u) => u,
-        Err(e) => return e.into_response(),
+    // ほかのサイトのページからは、ログイン Cookie を使わせない(共有リンクの鍵や誰でも開けるボードは使える)。
+    let user = if guard::same_origin(&headers, &state.config.limits.allowed_origins) {
+        match api::current_user(&state, &headers) {
+            Ok(u) => u,
+            Err(e) => return e.into_response(),
+        }
+    } else {
+        tracing::warn!(room = %room, "ほかのオリジンからの接続なので、ログインなしとして扱います");
+        None
     };
     let role = match api::board_access(
         &state,
@@ -336,12 +319,40 @@ async fn ws_handler(
         Ok((_, role)) => role,
         Err(e) => return e.into_response(),
     };
+    let limits = &state.config.limits;
+    if limits.peers_per_room > 0
+        && state
+            .hub
+            .get(&room)
+            .is_some_and(|r| r.peer_count() >= limits.peers_per_room)
+    {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "このボードは参加人数の上限に達しています",
+        )
+            .into_response();
+    }
+    let conn = match ip {
+        Some(_) => match state.guard.connect(ip) {
+            Some(c) => Some(c),
+            None => {
+                tracing::warn!(?ip, "同時接続が多すぎるので断りました");
+                return (StatusCode::TOO_MANY_REQUESTS, "同時接続が多すぎます").into_response();
+            }
+        },
+        None => None,
+    };
     let hub = state.hub.clone();
+    let rate = limits.messages_per_second;
     ws.max_message_size(state.config.max_message_bytes)
-        .on_upgrade(move |socket| session(socket, hub, room, role))
+        .on_upgrade(move |socket| async move {
+            session(socket, hub, room, role, rate).await;
+            drop(conn);
+        })
 }
 
-async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String, role: Role) {
+async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String, role: Role, rate: u32) {
+    let mut bucket = guard::Bucket::new(rate);
     let member = hub.join(&room_name);
     let room = member.room.clone();
     let me = member.peer;
@@ -368,6 +379,11 @@ async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String, role: Role
         tokio::select! {
             incoming = stream.next() => {
                 let Some(Ok(msg)) = incoming else { break };
+                // 送りすぎる相手は切る(つなぎ直せば全体を同期し直すので、ずれは残らない)。
+                if bucket.as_mut().is_some_and(|b| !b.take()) {
+                    tracing::warn!(room = %room_name, peer = me, "メッセージが多すぎるので切断します");
+                    break;
+                }
                 let bytes = match msg {
                     WsMessage::Binary(b) => b,
                     WsMessage::Close(_) => break,
@@ -471,9 +487,9 @@ mod tests {
 
     #[test]
     fn embed_query() {
-        assert!(is_embed_request(Some("room=a&key=b&embed=1")));
-        assert!(!is_embed_request(Some("room=a&embed=0")));
-        assert!(!is_embed_request(Some("room=a&notembed=1")));
-        assert!(!is_embed_request(None));
+        assert!(guard::is_embed_request(Some("room=a&key=b&embed=1")));
+        assert!(!guard::is_embed_request(Some("room=a&embed=0")));
+        assert!(!guard::is_embed_request(Some("room=a&notembed=1")));
+        assert!(!guard::is_embed_request(None));
     }
 }

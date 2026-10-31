@@ -226,7 +226,8 @@ DATA_DIR=/var/lib/graboard PORT=8080 ./target/release/board-server
 
 PDF の取り込み(hayro、約 3 MB)は別の wasm(`board-pdf_bg.wasm`)に分けてあり、PDF が貼られたときに Web Worker で初めて読み込む。初回表示の重さには入らない。
 
-HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/ws` も通す)を置き、`COOKIE_SECURE=1` にする。
+HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/ws` も通す)を置き、`COOKIE_SECURE=1` と `TRUST_PROXY=1` にする。
+ログイン試行の回数制限、アカウント数・ボード数・接続数の上限、CSP などのセキュリティヘッダーも組み込み済み。設定とチェックリストは [docs/self-hosting.md の「公開前の守り」](docs/self-hosting.md#公開前の守り)。
 
 | 環境変数 | 既定値 | 内容 |
 | --- | --- | --- |
@@ -237,6 +238,8 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `RUST_LOG` | `info` | ログの詳しさ |
 | `ANONYMOUS_BOARDS` | `1` | `0` にするとログインなしのボード(`?room=` で誰でも作れて誰でも編集できるもの)を禁止 |
 | `COOKIE_SECURE` | `0` | HTTPS で公開するときは `1`(ログイン Cookie に `Secure` を付ける) |
+| `TRUST_PROXY` | `0` | リバースプロキシの後ろでは `1`(`X-Forwarded-For` から利用者の IP を取り、回数制限に使う) |
+| `MAX_USERS` / `MAX_BOARDS_PER_USER` | なし / `500` | アカウント数と、1 人が持てるボード数の上限。ほかの上限は docs/self-hosting.md |
 | `ANTHROPIC_API_KEY` | なし | 設定すると AI 機能(付箋の要約・グループ分け、文章からの図の生成、手書きの整形、議事録、質問応答)が使える。使えるのはボードの編集権限がある人だけ |
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | AI 機能で使う Claude のモデル |
 | `PUBLIC_URL` | なし | 公開している URL(例 `https://board.example.com/`)。Slack 通知にボードへのリンクを付ける |

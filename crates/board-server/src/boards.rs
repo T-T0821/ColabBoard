@@ -239,6 +239,17 @@ pub fn remember(store: &Store, login: &str, id: &str, key: Option<&str>) -> Resu
     )
 }
 
+/// ユーザーが持っている(削除していない)ボードの数。
+pub fn owned_count(store: &Store, login: &str) -> Result<usize, StoreError> {
+    let mut n = 0;
+    for (id, _) in store.scan_pair::<UserBoard>(USER_BOARDS, login)? {
+        if get(store, &id)?.is_some_and(|m| !m.deleted && m.owner.as_deref() == Some(login)) {
+            n += 1;
+        }
+    }
+    Ok(n)
+}
+
 pub fn forget(store: &Store, login: &str, id: &str) -> Result<(), StoreError> {
     store.remove_pair(USER_BOARDS, login, id)
 }

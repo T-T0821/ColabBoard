@@ -7,12 +7,11 @@
 //! - チームのログはそのチームの管理者・オーナーが見られる。
 //! - `AUDIT_RETENTION_DAYS` より古い記録は定期的に消す。
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{ConnectInfo, Query, Request, State};
+use axum::extract::{Query, Request, State};
 use axum::http::header::{CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use axum::middleware::Next;
@@ -152,29 +151,14 @@ pub fn spawn_pruner(store: Arc<Store>, retention_days: u64) -> tokio::task::Join
 }
 
 /// 接続元 IP をヘッダーに載せるミドルウェア。
-/// 外から同じ名前のヘッダーが来ても消す。`TRUST_PROXY=1` なら `X-Forwarded-For` の先頭を使う。
+/// 外から同じ名前のヘッダーが来ても消す。`TRUST_PROXY=1` なら `X-Forwarded-For` の最後(直前のプロキシが付けた値)を使う。
 pub async fn client_ip(
     State(state): State<Arc<AppState>>,
     mut req: Request,
     next: Next,
 ) -> Response {
-    let forwarded = state
-        .config
-        .trust_proxy
-        .then(|| {
-            req.headers()
-                .get("x-forwarded-for")
-                .and_then(|v| v.to_str().ok())
-                .and_then(|v| v.split(',').next())
-                .map(|v| v.trim().to_string())
-                .filter(|v| v.parse::<std::net::IpAddr>().is_ok())
-        })
-        .flatten();
-    let ip = forwarded.or_else(|| {
-        req.extensions()
-            .get::<ConnectInfo<SocketAddr>>()
-            .map(|c| c.0.ip().to_string())
-    });
+    let ip = crate::guard::client_ip(req.extensions(), req.headers(), state.config.trust_proxy)
+        .map(|ip| ip.to_string());
     let headers = req.headers_mut();
     headers.remove(&CLIENT_IP_HEADER);
     if let Some(ip) = ip.and_then(|ip| HeaderValue::from_str(&ip).ok()) {
