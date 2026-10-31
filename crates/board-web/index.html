@@ -3,11 +3,18 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  <title>ColabBoard</title>
+  <title>グラボード</title>
   <link data-trunk rel="rust" data-wasm-opt="s" />
   <link data-trunk rel="css" href="style.css" />
   <link data-trunk rel="copy-dir" href="assets/fonts" />
   <link data-trunk rel="copy-dir" href="assets/cloud-icons" />
+  <link data-trunk rel="copy-file" href="sw.js" />
+  <script>
+    // アプリ本体を端末に置いて、オフラインでも開けるようにする(https か localhost のときだけ動く)。
+    if ('serviceWorker' in navigator && !new URLSearchParams(location.search).has('nosw')) {
+      addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+    }
+  </script>
 </head>
 <body>
   <canvas id="board" tabindex="0" aria-label="ホワイトボード"></canvas>
@@ -16,7 +23,7 @@
   <textarea id="text-editor" spellcheck="false" aria-label="文字を入力"></textarea>
 
   <header class="panel hud">
-    <a class="brand" href="./" title="ボード一覧">ColabBoard</a>
+    <a class="brand" href="./" title="ボード一覧">グラボード</a>
     <span id="board-title" data-editable="false"></span>
     <span id="board-role" class="badge" hidden></span>
     <span class="sep"></span>

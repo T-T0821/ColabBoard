@@ -1,4 +1,4 @@
-//! ColabBoard の再現可能なベンチマーク。
+//! グラボード の再現可能なベンチマーク。
 //!
 //! ```sh
 //! cargo run -p board-bench --release                         # 1 万 / 10 万 / 100 万要素

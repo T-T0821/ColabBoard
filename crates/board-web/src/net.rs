@@ -149,11 +149,12 @@ impl Net {
                     }
                     if self.synced_once {
                         self.status = Status::Reconnecting;
-                        self.retry_at = Some(now + self.retry_delay);
-                        self.retry_delay = (self.retry_delay * 2.0).min(15_000.0);
                     } else {
+                        // サーバーが立ち上がるのを待ちつつ、手元で編集を続けられるようにする。
                         self.status = Status::Offline;
                     }
+                    self.retry_at = Some(now + self.retry_delay);
+                    self.retry_delay = (self.retry_delay * 2.0).min(15_000.0);
                 }
             }
         }
