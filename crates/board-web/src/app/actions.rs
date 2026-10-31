@@ -66,6 +66,10 @@ pub fn action_for_key(e: &KeyboardEvent) -> Option<Action> {
 impl App {
     /// 選択の数などから、その操作が今できるか。
     fn can(&self, a: Action) -> bool {
+        // 見るだけの人はコピーと全選択だけ。
+        if !self.can_edit() && !matches!(a, Action::Copy | Action::SelectAll) {
+            return false;
+        }
         let n = self.editor.selection().len();
         match a {
             Action::Paste => CLIPBOARD.with(|c| c.borrow().is_some()),
@@ -84,6 +88,9 @@ impl App {
 
     pub(super) fn run_action(&mut self, a: Action) {
         if self.editor.is_dragging() || self.editor.editing().is_some() {
+            return;
+        }
+        if !self.can_edit() && !matches!(a, Action::Copy | Action::SelectAll) {
             return;
         }
         let sel = self.editor.selection().to_vec();
@@ -143,6 +150,9 @@ impl App {
 
     /// 貼り付ける。中身の中心をカーソル(なければ画面中央)に合わせる。
     fn paste_text(&mut self, text: &str, at: Option<board_core::Vec2>) -> bool {
+        if !self.can_edit() {
+            return false;
+        }
         let Some(elements) = arrange::parse_clipboard(text) else {
             return false;
         };
@@ -227,6 +237,9 @@ pub fn install_clipboard(app: &Rc<RefCell<App>>) -> Result<(), String> {
 
 impl App {
     fn paste_plain_text(&mut self, text: &str) {
+        if !self.can_edit() {
+            return;
+        }
         let target = self
             .cursor_world
             .unwrap_or_else(|| self.camera.screen_to_world(self.camera.viewport * 0.5));
