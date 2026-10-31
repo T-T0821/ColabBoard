@@ -312,6 +312,8 @@ impl TextLayer {
         };
         let show_authors = self.show_authors;
         let visible: Vec<(usize, Item<'_>)> = near
+            // 折りたたまれたマインドマップの枝などは出さない。
+            .filter(|(_, e)| !e.meta().hidden)
             .flat_map(|(i, e)| {
                 let masked = hidden.contains(&e.id());
                 // 伏せたカードは中身の代わりに「作業中」とだけ出す(描かない種類は何も出さない)。

@@ -1734,3 +1734,43 @@ body.public-view .hud > .sep { display: none !important; }
 .share-panel .small { font-size: 12px; }
 .share-panel .public-share p { margin: 0; }
 .share-panel .public-share a { color: var(--accent); }
+/* ---- マインドマップ(選んだノードの下に浮かぶ) ---- */
+.mind-panel {
+  position: fixed;
+  z-index: 20;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px;
+  max-width: calc(100vw - 16px);
+  box-shadow: var(--shadow-lg);
+  animation: pop-in var(--t-med) var(--ease);
+}
+.mind-panel[hidden] { display: none; }
+.mind-panel button {
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+.mind-panel button:hover { background: var(--surface-hover); }
+.mind-panel button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+.mind-panel kbd {
+  font: inherit;
+  font-size: 10px;
+  color: var(--muted);
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+.mind-seg { display: inline-flex; gap: 2px; padding: 2px; border-radius: var(--r-sm); background: var(--surface-2); }
+.mind-seg button { height: 26px; }
+body[data-role="viewer"] .mind-panel,
+body[data-role="commenter"] .mind-panel { display: none !important; }

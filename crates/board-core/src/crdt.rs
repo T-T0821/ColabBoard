@@ -67,6 +67,25 @@ pub fn encode(e: &Element, z: f64) -> Vec<(&'static str, Any)> {
         ("priv", Any::String(meta.private.as_str().into())),
         ("by", Any::String(meta.author.as_str().into())),
     ]);
+    // マインドマップの要素だけが持つフィールド(それ以外の要素のデータは増やさない)。
+    if let Some(mind) = &meta.mind {
+        f.push(("hid", Any::Bool(meta.hidden)));
+        match mind {
+            crate::mindmap::Mind::Branch => f.push(("mm", Any::String("b".into()))),
+            crate::mindmap::Mind::Node(n) => f.extend([
+                (
+                    "mm",
+                    Any::String(match n.parent {
+                        Some(p) => format!("n:{}", key_of(p)).into(),
+                        None => "n".into(),
+                    }),
+                ),
+                ("mmo", float(n.order)),
+                ("mmc", Any::Bool(n.collapsed)),
+                ("mml", Any::String(n.layout.name().into())),
+            ]),
+        }
+    }
     match e {
         Element::Shape(s) => {
             f.extend([
@@ -158,12 +177,31 @@ fn meta<T: ReadTxn>(m: &MapRef, txn: &T) -> Meta {
         Some(Out::Any(Any::Number(Number::Float(n)))) => n as u64,
         _ => 0,
     };
+    let mm = string(m, txn, "mm");
+    let mind = if mm == "b" {
+        Some(crate::mindmap::Mind::Branch)
+    } else if mm == "n" || mm.starts_with("n:") {
+        Some(crate::mindmap::Mind::Node(crate::mindmap::MindLink {
+            parent: mm.strip_prefix("n:").and_then(id_of),
+            order: match m.get(txn, "mmo") {
+                Some(Out::Any(Any::Number(Number::Float(n)))) => n,
+                Some(Out::Any(Any::Number(Number::Int(n)))) => n as f64,
+                _ => 0.0,
+            },
+            collapsed: boolean(m, txn, "mmc"),
+            layout: crate::mindmap::MindLayout::from_name(&string(m, txn, "mml")),
+        }))
+    } else {
+        None
+    };
     Meta {
         group,
         locked: boolean(m, txn, "lock"),
         link: string(m, txn, "link"),
         private: string(m, txn, "priv"),
         author: string(m, txn, "by"),
+        hidden: mind.is_some() && boolean(m, txn, "hid"),
+        mind,
     }
 }
 

@@ -867,3 +867,25 @@ URL を知っている人は誰でも、ログインせずに見られます(編
 公開ページを開く	Open public page
 URL を作り直す	Regenerate URL
 オンにすると、ログインしていない人も見られる閲覧専用のページができます。	Turn on to create a view-only page that people can open without signing in.
+マインドマップ(Tab: 子 / Enter: 兄弟)	Mind map (Tab: child / Enter: sibling)
+マインドマップ	Mind map
+中心のテーマ	Central topic
+並べ方	Layout
+左右	Both sides
+右へ	Right
+放射	Radial
+並べ方: 左右	Layout: both sides
+並べ方: 右へ	Layout: right
+並べ方: 放射	Layout: radial
+＋子	+ Child
+＋兄弟	+ Sibling
+子を追加 (Tab)	Add child (Tab)
+兄弟を追加 (Enter)	Add sibling (Enter)
+たたむ	Collapse
+開く	Expand
+この枝をたたむ (/)	Collapse this branch (/)
+この枝を開く (/)	Expand this branch (/)
+すべて開く	Expand all
+すべてたたむ	Collapse all
+すべての枝を開く	Expand all branches
+すべての枝をたたむ	Collapse all branches
