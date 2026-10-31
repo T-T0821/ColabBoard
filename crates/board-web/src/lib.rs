@@ -14,6 +14,8 @@ mod presence;
 mod session;
 #[cfg(target_arch = "wasm32")]
 mod theme;
+#[cfg(target_arch = "wasm32")]
+mod tooltip;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;
@@ -27,6 +29,7 @@ pub fn start() {
         && let Some(d) = w.document()
     {
         theme::init(&w, &d);
+        tooltip::install(&d);
     }
     wasm_bindgen_futures::spawn_local(async {
         if let Err(e) = app::run().await {
@@ -43,6 +46,14 @@ pub fn parse_hex(s: &str) -> Option<board_core::Rgba8> {
         return None;
     }
     u32::from_str_radix(s, 16).ok().map(board_core::Rgba8::hex)
+}
+
+/// ツールチップ用: `"選択 (V)"` → `("選択", "V")`。かっこがなければショートカットは空。
+pub fn split_title(title: &str) -> (&str, &str) {
+    match title.rsplit_once(" (") {
+        Some((name, rest)) if rest.ends_with(')') => (name, &rest[..rest.len() - 1]),
+        _ => (title, ""),
+    }
 }
 
 /// 表示用: ズーム率を `"125%"` のように整形する。
@@ -76,5 +87,8 @@ mod tests {
         assert_eq!(format_count(1_234_567), "1,234,567");
         assert_eq!(parse_hex("#fff3a3"), Some(board_core::Rgba8::hex(0xfff3a3)));
         assert_eq!(parse_hex("zz"), None);
+        assert_eq!(split_title("選択 (V)"), ("選択", "V"));
+        assert_eq!(split_title("元に戻す (Ctrl/⌘+Z)"), ("元に戻す", "Ctrl/⌘+Z"));
+        assert_eq!(split_title("黄"), ("黄", ""));
     }
 }
