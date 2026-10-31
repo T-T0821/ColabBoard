@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use board_core::protocol::{Message, Presence};
 use board_core::{Board, Rgba8, Shape, Vec2};
-use board_server::{Config, Hub, router};
+use board_server::{Config, Hub, Store, router};
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message as WsMessage;
@@ -14,8 +14,8 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 async fn serve() -> String {
-    let hub = Arc::new(Hub::new(None));
-    let app = router(hub, Config { static_dir: None });
+    let hub = Arc::new(Hub::new(Arc::new(Store::memory())));
+    let app = router(hub, Config::default());
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });

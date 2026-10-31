@@ -4,6 +4,8 @@
 //! - `PORT`(既定 8080)
 //! - `DATA_DIR`(既定 `data`): 保存先。`DATA_DIR=` (空)で保存しない。
 //! - `STATIC_DIR`(既定 `crates/board-web/dist`): 配信する Web クライアント。
+//! - `ANONYMOUS_BOARDS`(既定 `1`): `0` でログインなしのボード作成を禁止する。
+//! - `COOKIE_SECURE`(既定 `0`): `1` でログイン Cookie に `Secure` を付ける(HTTPS 用)。
 //! - `RUST_LOG`(既定 `info`)
 
 use std::net::SocketAddr;
@@ -29,12 +31,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let static_dir = std::env::var("STATIC_DIR").unwrap_or_else(|_| "crates/board-web/dist".into());
 
     let store = if data_dir.is_empty() {
-        tracing::warn!("DATA_DIR が空なので保存しません");
-        None
+        tracing::warn!("DATA_DIR が空なので保存しません(アカウントも再起動で消えます)");
+        Store::memory()
     } else {
         let path = PathBuf::from(&data_dir).join("boards.redb");
         tracing::info!("保存先: {}", path.display());
-        Some(Store::open(&path)?)
+        Store::open(&path)?
+    };
+    let flag = |name: &str, default: bool| match std::env::var(name).as_deref() {
+        Ok("0") | Ok("false") => false,
+        Ok("1") | Ok("true") => true,
+        _ => default,
     };
     let static_dir = PathBuf::from(static_dir);
     let static_dir = if static_dir.is_dir() {
@@ -48,9 +55,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         None
     };
 
-    let hub = Arc::new(Hub::new(store));
+    let hub = Arc::new(Hub::new(Arc::new(store)));
     let flusher = spawn_flusher(hub.clone());
-    let app = router(hub.clone(), Config { static_dir });
+    let config = Config {
+        static_dir,
+        anonymous_boards: flag("ANONYMOUS_BOARDS", true),
+        secure_cookies: flag("COOKIE_SECURE", false),
+    };
+    if !config.anonymous_boards {
+        tracing::info!("ログインなしのボードは無効です");
+    }
+    let app = router(hub.clone(), config);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await?;

@@ -8,3 +8,4 @@ license.workspace = true
 glam.workspace = true
 bytemuck.workspace = true
 yrs = "0.28"
+serde = { version = "1", features = ["derive"] }

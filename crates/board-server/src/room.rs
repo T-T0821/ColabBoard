@@ -18,6 +18,13 @@ pub struct Outgoing {
     pub bytes: Arc<[u8]>,
 }
 
+impl Outgoing {
+    /// 中身が空の 1 通は「接続を切って、つなぎ直させる」合図(権限が変わったときなど)。
+    pub fn is_kick(&self) -> bool {
+        self.bytes.is_empty()
+    }
+}
+
 pub struct Room {
     pub name: String,
     doc: Doc,
@@ -96,12 +103,17 @@ impl Room {
         // 受け手がいないときのエラーは無視してよい。
         let _ = self.tx.send(Outgoing { from, bytes });
     }
+
+    /// 参加者全員の接続を切る(クライアントはつなぎ直し、そのとき権限を確かめ直す)。
+    pub fn kick_all(&self) {
+        self.broadcast(0, Arc::from(Vec::new()));
+    }
 }
 
 /// 全ルームと保存先。
 pub struct Hub {
     rooms: Mutex<HashMap<String, Arc<Room>>>,
-    store: Option<Store>,
+    store: Arc<Store>,
     next_peer: AtomicU32,
 }
 
@@ -118,7 +130,7 @@ impl Drop for Membership {
 }
 
 impl Hub {
-    pub fn new(store: Option<Store>) -> Self {
+    pub fn new(store: Arc<Store>) -> Self {
         Self {
             rooms: Mutex::default(),
             store,
@@ -132,13 +144,13 @@ impl Hub {
         let room = rooms
             .entry(name.to_string())
             .or_insert_with(|| {
-                let saved = self.store.as_ref().and_then(|s| match s.load(name) {
+                let saved = match self.store.load(name) {
                     Ok(v) => v,
                     Err(e) => {
                         tracing::error!(room = name, "読み込みに失敗: {e}");
                         None
                     }
-                });
+                };
                 tracing::info!(
                     room = name,
                     restored = saved.is_some(),
@@ -157,6 +169,31 @@ impl Hub {
         self.rooms.lock().unwrap().len()
     }
 
+    pub fn store(&self) -> &Arc<Store> {
+        &self.store
+    }
+
+    /// 開いているルーム(なければ `None`)。
+    pub fn get(&self, name: &str) -> Option<Arc<Room>> {
+        self.rooms.lock().unwrap().get(name).cloned()
+    }
+
+    /// 参加者全員をつなぎ直させる(権限を確かめ直すため)。
+    pub fn kick(&self, name: &str) {
+        if let Some(room) = self.get(name) {
+            room.kick_all();
+        }
+    }
+
+    /// ルームを消す(参加者は切断され、保存データも消える)。
+    pub fn delete(&self, name: &str) -> Result<(), crate::store::StoreError> {
+        if let Some(room) = self.rooms.lock().unwrap().remove(name) {
+            room.dirty.store(false, Ordering::Release);
+            room.kick_all();
+        }
+        self.store.delete_room(name)
+    }
+
     /// 変更のあったルームを保存し、誰もいないルームをメモリから外す。
     pub fn flush(&self) {
         let rooms: Vec<Arc<Room>> = self.rooms.lock().unwrap().values().cloned().collect();
@@ -165,13 +202,13 @@ impl Hub {
         }
         let mut map = self.rooms.lock().unwrap();
         map.retain(|_, room| {
-            // 保存が済んでいて誰もいないルームだけ外す(保存先がなければ残す)。
-            self.store.is_none() || room.peer_count() > 0 || room.dirty.load(Ordering::Acquire)
+            // 保存が済んでいて誰もいないルームだけ外す。
+            room.peer_count() > 0 || room.dirty.load(Ordering::Acquire)
         });
     }
 
     fn save(&self, room: &Room) {
-        let Some(store) = &self.store else { return };
+        let store = &self.store;
         if !room.dirty.swap(false, Ordering::AcqRel) {
             return;
         }
@@ -198,7 +235,7 @@ mod tests {
 
     #[test]
     fn new_room_has_welcome_board() {
-        let hub = Hub::new(None);
+        let hub = Hub::new(Arc::new(Store::memory()));
         let m = hub.join("a");
         assert_eq!(state_len(&m.room), Board::welcome().len());
     }
@@ -207,7 +244,7 @@ mod tests {
     fn rooms_persist_and_unload() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("db.redb");
-        let hub = Hub::new(Some(Store::open(&path).unwrap()));
+        let hub = Hub::new(Arc::new(Store::open(&path).unwrap()));
         {
             let m = hub.join("r");
             let mut client = Board::new();
@@ -230,14 +267,14 @@ mod tests {
         assert_eq!(hub.room_count(), 0);
         drop(hub);
 
-        let hub = Hub::new(Some(Store::open(&path).unwrap()));
+        let hub = Hub::new(Arc::new(Store::open(&path).unwrap()));
         let m = hub.join("r");
         assert_eq!(state_len(&m.room), Board::welcome().len() + 1);
     }
 
     #[test]
     fn peers_get_distinct_ids() {
-        let hub = Hub::new(None);
+        let hub = Hub::new(Arc::new(Store::memory()));
         let a = hub.join("x");
         let b = hub.join("x");
         assert_ne!(a.peer, b.peer);
