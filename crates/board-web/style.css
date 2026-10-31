@@ -311,6 +311,25 @@ button:hover { border-color: var(--accent); color: var(--accent); }
 #context-menu button[disabled] { color: #b0b0ad; cursor: default; }
 #context-menu kbd { color: var(--muted); font: 11px/1.8 system-ui, sans-serif; }
 #context-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
+/* 構成図パネル */
+.diagram-toggle { top: 108px; left: 12px; padding: 6px 12px; font-weight: 600; }
+.diagram-toggle[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
+.diagram-panel {
+  top: 152px;
+  left: 12px;
+  width: min(340px, calc(100vw - 24px));
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.diagram-panel[hidden] { display: none; }
+.diagram-row { display: flex; align-items: center; gap: 6px; }
+.diagram-row .label { width: 2.5em; flex: none; }
+.diagram-row select { flex: 1; min-width: 0; font: inherit; padding: 3px 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+.diagram-samples { display: flex; flex-direction: column; gap: 4px; }
+.diagram-samples button { text-align: left; }
+@media (max-width: 1100px) { .diagram-toggle { top: 100px; } .diagram-panel { top: 144px; } }
 
 /* 図形ライブラリ */
 .tool-group { position: relative; display: flex; }

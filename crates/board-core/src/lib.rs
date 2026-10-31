@@ -10,6 +10,7 @@ pub mod camera;
 pub mod color;
 pub mod connector;
 mod crdt;
+pub mod diagram;
 pub mod editor;
 pub mod element;
 pub mod geom;
