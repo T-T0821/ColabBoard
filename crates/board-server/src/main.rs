@@ -6,6 +6,8 @@
 //! - `STATIC_DIR`(既定 `crates/board-web/dist`): 配信する Web クライアント。
 //! - `ANONYMOUS_BOARDS`(既定 `1`): `0` でログインなしのボード作成を禁止する。
 //! - `COOKIE_SECURE`(既定 `0`): `1` でログイン Cookie に `Secure` を付ける(HTTPS 用)。
+//! - `ANTHROPIC_API_KEY`: 設定すると AI 機能(付箋の要約・グループ分け)が有効になる。
+//! - `ANTHROPIC_MODEL`(既定 `claude-opus-5-5`): AI 機能で使うモデル。
 //! - `RUST_LOG`(既定 `info`)
 
 use std::net::SocketAddr;
@@ -61,7 +63,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         static_dir,
         anonymous_boards: flag("ANONYMOUS_BOARDS", true),
         secure_cookies: flag("COOKIE_SECURE", false),
+        ai: board_server::ai::AiConfig::from_env().map(|c| {
+            tracing::info!("AI 機能: 有効(モデル {})", c.model);
+            Arc::new(board_server::ai::Ai::new(c))
+        }),
     };
+    if config.ai.is_none() {
+        tracing::info!(
+            "AI 機能: 無効(ANTHROPIC_API_KEY を設定すると付箋の要約・グループ分けが使えます)"
+        );
+    }
     if !config.anonymous_boards {
         tracing::info!("ログインなしのボードは無効です");
     }
