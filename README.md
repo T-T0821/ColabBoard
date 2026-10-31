@@ -196,6 +196,19 @@ cargo clippy -p board-web --target wasm32-unknown-unknown -- -D warnings
 cargo test --workspace   # シェーダの naga 検証も含む
 ```
 
+### 10 万要素をパン・ズームする GIF を撮る
+
+`tools/perf-gif` のスクリプトが、10 万要素のボード(`?n=100000`)を開いて常時再描画(fps 表示)をオンにし、ズーム → パン → ズームアウトを自動で操作して録画し、GIF と MP4 にする。GPU の性能がそのまま映るので、ヘッドレスやソフトウェア描画ではなく実機の Chrome で撮る。
+
+```sh
+# サーバーを起動しておく(上の「はじめかた」)
+cd tools/perf-gif
+npm install
+npm run record          # → docs/images/perf-100k.gif と perf-100k.mp4
+```
+
+必要なもの: Node.js、Google Chrome、ffmpeg。録画中は Chrome のウィンドウが開くので触らずに待つ(15 秒ほど)。`URL=http://localhost:8080/?n=1000000` で 100 万要素、`CHANNEL=msedge` で Edge、`GIF_WIDTH` `GIF_FPS` で GIF の大きさを変えられる。
+
 ## ロードマップ
 
 1. ~~土台と描画エンジン~~
