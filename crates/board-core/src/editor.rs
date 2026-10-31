@@ -292,11 +292,6 @@ impl Editor {
         self.selection.retain(|id| board.get(*id).is_some());
     }
 
-    /// 選択を置き換える(図をまとめて挿入した直後など)。
-    pub fn set_selection(&mut self, ids: Vec<ElementId>) {
-        self.selection = ids;
-    }
-
     pub fn clear_selection(&mut self) {
         self.selection.clear();
     }
