@@ -30,6 +30,7 @@ mod offline;
 mod prefs;
 mod reactions;
 mod search_ui;
+mod slides;
 mod templates_ui;
 mod toolbar;
 mod touch;
@@ -93,6 +94,7 @@ struct App {
     ai: ai::AiUi,
     follow: follow::Follow,
     workshop: workshop::Workshop,
+    slides: slides::Slides,
     format_bar: format_bar::FormatBar,
     search: search_ui::Search,
     comments: comments::Comments,
@@ -388,6 +390,7 @@ pub async fn run() -> Result<(), String> {
         ai: ai::AiUi::new(&document)?,
         follow: follow::Follow::new(&document)?,
         workshop: workshop::Workshop::new(&document)?,
+        slides: slides::Slides::new(&document)?,
         format_bar: format_bar::FormatBar::default(),
         search: search_ui::Search::default(),
         comments: comments::Comments::new(&document)?,
@@ -897,6 +900,7 @@ impl App {
         self.save_local(now, false);
         self.collab_frame();
         self.workshop_frame();
+        self.slides_frame(now);
         self.follow_frame(now);
         self.comments_frame(now);
         self.history_frame();
@@ -1076,6 +1080,9 @@ impl App {
     fn on_pointer_down(&mut self, e: &PointerEvent) {
         let p = self.css_to_physical(e.client_x() as f64, e.client_y() as f64);
         let id = e.pointer_id();
+        if self.slides_pointer_down(p, e.button()) {
+            return;
+        }
         if !self.touch_pointer_down(e, p) {
             return;
         }
@@ -1280,6 +1287,9 @@ impl App {
     // ---- キーボード ----
 
     fn on_key_down(&mut self, e: &KeyboardEvent) -> bool {
+        if self.slides_active() {
+            return self.slides_key(e);
+        }
         if (e.ctrl_key() || e.meta_key()) && e.code() == "KeyF" {
             self.open_search();
             return true;
@@ -1468,6 +1478,10 @@ fn install_pointer(app: &Rc<RefCell<App>>, canvas: &HtmlCanvasElement) -> Result
         listen(target, "wheel", false, move |e: WheelEvent| {
             e.prevent_default();
             let mut a = app.borrow_mut();
+            // スライド中はカメラを動かさない。
+            if a.slides_active() {
+                return;
+            }
             let dpr = a.window.device_pixel_ratio() as f32;
             // deltaMode: 0=ピクセル, 1=行, 2=ページ
             let unit = match e.delta_mode() {
@@ -1678,6 +1692,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     ai::install(app, doc)?;
     follow::install(app, doc)?;
     workshop::install(app, doc)?;
+    slides::install(app, doc)?;
     comments::install(app, doc)?;
     history::install(app)?;
     call_ui::install(app, doc)?;

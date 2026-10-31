@@ -32,6 +32,7 @@
     <span class="sep"></span>
     <span id="hud-net" data-status="connecting">接続中…</span>
     <button id="share" title="このボードを共有">リンクをコピー</button>
+    <button id="slides-start" title="フレームを 1 枚ずつスライドとして全画面で表示 (← → で移動、Esc で終了)">スライド</button>
     <button id="call-toggle" title="ボードを開いたまま、参加者と音声で話す" aria-pressed="false">通話</button>
     <button id="comments-toggle" title="コメント" aria-pressed="false">コメント</button>
     <button id="history-toggle" title="バージョン履歴" aria-pressed="false" hidden>履歴</button>
@@ -139,6 +140,15 @@
     <button id="timer-toggle">一時停止</button>
     <button id="timer-add" title="1 分延長">+1分</button>
     <button id="timer-stop" title="タイマーを消す" aria-label="タイマーを消す">×</button>
+  </div>
+
+  <div id="slide-spot" class="slide-spot" aria-hidden="true" hidden></div>
+  <div id="slide-bar" class="panel slide-bar" role="toolbar" aria-label="スライド" hidden>
+    <button id="slide-prev" class="icon" title="前へ (←)" aria-label="前のスライド">‹</button>
+    <span id="slide-counter" class="slide-counter"></span>
+    <span id="slide-title" class="slide-title"></span>
+    <button id="slide-next" class="icon" title="次へ (→ / Space)" aria-label="次のスライド">›</button>
+    <button id="slide-exit" title="スライドを終了 (Esc)">終了</button>
   </div>
 
   <section id="call-bar" class="panel call-bar" aria-label="音声通話" hidden>
