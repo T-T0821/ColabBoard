@@ -789,11 +789,7 @@ impl Editor {
                         is_text = s.kind == ShapeKind::Text;
                         if clicked {
                             // クリックだけなら既定の大きさで置く。
-                            let size = match s.kind {
-                                ShapeKind::Frame => Vec2::new(800.0, 600.0),
-                                ShapeKind::Text => Vec2::new(240.0, 40.0),
-                                _ => Vec2::new(160.0, 100.0),
-                            };
+                            let size = s.kind.default_size();
                             s.set_bounds(Rect::new(start, start + size));
                         }
                         s.fit_text_height();

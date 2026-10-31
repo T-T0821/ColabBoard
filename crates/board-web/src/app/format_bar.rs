@@ -24,23 +24,6 @@ pub struct FormatBar {
     pos: Option<(i32, i32)>,
 }
 
-fn kind_label(k: ShapeKind) -> &'static str {
-    match k {
-        ShapeKind::Rect => "四角形",
-        ShapeKind::Ellipse => "楕円",
-        ShapeKind::Triangle => "三角形",
-        ShapeKind::Diamond => "ひし形",
-        ShapeKind::Star => "星",
-        ShapeKind::Hexagon => "六角形",
-        ShapeKind::Parallelogram => "平行四辺形",
-        ShapeKind::Sticky => "付箋",
-        ShapeKind::Text => "テキスト",
-        ShapeKind::Frame => "フレーム",
-        ShapeKind::Stamp => "スタンプ",
-        ShapeKind::Image => "画像",
-    }
-}
-
 fn path_label(p: PathStyle) -> &'static str {
     match p {
         PathStyle::Straight => "直線",
@@ -93,14 +76,21 @@ fn render(s: &Summary, link_open: bool) -> String {
         if s.kind.is_none() {
             g.push_str(r#"<option value="" selected>—</option>"#);
         }
-        for k in ShapeKind::LIBRARY {
-            let sel = if s.kind == Some(k) { " selected" } else { "" };
-            let _ = write!(
-                g,
-                r#"<option value="{}"{sel}>{}</option>"#,
-                k.name(),
-                kind_label(k)
-            );
+        for cat in board_core::ShapeCategory::ALL {
+            let _ = write!(g, r#"<optgroup label="{}">"#, cat.label());
+            for k in ShapeKind::LIBRARY
+                .into_iter()
+                .filter(|k| k.category() == cat)
+            {
+                let sel = if s.kind == Some(k) { " selected" } else { "" };
+                let _ = write!(
+                    g,
+                    r#"<option value="{}"{sel}>{}</option>"#,
+                    k.name(),
+                    k.label()
+                );
+            }
+            g.push_str("</optgroup>");
         }
         g.push_str("</select>");
         groups.push(g);
