@@ -374,7 +374,7 @@ impl Editor {
             highlighter_color: Rgba8([0xff, 0xe0, 0x33, 0x66]),
             shape_kind: ShapeKind::Rect,
             connector_style: PathStyle::default(),
-            stamp: crate::stamp::STAMPS[0],
+            stamp: crate::stamp::STAMPS[0].clone(),
             hover_target: None,
             hit_scale: 1.0,
             guides: Vec::new(),
