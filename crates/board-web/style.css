@@ -218,6 +218,8 @@ html, body {
 .zoom { bottom: 16px; right: 16px; gap: 2px; padding: 4px; border-radius: var(--r-md); }
 .zoom button { min-width: 30px; height: 30px; padding: 0 8px; background: transparent; font-size: 15px; }
 .zoom #zoom-fit { font-size: 12px; }
+.zoom #toggle-authors { font-size: 12px; color: var(--muted); }
+.zoom #toggle-authors[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
 #hud-zoom { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 12px; }
 #hud-fps, #hud-count { font-variant-numeric: tabular-nums; }
 
@@ -753,6 +755,12 @@ body[data-role="commenter"] .format-bar { display: none !important; }
   animation: pop-in var(--t-med) var(--ease);
 }
 .share-panel[hidden] { display: none; }
+.share-panel { max-height: calc(100vh - 80px); overflow-y: auto; }
+.share-panel section[data-slot]:empty { display: none; }
+.share-panel .stack { display: flex; flex-direction: column; gap: 6px; }
+.share-panel .checks { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--muted); }
+.share-panel .check { display: inline-flex; align-items: center; gap: 4px; }
+.share-panel .small { font-size: 12px; margin: 0; }
 .share-panel section { display: flex; flex-direction: column; gap: 6px; }
 .share-panel .field { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
 .members { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -957,14 +965,30 @@ body.home-mode > :not(#home):not(#error) { display: none !important; }
 .fb-link input { flex: 1; min-width: 200px; height: 28px; padding: 0 8px; font-size: 13px; }
 
 /* ---- スタンプ・リアクション ---- */
-.stamp-picker { grid-template-columns: repeat(6, 40px); }
+.stamp-picker { width: 352px; max-width: calc(100vw - 24px); max-height: min(420px, 70vh); overflow-y: auto; }
+.stamp-picker[data-open] { display: block; }
+.stamp-tabs { display: flex; flex-wrap: wrap; gap: 2px; padding-bottom: 6px; margin-bottom: 4px; border-bottom: 1px solid var(--border); }
+.stamp-tabs .stamp-tab { width: auto; height: 26px; padding: 0 8px; font-size: 12px; border-radius: 13px; color: var(--muted); }
+.stamp-tabs .stamp-tab[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.stamp-group { display: grid; grid-template-columns: repeat(8, 40px); gap: 2px; }
+.stamp-group[hidden] { display: none; }
 .stamp-picker .picker-label { grid-column: 1 / -1; font-size: 11px; font-weight: 600; color: var(--muted); padding: 4px 4px 0; }
 .stamp-picker .stamp-badge {
-  width: 26px; height: 26px; border-radius: 50%;
+  width: 28px; height: 28px; border-radius: 50%;
   display: grid; place-items: center;
-  background: var(--c); color: #fff; font-size: 13px; font-weight: 700;
+  background: var(--c); color: #fff; font-size: 13px; font-weight: 700; line-height: 1;
   box-shadow: 0 0 0 2px var(--panel-solid), var(--shadow-sm);
+  white-space: pre-line; text-align: center; overflow: hidden;
 }
+.stamp-picker .stamp-badge.long { font-size: 8px; letter-spacing: -0.5px; }
+.stamp-picker .stamp-badge.dot { width: 16px; height: 16px; }
+.stamp-picker .stamp-badge.hanko {
+  width: 32px; height: 32px; background: transparent; box-shadow: none;
+  border: 2px solid var(--c, #d23a2f); color: var(--c, #d23a2f); font-weight: 600;
+  font-family: "Noto Serif JP", "Hiragino Mincho ProN", "Yu Mincho", serif;
+}
+.hanko-maker { grid-column: 1 / -1; display: flex; gap: 4px; align-items: center; padding: 2px 0 6px; }
+.hanko-maker input { flex: 1; min-width: 0; height: 30px; padding: 0 8px; font-size: 13px; }
 .stamp-picker button[data-emoji] { font-size: 20px; padding: 0; }
 .stamp-picker button[data-emoji]:hover { transform: scale(1.15); background: var(--surface-hover); }
 .reaction {

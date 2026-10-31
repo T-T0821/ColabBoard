@@ -47,6 +47,8 @@ Miro や FigJam のように、Web 上で複数人が同時に編集できるホ
 - 無限キャンバスのパン/ズーム(スクロール、Space+ドラッグ、Ctrl/⌘+スクロール、トラックパッド/タッチのピンチ)
 - 付箋、図形(四角形・楕円・三角形・ひし形・星・六角形・平行四辺形)、テキスト、コネクタ(要素どうしをつなぐ矢印。相手を動かすと経路が付いてくる)、ペン、蛍光ペン、消しゴム、フレームの作成
 - 選択(クリック、Shift で追加、範囲選択)、移動、8 方向リサイズ(Shift で縦横比固定)、削除、色変更
+- **スマートガイドとスナップ**: 動かしたりリサイズしたりすると、周りの図形の端・中心にそろう位置や、隣との間隔が等しくなる位置に吸い付き、赤いガイド線が出る(Alt / Option を押している間は吸い付かない)
+- **図の自動整列**: コネクタでつないだ図形を 1 つ(または複数)選んで、右クリックの「図を自動整列」か「構成図・AI」パネルのボタンを押すと、矢印の向きに沿って段に並べ直す(左から右 / 上から下)。線の交差が少なくなる順に並べ、つながっていない固まりは別に積む。1 回の Undo で戻せる
 - コピー&ペースト・複製・グループ化・整列/等間隔・重なり順・ロック(右クリックメニューとショートカット)
 - 付箋・図形への文字入力(ダブルクリック / Enter、日本語 IME 対応)
 - Undo / Redo(自分の操作だけを取り消す。ドラッグ 1 回 = 1 単位)
@@ -57,6 +59,7 @@ Miro や FigJam のように、Web 上で複数人が同時に編集できるホ
 - **共有**: オーナーは「共有」から、ログイン名での招待と共有リンク(閲覧のみ / コメント可 / 編集可)を設定できる。権限のない人には「開けません」と表示し、閲覧のみの人には編集の道具を出さない
 - **コメントとメンション**: 「コメント」→「＋ 追加」でボード上(図形の上なら図形に付いていく)にコメントを置き、スレッドで返信・解決できる。`@ログイン名` でメンションすると相手のベルに通知が届く(返信もスレッドの参加者に通知)。コメントは「コメント可」以上の権限でログインした人が書ける
 - **バージョン履歴**: 編集すると 10 分ごと(と全員が抜けたとき)に自動で保存され、「履歴」から名前を付けて保存もできる。昔のバージョンを選ぶとその状態を表示し(同期は続く)、「このバージョンに戻す」で全員のボードを戻せる。戻す前の状態も履歴に残る
+- **Slack 通知**: オーナーは「共有」パネルで Slack の Incoming Webhook URL を登録すると、コメント・メンション・名前を付けたバージョンの保存(と復元)をチャンネルに流せる。送る出来事は選べて、「テスト送信」で届くか確かめられる。URL は保存後は末尾しか表示しない
 - **ファシリテーション**(右上のパネル): 全員に見えるタイマー(一時停止・延長、終了時に音)、付箋への投票(1 人あたりの票数を決めて開始 → 締め切ると結果と順位を表示)、付箋の自動整理(格子に整列・色でまとめる)、プレゼン(「プレゼン開始」で全員の画面が自分の表示に追従。参加者の名前を押すとその人をフォロー、自分で動かすと解除)
 - **テンプレート**(ツールバーのテンプレートボタン): 振り返り・ワークショップ・戦略・計画の 53 種を、分類と検索から選べる。振り返りは KPT・YWT・4L・Start/Stop/Continue・Mad/Sad/Glad・スターフィッシュ・DAKI・KALM・帆船・熱気球・タイムライン・ESVP など、ワークショップは Crazy 8s・How Might We・1-2-4-全体・リーンコーヒー・6 つの帽子・なぜなぜ分析・共感マップ・ペルソナなど、戦略・計画はリーンキャンバス・ビジネスモデルキャンバス・SWOT・PEST・プレモーテム・OKR・ストーリーマップ・MoSCoW など。置くとボードに見出しと進め方が入り、ファシリテーションのパネルに手順ごとのボタン(タイマー・投票開始・締め切り・AI でまとめる/要約)が出る。どれも普通の付箋・フレーム・表でできているので自由に編集できる
 - **AI**(サーバーに `ANTHROPIC_API_KEY` を設定したとき): 付箋の要約(結果を新しい付箋に)と、内容の近い付箋のグループ分け(グループごとに並べ直してフレームと見出しを付ける)。選択中の付箋、なければ全付箋が対象で、1 回の Undo で戻せる
@@ -118,6 +121,8 @@ tools/fetch-cloud-icons.sh --aws ~/Downloads/Icon-package.zip   # 手元の ZIP 
 | スクロール、Space+ドラッグ、中ボタンドラッグ | 移動 |
 | Ctrl/⌘ + スクロール、ピンチ | カーソル位置を中心にズーム |
 | Shift + クリック / ドラッグ | 追加選択 / 縦横比を保って変形・作成 |
+| Alt / Option + ドラッグ | スナップせずに移動・リサイズ |
+| Alt + Shift + L / J | 選んだ図を自動整列(左から右 / 上から下) |
 | ダブルクリック / `Enter` | 文字を入力(`Esc` か `Ctrl/⌘+Enter`、または外側クリックで確定) |
 | `Delete` / `Backspace` | 選択中の要素を削除 |
 | `Ctrl/⌘ + Z` / `Ctrl/⌘ + Shift + Z`(`Ctrl + Y`) | 元に戻す / やり直す |
@@ -175,11 +180,22 @@ iOS Safari・Android Chrome で動く(WebGPU がなければ WebGL2 で描く)�
 
 ## セルフホスト
 
-サーバーは `cargo build -p board-server --release` でできる単一のバイナリ(`target/release/board-server`)と、クライアントのビルド結果(`crates/board-web/dist`)だけで動く。データは `DATA_DIR/boards.redb` の 1 ファイルに保存される。
+詳しい手順(Docker / systemd / リバースプロキシ / バックアップ)は [docs/self-hosting.md](docs/self-hosting.md)。
 
 ```sh
-DATA_DIR=/var/lib/colabboard STATIC_DIR=/srv/colabboard/dist PORT=8080 ./board-server
+docker compose up -d          # → http://localhost:8080(データは colabboard-data ボリューム)
 ```
+
+Docker を使わない場合は、クライアントを埋め込んだ単一バイナリにできる。ファイル 1 つをコピーするだけで動き、データは `DATA_DIR/boards.redb` の 1 ファイルに保存される。
+
+```sh
+(cd crates/board-web && trunk build --release)
+cargo build -p board-server --release --features embed
+DATA_DIR=/var/lib/graboard PORT=8080 ./target/release/board-server
+./target/release/board-server healthcheck   # 死活監視(/healthz を確かめ、終了コードで返す)
+```
+
+`embed` なしでビルドした場合は `STATIC_DIR` でクライアントのディレクトリを指定する。
 
 PDF の取り込み(hayro)で wasm が数 MB 大きくなる。不要なら `trunk build --release --no-default-features` でクライアントから外せる。
 
@@ -189,12 +205,15 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | --- | --- | --- |
 | `PORT` | `8080` | 待ち受けポート |
 | `DATA_DIR` | `data` | 保存先(`boards.redb`)。空にすると保存しない |
-| `STATIC_DIR` | `crates/board-web/dist` | 配信するクライアント |
+| `STATIC_DIR` | `crates/board-web/dist` | 配信するクライアント。`embed` 版で埋め込みを使うなら指定しない |
+| `MAX_MESSAGE_MB` | `128` | WebSocket で受け取る 1 通の上限。数十万要素のボードを使うなら増やす |
 | `RUST_LOG` | `info` | ログの詳しさ |
 | `ANONYMOUS_BOARDS` | `1` | `0` にするとログインなしのボード(`?room=` で誰でも作れて誰でも編集できるもの)を禁止 |
 | `COOKIE_SECURE` | `0` | HTTPS で公開するときは `1`(ログイン Cookie に `Secure` を付ける) |
 | `ANTHROPIC_API_KEY` | なし | 設定すると AI 機能(付箋の要約・グループ分け、文章からの図の生成)が使える。使えるのはボードの編集権限がある人だけ |
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | AI 機能で使う Claude のモデル |
+| `PUBLIC_URL` | なし | 公開している URL(例 `https://board.example.com/`)。Slack 通知にボードへのリンクを付ける |
+| `SLACK_WEBHOOK_PREFIXES` | `https://hooks.slack.com/` | Slack 通知を送ってよい Webhook URL の先頭(カンマ区切り)。これ以外の URL は登録できない |
 
 ### アカウントと権限
 
@@ -206,6 +225,13 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 - ログインせずに `?room=` で開いたボードは、これまでどおり誰でも編集できる。
 - API の一覧は `crates/board-core/src/api.rs` にある。
 
+### 外部からの操作(REST API)
+
+- ログインした状態で `POST /api/tokens` からトークンを作ると、`/api/v1` の REST API でボードの要素を読み書きできる。変更は開いている人の画面にすぐ反映される。
+- トークンは「読むだけ / 読み書き」と使えるボードを選べ、権限は持ち主の権限を超えない。
+- Rust からは SDK クレート `graboard-sdk`(`crates/board-sdk`)で使える。
+- 詳しくは [docs/api.md](docs/api.md)。
+
 ## 構成
 
 | crate | 役割 |
@@ -213,6 +239,7 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `board-core` | データモデル(図形・手書き線・ボード、yrs による CRDT と Undo)、タイマーと投票の共有状態(`session`)、付箋の自動整理(`tidy`)、カメラ座標変換、パン/ズームと編集操作(`Editor`)。描画にも通信にも依存しない |
 | `board-render` | wgpu の描画エンジン。WGSL シェーダ(`grid.wgsl`, `shapes.wgsl`)と文字描画(glyphon / cosmic-text) |
 | `board-web` | ブラウザ用クライアント(WASM)。canvas、入力イベント、HUD、WebSocket 接続とカーソル表示 |
+| `board-sdk` | REST API(`/api/v1`)の Rust クライアント(クレート名 `graboard-sdk`) |
 | `board-server` | 同期サーバー(axum + tokio)。ルームごとに yrs ドキュメントを持って更新を中継し、redb に保存する |
 | `board-bench` | 再現可能なベンチマーク(CPU 側の処理時間、初回同期の速さ) |
 

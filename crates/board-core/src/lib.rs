@@ -4,8 +4,10 @@
 //! クライアント(WASM)とサーバーの両方から使う。
 
 pub mod a11y;
+pub mod access;
 pub mod api;
 pub mod arrange;
+pub mod autolayout;
 pub mod board;
 pub mod camera;
 pub mod color;
@@ -19,13 +21,16 @@ pub mod format;
 pub mod geom;
 pub mod markdown;
 pub mod navigation;
+pub mod ops;
 pub mod protocol;
 pub mod search;
 pub mod session;
 pub mod shape;
+pub mod snap;
 pub mod spatial;
 pub mod stamp;
 pub mod table;
+pub mod tabular;
 pub mod templates;
 pub mod tidy;
 
@@ -36,6 +41,8 @@ pub use editor::{Editor, Modifiers, Tool};
 pub use element::{Cap, Connector, Element, ElementId, Endpoint, Meta, PathStyle, Stroke};
 pub use geom::Rect;
 pub use navigation::Navigator;
-pub use shape::{ImageData, Shape, ShapeCategory, ShapeKind, TextAlign, TextBox, TextStyle};
+pub use shape::{
+    ImageData, Shape, ShapeCategory, ShapeKind, TextAlign, TextBox, TextStyle, VAlign,
+};
 
 pub use glam::{Mat4, Vec2};

@@ -5,6 +5,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use board_core::arrange::{self, Align, Order};
+use board_core::autolayout;
+use board_core::diagram::Direction;
 use board_core::table::{self, Edit};
 use wasm_bindgen::JsCast;
 use web_sys::{ClipboardEvent, Element, HtmlElement, KeyboardEvent, MouseEvent};
@@ -29,6 +31,8 @@ pub enum Action {
         horizontal: bool,
     },
     Tidy,
+    /// コネクタでつないだ図を矢印の向きに沿って並べ直す。
+    AutoLayout(Direction),
     /// 表を挿入する(3 行 3 列)。
     InsertTable,
     /// 表の行・列を足す・消す(右クリックした位置のセルが基準)。
@@ -75,6 +79,8 @@ pub fn action_for_key(e: &KeyboardEvent) -> Option<Action> {
         (false, true, true, "KeyH") => Action::Distribute { horizontal: true },
         (false, true, true, "KeyV") => Action::Distribute { horizontal: false },
         (false, true, true, "KeyT") => Action::Tidy,
+        (false, true, true, "KeyL") => Action::AutoLayout(Direction::Right),
+        (false, true, true, "KeyJ") => Action::AutoLayout(Direction::Down),
         (true, true, false, "KeyE") => Action::Export(super::export::ExportFormat::Png),
         _ => return None,
     })
@@ -94,6 +100,12 @@ impl App {
             Action::Group | Action::Align(_) => n >= 2,
             Action::Distribute { .. } => n >= 3,
             Action::Tidy => n >= 2,
+            Action::AutoLayout(_) => {
+                autolayout::collect(&self.board, self.editor.selection())
+                    .0
+                    .len()
+                    >= 2
+            }
             Action::InsertTable => true,
             Action::Export(_) => !self.board.is_empty(),
             Action::Table(_) => {
@@ -160,6 +172,9 @@ impl App {
                 arrange::distribute(&mut self.board, &sel, horizontal)
             }
             Action::Tidy => arrange::tidy(&mut self.board, &sel),
+            Action::AutoLayout(dir) => {
+                autolayout::auto_layout(&mut self.board, &sel, dir);
+            }
             Action::Export(f) => self.export(f),
             Action::InsertTable => {
                 let at = MENU_POS
@@ -273,6 +288,14 @@ pub fn install_clipboard(app: &Rc<RefCell<App>>) -> Result<(), String> {
             };
             if app.borrow_mut().paste_text(&text, None) {
                 e.prevent_default();
+            } else if board_core::tabular::looks_like_tsv(&text) {
+                // 表計算ソフトからコピーした範囲は表にする。
+                e.prevent_default();
+                let mut a = app.borrow_mut();
+                let at = a
+                    .cursor_world
+                    .unwrap_or_else(|| a.camera.screen_to_world(a.camera.viewport * 0.5));
+                a.insert_csv(&text, at);
             } else if board_core::markdown::looks_like_markdown(&text) {
                 // マークダウンはフレーム・付箋・表などに分けて並べる。
                 e.prevent_default();
@@ -359,6 +382,16 @@ fn menu_items() -> Vec<Item> {
             Action::Distribute { horizontal: false },
         ),
         A("整頓(格子に並べる)", "Alt+Shift+T", Action::Tidy),
+        A(
+            "図を自動整列(左から右へ)",
+            "Alt+Shift+L",
+            Action::AutoLayout(Direction::Right),
+        ),
+        A(
+            "図を自動整列(上から下へ)",
+            "Alt+Shift+J",
+            Action::AutoLayout(Direction::Down),
+        ),
         Sep,
         A("表を挿入", "", Action::InsertTable),
         Sep,

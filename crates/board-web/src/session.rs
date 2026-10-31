@@ -5,7 +5,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use board_core::api::{BoardInfo, Me, RenameBoard, Role, SetLink, SetMember, Sharing};
+use board_core::api::{
+    BoardInfo, Me, RenameBoard, Role, SetLink, SetMember, SetSlack, Sharing, SlackEvents,
+    SlackSettings,
+};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{Document, Element, HtmlElement, HtmlInputElement, HtmlSelectElement, Window};
@@ -90,6 +93,9 @@ pub struct BoardChrome {
     pub info: Option<BoardInfo>,
     sharing: Option<Sharing>,
     share_error: Option<String>,
+    slack: Option<SlackSettings>,
+    /// Slack の設定・テスト送信の結果(成功なら `Ok`)。
+    slack_status: Option<Result<String, String>>,
 }
 
 pub type SharedChrome = Rc<RefCell<BoardChrome>>;
@@ -112,6 +118,8 @@ impl BoardChrome {
             info,
             sharing: None,
             share_error: None,
+            slack: None,
+            slack_status: None,
         }));
         chrome.borrow().render_header();
         install(&chrome);
@@ -277,17 +285,70 @@ impl BoardChrome {
     <button type="submit">招待</button>
   </form>
   {err}
-</section>"#,
+</section>
+<section data-slot="slack"></section>"#,
             link_opts = options(sh.link.as_ref().map(|l| l.role), true),
             invite_opts = options(Some(Role::Editor), false),
         ));
+        if let Ok(Some(section)) = panel.query_selector("[data-slot=slack]") {
+            section.set_inner_html(&self.slack_html());
+        }
+    }
+
+    /// Slack 通知の設定欄。
+    fn slack_html(&self) -> String {
+        let Some(sl) = &self.slack else {
+            return String::new();
+        };
+        let check = |name: &str, label: &str, on: bool| {
+            format!(
+                r#"<label class="check"><input type="checkbox" name="{name}" {} /> {label}</label>"#,
+                if on { "checked" } else { "" }
+            )
+        };
+        let (placeholder, buttons) = if sl.enabled {
+            (
+                format!(
+                    "設定済み({})。変えるときだけ入力",
+                    escape(sl.hint.as_deref().unwrap_or(""))
+                ),
+                r#"<button type="submit">保存</button><button type="button" data-action="slack-test">テスト送信</button><button type="button" class="quiet" data-action="slack-off">やめる</button>"#,
+            )
+        } else {
+            (
+                "https://hooks.slack.com/services/…".to_string(),
+                r#"<button type="submit">保存</button>"#,
+            )
+        };
+        let status = match &self.slack_status {
+            Some(Ok(m)) => format!(r#"<p class="muted small">{}</p>"#, escape(m)),
+            Some(Err(m)) => format!(r#"<p class="form-error">{}</p>"#, escape(m)),
+            None => String::new(),
+        };
+        format!(
+            r#"<strong>Slack に通知</strong>
+<form data-form="slack" class="stack">
+  <input name="webhook" type="url" autocomplete="off" placeholder="{placeholder}" aria-label="Slack の Incoming Webhook URL" />
+  <div class="checks">{c}{m}{v}</div>
+  <div class="row">{buttons}</div>
+</form>
+{status}"#,
+            c = check("comments", "すべてのコメント", sl.events.comments),
+            m = check("mentions", "メンション", sl.events.mentions),
+            v = check("versions", "バージョンの保存", sl.events.versions),
+        )
     }
 }
 
 async fn load_sharing(chrome: SharedChrome) {
     let room = chrome.borrow().room.clone();
     let res = http::get::<Sharing>(&http::board_path(&room, None, "/sharing")).await;
+    // Slack の設定は、API のない古いサーバーでは取れないので、取れたときだけ出す。
+    let slack = http::get::<SlackSettings>(&http::board_path(&room, None, "/slack"))
+        .await
+        .ok();
     let mut c = chrome.borrow_mut();
+    c.slack = slack;
     match res {
         Ok(sh) => {
             c.sharing = Some(sh);
@@ -328,6 +389,65 @@ fn update_sharing(chrome: &SharedChrome, req: SharingRequest) {
 enum SharingRequest {
     Link(SetLink),
     Member(SetMember),
+}
+
+/// Slack 通知の設定を変える(`None` ならテスト送信)。
+fn update_slack(chrome: &SharedChrome, req: Option<SetSlack>) {
+    let chrome = chrome.clone();
+    wasm_bindgen_futures::spawn_local(async move {
+        let room = chrome.borrow().room.clone();
+        let status = match req {
+            Some(body) => {
+                let off = body.webhook.as_deref() == Some("");
+                match http::send::<_, SlackSettings>(
+                    "PUT",
+                    &http::board_path(&room, None, "/slack"),
+                    &body,
+                )
+                .await
+                {
+                    Ok(sl) => {
+                        chrome.borrow_mut().slack = Some(sl);
+                        Ok(if off {
+                            "Slack への通知をやめました"
+                        } else {
+                            "保存しました"
+                        }
+                        .to_string())
+                    }
+                    Err(e) => Err(e.message()),
+                }
+            }
+            None => http::send_empty("POST", &http::board_path(&room, None, "/slack/test"))
+                .await
+                .map(|_| "テストのメッセージを送りました".to_string())
+                .map_err(|e| e.message()),
+        };
+        let mut c = chrome.borrow_mut();
+        c.slack_status = Some(status);
+        c.render_share();
+    });
+}
+
+fn slack_form(form: &Element) -> SetSlack {
+    let input = |name: &str| {
+        form.query_selector(&format!("[name={name}]"))
+            .ok()
+            .flatten()
+            .and_then(|e| e.dyn_into::<HtmlInputElement>().ok())
+    };
+    let checked = |name: &str| input(name).is_some_and(|i| i.checked());
+    let webhook = input("webhook")
+        .map(|i| i.value().trim().to_string())
+        .filter(|v| !v.is_empty());
+    SetSlack {
+        webhook,
+        events: SlackEvents {
+            comments: checked("comments"),
+            mentions: checked("mentions"),
+            versions: checked("versions"),
+        },
+    }
 }
 
 impl BoardChrome {
@@ -488,6 +608,14 @@ fn install(chrome: &SharedChrome) {
                     }),
                 );
             }
+            Some("slack-test") => update_slack(&ch, None),
+            Some("slack-off") => update_slack(
+                &ch,
+                Some(SetSlack {
+                    webhook: Some(String::new()),
+                    events: SlackEvents::default(),
+                }),
+            ),
             Some("remove-member") => {
                 if let Some(login) = el.get_attribute("data-login") {
                     update_sharing(&ch, SharingRequest::Member(SetMember { login, role: None }));
@@ -530,6 +658,10 @@ fn install(chrome: &SharedChrome) {
         let Some(form) = e.target().and_then(|t| t.dyn_into::<Element>().ok()) else {
             return;
         };
+        if form.get_attribute("data-form").as_deref() == Some("slack") {
+            update_slack(&ch, Some(slack_form(&form)));
+            return;
+        }
         let input = form
             .query_selector("[name=login]")
             .ok()

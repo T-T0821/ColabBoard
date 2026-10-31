@@ -106,7 +106,7 @@
       </button>
       <div id="stamp-picker" class="popover stamp-picker" role="menu" aria-label="スタンプ・リアクション"></div>
     </div>
-    <button id="insert-image" class="tool" title="画像・PDF・マークダウンを挿入(貼り付け・ドロップでも置けます)">
+    <button id="insert-image" class="tool" title="画像・PDF・マークダウン・CSV・Excel を挿入(貼り付け・ドロップでも置けます)">
       <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.8"/><path d="M21 16l-5-5-9 9"/></svg>
     </button>
     <div class="tool-group">
@@ -115,7 +115,7 @@
       </button>
       <div id="template-picker" class="popover template-picker" role="menu" aria-label="テンプレート"></div>
     </div>
-    <input id="image-file" type="file" accept="image/png,image/jpeg,application/pdf,.pdf,.md,.markdown,text/markdown" multiple hidden>
+    <input id="image-file" type="file" accept="image/png,image/jpeg,application/pdf,.pdf,.md,.markdown,text/markdown,.csv,.tsv,text/csv,.xlsx,.xlsm,.xlsb,.xls,.ods" multiple hidden>
     <span class="sep"></span>
     <button id="tool-frame" aria-keyshortcuts="F" class="tool" title="フレーム (F)" aria-pressed="false">
       <svg viewBox="0 0 24 24"><path d="M7 3v18M17 3v18M3 7h18M3 17h18"/></svg>
@@ -205,6 +205,8 @@
     <span id="hud-zoom">100%</span>
     <button id="zoom-in" aria-label="拡大">+</button>
     <button id="zoom-fit">全体</button>
+    <span class="sep"></span>
+    <button id="toggle-authors" aria-pressed="true" title="付箋に書いた人の名前を表示">名前</button>
     <button id="shortcuts-button" title="キーボード操作 (?)" aria-label="キーボード操作の一覧" aria-controls="shortcuts" aria-keyshortcuts="Shift+?">?</button>
   </nav>
 
@@ -239,6 +241,12 @@
     </div>
     <div class="label">サンプル</div>
     <div id="diagram-samples" class="diagram-samples"></div>
+    <hr />
+    <div class="label">選んだ図を自動整列(つながった図形もまとめて)</div>
+    <div class="diagram-row">
+      <button id="diagram-layout-right" title="左から右へ (Alt+Shift+L)">左 → 右</button>
+      <button id="diagram-layout-down" title="上から下へ (Alt+Shift+J)">上 → 下</button>
+    </div>
   </section>
 
   <div id="search-box" class="panel search-box" role="search" hidden>

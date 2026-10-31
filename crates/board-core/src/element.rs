@@ -19,6 +19,8 @@ pub struct Meta {
     pub locked: bool,
     /// クリックで開くリンク(空ならなし)。
     pub link: String,
+    /// 作った人の表示名(空ならなし)。付箋の下に小さく出す。
+    pub author: String,
 }
 
 /// 手書きの線。点列をそのまま持ち、GPU では線分ごとのカプセルとして描く。
