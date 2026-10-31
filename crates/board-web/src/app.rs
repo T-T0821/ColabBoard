@@ -1055,6 +1055,7 @@ impl App {
         } else if e.button() == 0 {
             let mods = Modifiers {
                 shift: e.shift_key(),
+                alt: e.alt_key(),
             };
             self.editor
                 .pointer_down(&mut self.board, &self.camera, p, mods);
@@ -1097,6 +1098,7 @@ impl App {
         } else if self.editor.is_dragging() && past_slop {
             let mods = Modifiers {
                 shift: e.shift_key(),
+                alt: e.alt_key(),
             };
             if self
                 .editor
