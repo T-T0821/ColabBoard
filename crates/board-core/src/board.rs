@@ -389,8 +389,7 @@ impl Board {
                 index
                     .get(&id)
                     .map(|&j| &elements[j])
-                    .filter(|e| !matches!(e, Element::Connector(_)))
-                    .map(Element::bounds)
+                    .and_then(crate::connector::Target::of)
             };
             if c.route(lookup) {
                 self.elements[i] = Element::Connector(c);
@@ -617,7 +616,7 @@ impl Board {
             b.push_with(ORIGIN_INIT, s.into());
             if let Some(from) = prev {
                 let cid = b.alloc_id();
-                let c = Connector::new(
+                let mut c = Connector::new(
                     cid,
                     Endpoint::Attached {
                         id: from,
@@ -625,6 +624,9 @@ impl Board {
                     },
                     Endpoint::Attached { id, anchor: None },
                 );
+                if kind == ShapeKind::Ellipse {
+                    c.text = "OK".into();
+                }
                 b.push_with(ORIGIN_INIT, c.into());
             }
             prev = Some(id);
