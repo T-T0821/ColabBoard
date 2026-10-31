@@ -1626,6 +1626,15 @@ body.embed-mode .comments-panel,
 body.embed-mode #comment-pins,
 body.embed-mode .notif-menu,
 body.embed-mode .history-panel { display: none !important; }
+/* ---- 言語の切り替え ---- */
+.lang-toggle { min-width: 32px; padding: 0 8px; font-size: 12px; font-weight: 600; }
+.lang-fab {
+  position: fixed; top: 16px; right: 16px; z-index: 40;
+  height: 32px; padding: 0 12px; font-size: 13px; font-weight: 600;
+  display: none;
+}
+#home:not([hidden]) ~ .lang-fab { display: inline-flex; align-items: center; }
+
 
 /* AI の結果のお知らせ(画面下の中央) */
 .ai-toast {

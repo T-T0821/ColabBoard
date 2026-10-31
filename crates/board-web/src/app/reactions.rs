@@ -113,7 +113,7 @@ fn stamp_button(s: &Stamp) -> String {
         ""
     };
     format!(
-        r#"<button data-stamp="{}" title="{}"><span class="{class}{long}" style="--c: rgb({r},{g},{b})">{}</span></button>"#,
+        r#"<button data-stamp="{}" title="{}"><span class="{class}{long}" translate="no" style="--c: rgb({r},{g},{b})">{}</span></button>"#,
         s.name,
         esc(s.title),
         esc(&s.glyph)
@@ -165,7 +165,7 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
         ));
         if *g == StampGroup::Hanko {
             html.push_str(&format!(
-                r#"<div class="hanko-maker"><input id="hanko-name" maxlength="8" placeholder="印鑑の名前" value="{}" aria-label="印鑑の名前"><button data-hanko="name" title="名前の印鑑を押す"><span class="stamp-badge hanko">印</span></button><button data-hanko="date" title="日付印(承認)を押す"><span class="stamp-badge hanko long">日付</span></button></div>"#,
+                r#"<div class="hanko-maker"><input id="hanko-name" maxlength="8" placeholder="印鑑の名前" value="{}" aria-label="印鑑の名前"><button data-hanko="name" title="名前の印鑑を押す"><span class="stamp-badge hanko" translate="no">印</span></button><button data-hanko="date" title="日付印(承認)を押す"><span class="stamp-badge hanko long" translate="no">日付</span></button></div>"#,
                 esc(&name)
             ));
         }

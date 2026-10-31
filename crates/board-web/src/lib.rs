@@ -7,8 +7,10 @@ pub mod sheets;
 mod app;
 #[cfg(target_arch = "wasm32")]
 mod home;
+
 #[cfg(target_arch = "wasm32")]
 mod http;
+pub mod i18n;
 #[cfg(target_arch = "wasm32")]
 mod net;
 #[cfg(target_arch = "wasm32")]
@@ -35,6 +37,8 @@ pub fn start() {
     if let Some(w) = web_sys::window()
         && let Some(d) = w.document()
     {
+        // 言語を先に決める(以降に出す文字は英語のとき自動で訳される)。
+        i18n::init(&w, &d);
         theme::init(&w, &d);
         tooltip::install(&d);
     }

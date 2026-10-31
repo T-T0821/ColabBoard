@@ -485,7 +485,7 @@ impl App {
                     let mine = me.as_deref() == Some(cm.author.as_str());
                     let can_delete = mine || role == Role::Owner;
                     items.push_str(&format!(
-                        r#"<li><div class="row"><span class="avatar">{ini}</span><strong>{name}</strong><span class="muted small grow">{ago}{edited}</span>{del}</div><div class="body">{body}</div></li>"#,
+                        r#"<li><div class="row"><span class="avatar">{ini}</span><strong translate="no">{name}</strong><span class="muted small grow">{ago}{edited}</span>{del}</div><div class="body" translate="no">{body}</div></li>"#,
                         ini = escape(&initial(&cm.author_name)),
                         name = escape(&cm.author_name),
                         ago = ago(cm.created),

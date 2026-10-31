@@ -1,0 +1,773 @@
+# 英語の訳。1 行に「日本語<TAB>英語」。数字は {n} と書く(画面の数字に置き換わる)。
+# 画面の文字(前後の空白を除いたもの)と完全に一致したときだけ置き換える。
+# 括弧付きの「本体(補足)」は、全体が見つからなければ本体と補足を別々に訳す。
+グラボード	Graboard
+ホワイトボード	Whiteboard
+文字を入力	Enter text
+ボード一覧	Boards
+描画	Renderer
+初期化中…	Starting…
+要素	Elements
+接続中…	Connecting…
+このボードを共有	Share this board
+リンクをコピー	Copy link
+コメント	Comments
+バージョン履歴	Version history
+履歴	History
+通知	Notifications
+ダークモードにする	Switch to dark mode
+ダークモード	Dark mode
+ライトモードにする	Switch to light mode
+コメント一覧	All comments
+共有	Share
+性能確認	Performance
+ダミー要素	Dummy elements
+{n}千	{n}K
+{n}万	{n}0K
+初期化	Reset
+常時再描画(計測)	Always redraw (benchmark)
+操作時のみ描画	Redraw on input only
+ツール	Tools
+選択 (V)	Select (V)
+手のひら (H / Space)	Hand (H / Space)
+付箋 (S)	Sticky note (S)
+図形ライブラリ (R: 四角形 / O: 楕円)	Shape library (R: rectangle / O: ellipse)
+テキスト (T)	Text (T)
+コネクタ (X)	Connector (X)
+ペン (P)	Pen (P)
+蛍光ペン (M)	Highlighter (M)
+消しゴム (E)	Eraser (E)
+スタンプ・リアクション	Stamps & reactions
+画像・PDF・マークダウン・CSV・Excel を挿入(貼り付け・ドロップでも置けます)	Insert image, PDF, Markdown, CSV or Excel (you can also paste or drop)
+テンプレート	Templates
+フレーム (F)	Frame (F)
+元に戻す (Ctrl/⌘+Z)	Undo (Ctrl/⌘+Z)
+やり直す (Ctrl/⌘+Shift+Z)	Redo (Ctrl/⌘+Shift+Z)
+色	Color
+黄	Yellow
+オレンジ	Orange
+ピンク	Pink
+紫	Purple
+青	Blue
+緑	Green
+白	White
+黒	Black
+赤	Red
+青(濃)	Dark blue
+一時停止	Pause
+再開	Resume
+{n} 分延長	Add {n} min
++{n}分	+{n} min
+タイマーを消す	Clear timer
+やめる	Stop
+ファシリテーション	Facilitation
+進め方を閉じる	Close guide
+タイマー	Timer
+{n}分	{n} min
+{n} 分	{n} min
+投票	Vote
+{n}人	{n} people
+票	votes
+新しい投票を始める(前の結果は消えます)	Start a new vote (clears the previous result)
+開始	Start
+締め切る	Close
+投票と結果を片付ける	Clear the vote and results
+片付ける	Clear
+画面共有	Presenting
+参加者全員の画面をあなたの表示に追従させます	Make everyone's view follow yours
+プレゼン開始	Start presenting
+参加者	Participants
+名前を押すとその人の画面をフォロー	Click a name to follow that person's view
+選択中の付箋({n} 枚以上)、なければボード上の全付箋を並べ直します	Rearranges the selected sticky notes ({n} or more), or all sticky notes on the board
+整理	Arrange
+格子に整列	Grid
+色でまとめる	Group by color
+選択中の付箋({n} 枚以上)、なければボード上の全付箋が対象です	Uses the selected sticky notes ({n} or more), or all sticky notes on the board
+要約	Summarize
+グループ分け	Cluster
+ズーム	Zoom
+縮小	Zoom out
+拡大	Zoom in
+全体	Fit
+付箋に書いた人の名前を表示	Show who wrote each sticky note
+名前	Names
+スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ ダブルクリック/Enter: 文字入力 ・ Delete: 削除 ・ Ctrl/⌘+Z: 元に戻す	Scroll: pan · Ctrl/⌘+scroll: zoom · Space+drag: pan · Shift: add to selection / keep aspect · Double-click/Enter: edit text · Delete: delete · Ctrl/⌘+Z: undo
+図形ライブラリ	Shape library
+AWS 構成図・フローチャート・生成 AI	AWS diagrams, flowcharts and generative AI
+構成図・AI	Diagrams & AI
+構成図	Diagrams
+生成 AI で図を作る	Create a diagram with generative AI
+例: ALB の後ろに EC{n} を {n} 台(マルチ AZ)、DB は Aurora。画像は S{n} から CloudFront で配信	e.g. {2} EC{1} instances behind an ALB (multi-AZ), Aurora for the DB, images served from S{3} via CloudFront
+図の種類	Diagram type
+おまかせ	Auto
+AWS 構成図	AWS architecture
+Azure 構成図	Azure architecture
+Google Cloud 構成図	Google Cloud architecture
+フローチャート	Flowchart
+生成	Generate
+部品	Parts
+置く	Place
+枠	Groups
+サンプル	Samples
+選んだ図を自動整列(つながった図形もまとめて)	Auto-layout the selected diagram (including connected shapes)
+左から右へ (Alt+Shift+L)	Left to right (Alt+Shift+L)
+左 → 右	Left → right
+上から下へ (Alt+Shift+J)	Top to bottom (Alt+Shift+J)
+上 → 下	Top → bottom
+ボード内を検索	Search the board
+前へ (Shift+Enter)	Previous (Shift+Enter)
+前へ	Previous
+次へ (Enter)	Next (Enter)
+次へ	Next
+閉じる (Esc)	Close (Esc)
+閉じる	Close
+書式	Format
+#{n} が見つかりません	#{n} not found
+#{n} の要素の種類が違います	#{n} has the wrong element type
+canvas の複製に失敗しました	Failed to clone the canvas
+このブラウザでは GPU 描画を開始できませんでした({n})。WebGPU か WebGL{n} に対応したブラウザで開いてください。	This browser could not start GPU rendering ({n}). Please open it in a browser that supports WebGPU or WebGL{n}.
+URL を読めません	Cannot read the URL
+オフライン(保存されません)	Offline (not saved)
+ダミー表示中(同期なし)	Dummy board (not synced)
+サーバーにつながらないので、この端末に保存しながら動かします	Can't reach the server, so changes are saved on this device
+オンライン · {n}人	Online · {n} people
+再接続中 · この端末に保存	Reconnecting · saving on this device
+再接続中…	Reconnecting…
+オフライン · この端末に保存	Offline · saving on this device
+ルーム: {n}	Room: {n}
+あなた: {n}	You: {n}
+コピーしました	Copied
+表計算のファイルを読めません: {n}	Cannot read the spreadsheet: {n}
+サーバーにつながりません	Cannot reach the server
+エラー({n})	Error ({n})
+たった今	just now
+{n} 分前	{n} min ago
+{n} 時間前	{n} h ago
+表示名	Display name
+カーソルやコメントに出る名前	Shown on your cursor and comments
+ログイン名	Username
+英小文字・数字・-・_	lowercase letters, digits, - and _
+パスワード	Password
+ログインせずに新しいボードを作る	Create a new board without signing in
+ログインせずに作ったボードは、URL を知っている人なら誰でも編集できます。	Anyone with the URL can edit a board created without signing in.
+アカウントを作ると、ボードの一覧・共有の設定・コメントが使えます。	Create an account to get a board list, sharing settings and comments.
+ログインしてボードを開きましょう。	Sign in to open your boards.
+アカウントを作る	Create account
+ログイン	Sign in
+アカウントをお持ちの方は	Already have an account?
+はじめての方は	New here?
+誰でも編集可	Anyone can edit
+本当に削除	Really delete
+削除	Delete
+まだボードがありません。上の欄から作りましょう。	No boards yet. Create one above.
+ログアウト	Sign out
+新しいボードの名前	New board name
+ボードを作る	Create board
+ログインして開く	Sign in to open
+ボード一覧へ	Back to boards
+このボードを開けなくなりました	You can no longer open this board
+このボードを開けません	Cannot open this board
+ボードが削除されたか、開く権限がありません。オーナーに招待してもらうか、共有リンクを教えてもらってください。	The board was deleted or you don't have access. Ask the owner to invite you or to send you a share link.
+ボードが見つからないか、ログインが必要です。	The board was not found, or you need to sign in.
+クリックして名前を変更	Click to rename
+読み込み中…	Loading…
+オフ(招待した人だけ)	Off (invited people only)
+コピー	Copy
+リンクを作り直す(古いリンクは使えなくなります)	Regenerate link (the old link stops working)
+オーナー	Owner
+外す	Remove
+リンクを知っている人	Anyone with the link
+メンバー	Members
+ログイン名で招待	Invite by username
+招待	Invite
+設定済み({n})。変えるときだけ入力	Set ({n}). Enter only to change it
+保存	Save
+テスト送信	Send test
+Slack に通知	Notify Slack
+Slack の Incoming Webhook URL	Slack Incoming Webhook URL
+すべてのコメント	All comments
+メンション	Mentions
+バージョンの保存	Saved versions
+Slack への通知をやめました	Stopped notifying Slack
+保存しました	Saved
+テストのメッセージを送りました	Sent a test message
+参加者 {n}	Participants {n}
+プレゼン中: 参加者はあなたの画面に追従しています	Presenting: everyone is following your view
+終了	End
+{n} さんの画面をフォロー中	Following {n}
+{n} さんがプレゼン中	{n} is presenting
+見る	Watch
+プレゼン終了	Stop presenting
+ほかに参加者はいません	No one else is here
+この人の画面をフォロー	Follow this person's view
+生成中…	Generating…
+サーバーに接続できません	Cannot connect to the server
+生成に失敗しました(HTTP {n})	Generation failed (HTTP {n})
+作りたい図の説明を入力してください	Describe the diagram you want
+生成 AI は共同編集のボード(?room=…)で使えます	Generative AI is available on shared boards (?room=…)
+Claude が図を考えています…(数十秒かかることがあります)	Claude is drawing the diagram… (this can take tens of seconds)
+図	diagram
+説明を書いて「生成」(Ctrl/⌘+Enter)	Describe it and press Generate (Ctrl/⌘+Enter)
+サーバーで生成 AI が無効です(ANTHROPIC_API_KEY を設定すると使えます)	Generative AI is disabled on the server (set ANTHROPIC_API_KEY to enable it)
+サーバーにつながっていないため生成 AI は使えません	Generative AI is unavailable while offline
+自動保存	Autosave
+復元しました。戻す前の状態も履歴に残っています	Restored. The previous state is still in the history
+読み込めませんでした: {n}	Could not load: {n}
+表示中:	Viewing:
+今の状態に戻る	Back to current
+このバージョンに戻す	Restore this version
+今の状態に名前を付けて保存	Save the current state with a name
+今の状態	Current state
+編集中のボード	Board being edited
+まだ履歴はありません。編集すると {n} 分ごとに自動で保存されます。	No history yet. While you edit, a version is saved every {n} minutes.
+上に行を追加	Insert row above
+下に行を追加	Insert row below
+左に列を追加	Insert column left
+右に列を追加	Insert column right
+行を削除	Delete row
+列を削除	Delete column
+切り取り	Cut
+貼り付け	Paste
+複製	Duplicate
+グループ化	Group
+グループ解除	Ungroup
+ロック / 解除	Lock / unlock
+すべてのロックを解除	Unlock all
+最前面へ	Bring to front
+前面へ	Bring forward
+背面へ	Send backward
+最背面へ	Send to back
+左揃え	Align left
+左右中央揃え	Align center
+右揃え	Align right
+上揃え	Align top
+上下中央揃え	Align middle
+下揃え	Align bottom
+横に等間隔	Distribute horizontally
+縦に等間隔	Distribute vertically
+整頓(格子に並べる)	Tidy up (grid)
+図を自動整列(左から右へ)	Auto-layout diagram (left to right)
+図を自動整列(上から下へ)	Auto-layout diagram (top to bottom)
+表を挿入	Insert table
+すべて選択	Select all
+PNG で書き出し(選択 / 全体)	Export PNG (selection / all)
+PDF で書き出し(選択 / 全体)	Export PDF (selection / all)
+マークダウンで書き出し(選択 / 全体)	Export Markdown (selection / all)
+図形	Shapes
+図形を検索(例: 矢印、円柱)	Search shapes (e.g. arrow, cylinder)
+図形を検索	Search shapes
+押して描く・キャンバスへドラッグして置く	Click to draw, or drag onto the canvas
+その他	Other
+表({n}×{n})	Table ({n}×{n})
+AWS・クラウド構成図のアイコン	AWS & cloud architecture icons
+反応	Reactions
+状態	Status
+記号	Marks
+番号	Numbers
+ハンコ	Seals
+絵文字	Emoji
+印鑑の名前	Name on the seal
+名前の印鑑を押す	Stamp a name seal
+日付印(承認)を押す	Stamp a date seal (approved)
+リアクション {n}	Reaction {n}
+リアクション(みんなの画面に浮かぶ)	Reactions (float on everyone's screen)
+テンプレートを検索(例: 振り返り、KPT)	Search templates (e.g. retro, KPT)
+テンプレートを検索	Search templates
+見つかりません	Nothing found
+コンピューティング	Compute
+ストレージ	Storage
+データベース	Database
+ネットワーク	Networking
+セキュリティ	Security
+アプリ統合	App integration
+分析	Analytics
+管理	Management
+機械学習	Machine learning
+フロントエンド	Front end
+開発ツール	Developer tools
+一般	General
+画像の大きさが合いません	The image size doesn't match
+マークダウンは画像から作れません	Markdown can't be made from images
+書き出す文字がありません	There is no text to export
+書き出すものがありません	There is nothing to export
+画像を読み戻せませんでした	Could not read the image back
+書き出しに失敗しました: {n}	Export failed: {n}
+直線	Straight
+カギ線	Elbow
+曲線	Curved
+ロックを解除 (Ctrl+Shift+L)	Unlock (Ctrl+Shift+L)
+図形の種類	Shape type
+文字を小さく	Smaller text
+文字の大きさ	Text size
+文字を大きく	Larger text
+縦書き	Vertical text
+線の種類	Line style
+始点の矢印	Start arrow
+終点の矢印	End arrow
+リンク	Link
+https://… (Enter で決定)	https://… (Enter to apply)
+付箋をクリックで投票(Shift+クリックで取り消し)。残り {n} / {n} 票 · {n}人が投票中	Click sticky notes to vote (Shift+click to undo). {n} / {n} votes left · {n} voting
+締め切りました · {n}人が投票	Closed · {n} voted
+(空の付箋)	(empty sticky note)
+この付箋へ移動	Go to this sticky note
+{n}票	{n} votes
+応答を読めません	Cannot read the response
+エラー(HTTP {n})	Error (HTTP {n})
+AI 要約	AI summary
+AI 機能は共同編集のボードでだけ使えます	AI features are only available on shared boards
+付箋がありません	There are no sticky notes
+AI が {n} 枚の付箋を読んでいます…	AI is reading {n} sticky notes…
+要約を付箋にしました	Added the summary as a sticky note
+{n} 個のグループに分けました	Grouped into {n} clusters
+画像の大きさが {n} です	The image size is {n}
+この版は PDF の取り込みに対応していません	This build can't import PDFs
+PDF を読めません: {n}	Cannot read the PDF: {n}
+ページを画像にできません	Cannot render the page
+PDF にページがありません	The PDF has no pages
+画像を読めません: {n}	Cannot read the image: {n}
+シートが空です	The sheet is empty
+通知({n} 件の未読)	Notifications ({n} unread)
+すべて既読	Mark all as read
+通知はありません	No notifications
+あなたをメンションしました	mentioned you
+スレッドに返信しました	replied to a thread
+コメント{n}	Comment {n}
+(返信 {n} 件)	({n} replies)
+解決済みも表示	Show resolved
+ボードをクリックするとコメントを置けます(Esc でやめる)	Click the board to place a comment (Esc to cancel)
+「＋ 追加」を押してからボードをクリックすると、その場所にコメントを置けます	Press “+ Add”, then click the board to leave a comment there
+＋ 追加	+ Add
+コメントはまだありません	No comments yet
+解決済み	Resolved
+返信 {n} 件	{n} replies
+するとコメントできます	to comment
+@ログイン名 でメンション · Ctrl/⌘+Enter で送信	Mention with @username · Ctrl/⌘+Enter to send
+このボードでは閲覧のみです	You can only view this board
+新しいコメント	New comment
+コメントを書く	Write a comment
+送信	Send
+(編集済み)	(edited)
+スレッドごと削除	Delete thread
+解決	Resolve
+解決済みのスレッド	Resolved thread
+スレッド	Thread
+返信する	Reply
+返信	Reply
+{n} はこのボードを開けないため通知していません	{n} can't open this board, so they weren't notified
+基本図形	Basic shapes
+矢印	Arrows
+四角形	Rectangle
+楕円	Ellipse
+付箋	Sticky note
+三角形	Triangle
+ひし形	Diamond
+星	Star
+六角形	Hexagon
+平行四辺形	Parallelogram
+テキスト	Text
+フレーム	Frame
+スタンプ	Stamp
+画像	Image
+角丸四角形	Rounded rectangle
+カプセル(端子)	Capsule (terminator)
+逆三角形	Inverted triangle
+直角三角形	Right triangle
+平行四辺形(左)	Parallelogram (left)
+台形	Trapezoid
+五角形	Pentagon
+八角形	Octagon
+四芒星	Four-pointed star
+十字	Cross
+ハート	Heart
+雲	Cloud
+稲妻	Lightning
+吹き出し	Speech bubble
+右矢印	Right arrow
+左矢印	Left arrow
+上矢印	Up arrow
+下矢印	Down arrow
+左右矢印	Left-right arrow
+シェブロン	Chevron
+工程(ホームベース)	Process (home plate)
+定義済み処理	Predefined process
+書類	Document
+データベース(円柱)	Database (cylinder)
+手操作入力	Manual input
+手作業	Manual operation
+遅延	Delay
+他ページ結合子	Off-page connector
+内部記憶	Internal storage
+カード	Card
+賛成	Agree
+いいね	Like
+注目	Star
+完了	Done
+質問	Question
+重要	Important
+いいね!	Like!
+反対	Disagree
+アイデア	Idea
+ありがとう	Thanks
+すごい	Awesome
+好き	Like it
+済み	Finished
+要確認	Needs review
+急ぎ	Urgent
+対応中	In progress
+保留	On hold
+新着	New
+やること	To do
+とても良い	Excellent
+良い	Good
+まあまあ	Fair
+だめ	Poor
+上げる	Up
+{n}位	#{n}
+投票(赤)	Vote (red)
+投票(青)	Vote (blue)
+投票(緑)	Vote (green)
+投票(黄)	Vote (yellow)
+投票(紫)	Vote (purple)
+投票(桃)	Vote (pink)
+承認	Approved
+承認印	Approval seal
+確認	Checked
+確認印	Check seal
+済印	Done seal
+検印	Inspected
+了解	Acknowledged
+至急	Urgent
+却下	Rejected
+回覧	Circulate
+大変よくできました	Excellent work
+名前の印鑑	Name seal
+日付印	Date seal
+振り返り	Retrospective
+ワークショップ	Workshop
+戦略・企画	Strategy
+計画・進行	Planning
+{n} 人 {n} 票	{2} votes per person
+各自で付箋に書く	Everyone writes sticky notes
+{n} 人ずつ読み上げて共有する	Each person reads theirs aloud
+AI で似た意見をまとめる	Group similar opinions with AI
+話したいものに投票	Vote on what to discuss
+投票を締め切って上位から話す	Close the vote and discuss from the top
+決まったことを要約する	Summarize the decisions
+たとえの意味を確認する	Explain the metaphor
+各自で付箋を貼る	Everyone adds sticky notes
+エリアごとに読み上げる	Read aloud area by area
+手を打ちたいものに投票	Vote on what to act on
+投票を締め切る	Close the vote
+次のアクションを要約する	Summarize the next actions
+自分に近い所に名前の付箋を置く	Place your name where you fit best
+結果を見て一言ずつ話す	Look at the result and each say a word
+各自で書く	Everyone writes
+ブロックごとに共有	Share block by block
+検証したい仮説に投票	Vote on hypotheses to test
+全体を要約する	Summarize everything
+候補を付箋に書く	Write candidates on sticky notes
+話し合いながら配置する	Place them while discussing
+結論を要約する	Summarize the conclusion
+候補を書き出す	List the candidates
+優先したいものに投票	Vote on priorities
+投票を締め切って並べ替える	Close the vote and reorder
+各自で付箋を書く	Everyone writes sticky notes
+全員で読み合わせる	Read through together
+大事な課題に投票	Vote on the important issues
+気づきを要約する	Summarize the insights
+Keep / Problem / Try の {n} 列	{n} columns: Keep / Problem / Try
+良かった・改善・アクション	Went well · to improve · actions
+いちばん素朴な {n} 列の振り返り	The simplest {n}-column retro
+やったこと・わかったこと・次にやること	What we did · learned · will do next
+始める・やめる・続けること	Start · stop · continue
+怒・哀・喜で気持ちから振り返る	Look back through mad, sad and glad
+スターフィッシュ	Starfish
+増やす・続ける・始める・減らす・やめる	More · keep · start · less · stop
+プラス / デルタ	Plus / Delta
+良かった点と変えたい点の {n} 列	{n} columns: what went well and what to change
+バラ・つぼみ・トゲ	Rose, bud, thorn
+うまくいったこと・芽・痛み	What worked · what's growing · what hurt
+好き・願い・疑問で振り返る	Look back through liked, wished and wondered
+帆船	Sailboat
+追い風・錨・岩・島のたとえで	Wind, anchors, rocks and the island
+熱気球	Hot air balloon
+押し上げる熱気と重い砂袋、嵐と晴れ空	Hot air that lifts, sandbags that hold down, storms and clear skies
+三匹の子ぶた	Three little pigs
+わら・木・レンガの家で丈夫さを測る	Rate sturdiness as straw, wood or brick houses
+タイムライン	Timeline
+期間を時系列でたどり出来事と気分を並べる	Walk through the period and line up events and moods
+言いにくいこと	The unspoken
+部屋の中の象・死んだ魚・吐き出したいこと	Elephants in the room, dead fish, things to vent
+ESVP チェックイン	ESVP check-in
+探検家・買い物客・休暇中・囚人で参加姿勢を知る	Explorer, shopper, vacationer or prisoner: how people feel about being here
+天気チェックイン	Weather check-in
+今の気分を晴れ〜嵐で表す	Show your mood from sunny to stormy
+アイスブレイク	Icebreaker
+チェックインの問いと自己紹介	Check-in questions and introductions
+期待と不安	Hopes and concerns
+始める前に期待と心配を出し合う	Share hopes and worries before starting
+ブレインストーミング	Brainstorming
+テーマから広げるアイデア	Ideas branching from a theme
+親和図(KJ 法)	Affinity diagram (KJ method)
+付箋を似たものどうしでまとめる	Group similar sticky notes together
+{n} 分で {n} 案をスケッチする	Sketch {2} ideas in {1} minutes
+課題を「どうすれば〜できる?」に言い換える	Reframe problems as “How might we…?”
+{n}-{n}-{n}-全体	{n}-{n}-{n}-All
+{n} 人→{n} 人→{n} 人→全体で考えを育てる	Grow ideas alone → in pairs → in fours → all together
+リーンコーヒー	Lean Coffee
+議題を投票で選び、時間を区切って話す	Vote on topics and discuss in timeboxes
+決断ジャム	Decision jam
+問題出しから実行まで短時間で決める	Go from problems to actions quickly
+{n} つの帽子	{n} thinking hats
+事実・感情・慎重・楽観・創造・進行の視点	Facts, feelings, caution, optimism, creativity and process
+Plus / Minus / Interesting で案を評価	Evaluate ideas with Plus / Minus / Interesting
+なぜなぜ分析	5 whys
+「なぜ?」を {n} 回くり返して真因へ	Ask “why?” {n} times to reach the root cause
+カスタマージャーニー	Customer journey
+段階ごとの行動・感情・課題	Actions, feelings and pain points at each stage
+共感マップ	Empathy map
+言う・考える・する・感じる	Says · thinks · does · feels
+ペルソナ	Persona
+想定するユーザー像を {n} 枚に	Your target user on {n} page
+GROW モデル	GROW model
+目標・現状・選択肢・意思で考える	Goal, reality, options, will
+ドラッカー風エクササイズ	Drucker exercise
+得意・貢献・価値観・期待を伝え合う	Share strengths, contributions, values and expectations
+リーンキャンバス	Lean canvas
+新規事業の仮説を {n} 枚に	A new business's hypotheses on {n} page
+ビジネスモデルキャンバス	Business model canvas
+{n} つの要素で事業を整理	Organize a business in {n} building blocks
+SWOT 分析	SWOT analysis
+強み・弱み・機会・脅威	Strengths · weaknesses · opportunities · threats
+PEST 分析	PEST analysis
+政治・経済・社会・技術の外部環境	Political, economic, social and technological environment
+関係者マップ	Stakeholder map
+影響力 × 関心で関わり方を決める	Decide how to engage by influence × interest
+現状と理想	As-is and to-be
+As-Is / To-Be とギャップ・打ち手	As-Is / To-Be, gaps and actions
+プレモーテム	Pre-mortem
+失敗したと仮定して原因と予防策を出す	Assume it failed, then find causes and prevention
+目標と主要な成果	Objectives and key results
+キックオフ	Kickoff
+目的・成功の定義・やらないこと・体制	Purpose, definition of success, non-goals and team
+ロードマップ	Roadmap
+四半期ごとの計画	Plan by quarter
+ストーリーマップ	Story map
+ユーザーの行動に沿ってリリースを切る	Slice releases along the user's journey
+スプリント計画	Sprint planning
+ゴール・バックログ・キャパシティ	Goal · backlog · capacity
+Must / Should / Could / Won't で仕分け	Sort into Must / Should / Could / Won't
+優先度マトリクス	Priority matrix
+効果 × 手間で優先度を決める	Prioritize by impact × effort
+{n}×{n} マトリクス	{n}×{n} matrix
+重要度 × 緊急度	Importance × urgency
+カンバン	Kanban
+ToDo / 作業中 / 完了	To do / Doing / Done
+定例ミーティング	Regular meeting
+議題・決定事項・宿題	Agenda · decisions · action items
+各自で出来事を時系列に貼る	Everyone places events on the timeline
+良かった・つらかったを書き足す	Add the highs and lows
+通しで読み上げる	Read it through
+学びを要約する	Summarize the learnings
+{n} 人 {n} 分で自己紹介	{2}-minute introductions each
+付箋に答えを書く	Write your answers on sticky notes
+期待と不安を各自で書く	Everyone writes hopes and concerns
+読み上げる	Read aloud
+AI で似たものをまとめる	Group similar items with AI
+扱いたい不安に投票	Vote on the concerns to address
+質より量。各自でアイデアを出す	Quantity over quality: everyone brings ideas
+AI で似たアイデアをまとめる	Group similar ideas with AI
+良いと思うものに投票	Vote for the ones you like
+事実・意見を付箋に書き出す	Write facts and opinions on sticky notes
+AI でグループ分け	Cluster with AI
+グループ名を見直して話し合う	Review the group names and discuss
+まとめを要約する	Summarize the result
+課題を確認する	Confirm the problem
+{n} 枠 {n} 分で {n} 案を描く	Draw {3} ideas in {1} frames in {2} minutes
+{n} 人ずつ紹介する	Each person presents
+良い案に投票	Vote for the best ideas
+課題を書き出す	List the problems
+「どうすれば〜?」に言い換える	Reframe as “How might we…?”
+取り組む問いに投票	Vote on the question to tackle
+アイデアを出す	Generate ideas
+{n} 人で考える	Think in groups of {n}
+{n} 人で話す	Talk in groups of {n}
+全体で共有する	Share with everyone
+出た考えを要約する	Summarize the ideas
+話したい議題を書く	Write topics you want to discuss
+議題に投票	Vote on topics
+投票を締め切って順番を決める	Close the vote and set the order
+{n} つの議題を話す	Discuss one topic
+話した内容を要約する	Summarize the discussion
+うまくいっていることを書く	Write what's going well
+問題を書く	Write the problems
+取り組む問題に投票	Vote on problems to tackle
+解決策を出す	Propose solutions
+解決策に投票	Vote on solutions
+投票を締め切ってやることを決める	Close the vote and decide actions
+帽子ごとに順番に考える({n} 色)	Think hat by hat ({n} colors)
+全員で同じ色の視点を共有	Share the same hat together
+青の帽子でまとめる	Wrap up with the blue hat
+Plus・Minus・Interesting を書く	Write Plus, Minus and Interesting
+判断を要約する	Summarize the decision
+問題を {n} 文で書く	Write the problem in {n} sentence
+「なぜ?」をくり返して掘り下げる	Dig deeper by asking “why?”
+真因と対策をまとめる	Summarize root causes and fixes
+目標を決める	Set the goal
+現状を書き出す	Describe the current state
+選択肢を広げる	Explore options
+やることに投票	Vote on actions
+投票を締め切って決める	Close the vote and decide
+自分の行を書く	Fill in your row
+{n} 人ずつ発表する	Each person presents
+ずれていた期待を要約する	Summarize mismatched expectations
+現状と理想を書く	Write the current and ideal state
+ギャップを話し合う	Discuss the gaps
+打ち手に投票	Vote on actions
+失敗した理由を各自で想像する	Everyone imagines why it failed
+AI で原因をまとめる	Group causes with AI
+起こりやすいものに投票	Vote on the most likely ones
+予防策を書く	Write preventive measures
+目標(O)の案を出す	Propose objectives (O)
+目標に投票	Vote on objectives
+主要な成果(KR)を書く	Write key results (KR)
+各ブロックを全員で埋める	Fill each block together
+不安なリスクに投票	Vote on worrying risks
+合意したことを要約する	Summarize what was agreed
+議題を確認	Review the agenda
+議論	Discuss
+決定事項と宿題をまとめる	Summarize decisions and action items
+進め方	Guide
+進め方: {n}	Guide: {n}
+言語	Language
+English に切り替える	Switch to English
+日本語に切り替える	Switch to Japanese
+100万	1M
+選択	Select
+手のひら	Hand
+コネクタ	Connector
+ペン	Pen
+蛍光ペン	Highlighter
+消しゴム	Eraser
+元に戻す	Undo
+やり直す	Redo
+ルーム	Room
+あなた	You
+秘	Confidential
+中央揃え	Center
+ユーザー	Users
+クライアント	Client
+モバイル	Mobile
+インターネット	Internet
+サーバー	Server
+オンプレミス	On-premises
+処理	Process
+判断	Decision
+開始・終了	Start / end
+データ	Data
+メモ	Note
+Web {n} 層構成	{n}-tier web app
+サーバーレス API	Serverless API
+Web アプリ	Web app
+コンテナ API	Container API
+問い合わせ対応	Customer inquiries
+リアクション	Reaction
+キャンバスへ移動	Skip to canvas
+ツールへ移動	Skip to tools
+Tab で要素を順に選択、Alt+矢印で近くの要素へ移動、矢印で選んだ要素を移動、Alt+Shift+矢印でつなぐ、Enter で文字を入力。S で付箋ツールにして Enter で置けます。? でキーボード操作の一覧。	Tab selects elements in order, Alt+arrow moves to a nearby element, arrows move the selection, Alt+Shift+arrow connects, Enter edits text. Press S for the sticky note tool and Enter to place one. Press ? for all keyboard shortcuts.
+ボードの要素	Board elements
+フレームを {n} 枚ずつスライドとして全画面で表示 (← → で移動、Esc で終了)	Show frames one at a time as full-screen slides (← → to move, Esc to exit)
+スライド	Slides
+ボードを開いたまま、参加者と音声で話す	Talk with participants by voice while keeping the board open
+通話	Call
+画像・PDF・マークダウン・CSV・Excel・Mermaid・PlantUML を挿入(貼り付け・ドロップでも置けます)	Insert image, PDF, Markdown, CSV, Excel, Mermaid or PlantUML (you can also paste or drop)
+前へ (←)	Previous (←)
+前のスライド	Previous slide
+次へ (→ / Space)	Next (→ / Space)
+次のスライド	Next slide
+スライドを終了 (Esc)	Exit slides (Esc)
+音声通話	Voice call
+通話中の参加者	People in the call
+ミュート	Mute
+ミュートを解除	Unmute
+通話から抜ける	Leave the call
+退出	Leave
+自分にだけ中身が見えるフレームを作ります。付箋をエリアの外へ出すか、公開すると全員に見えます	Creates a frame whose contents only you can see. Move sticky notes out of it or reveal it to show everyone
+個人作業	Private work
+自分のエリアを作る	Create my area
+自分のを公開	Reveal mine
+全員分を公開	Reveal all
+全員の画面で、ほかの人のカーソルを灰色にして名前を隠します	Grays out other people's cursors and hides names on everyone's screen
+匿名	Anonymous
+だれが書いたかわからなくする	Hide who wrote what
+部屋(フレーム)を作り、参加者を人の少ない部屋へ自動で振り分けます	Creates rooms (frames) and assigns participants to the emptiest room
+小部屋	Breakout rooms
+部屋	Rooms
+分かれる	Split up
+全員を戻す	Bring everyone back
+キーボード操作 (?)	Keyboard shortcuts (?)
+キーボード操作の一覧	All keyboard shortcuts
+キーボード操作	Keyboard shortcuts
+スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ ダブルクリック/Enter: 文字入力 ・ Delete: 削除 ・ Ctrl/⌘+Z: 元に戻す ・ ?: キーボード操作	Scroll: pan · Ctrl/⌘+scroll: zoom · Space+drag: pan · Shift: add to selection / keep aspect · Double-click/Enter: edit text · Delete: delete · Ctrl/⌘+Z: undo · ?: keyboard shortcuts
+要素を読む順(上から下、左から右)に選ぶ	Select elements in reading order (top to bottom, left to right)
++矢印	+arrow
+その方向で一番近い要素へ移る	Move to the nearest element in that direction
+その方向の要素とコネクタでつなぐ(なければ新しく置いてつなぐ)	Connect to the element in that direction (or place a new one and connect)
+付箋・四角形・楕円・テキスト・フレームを画面の中央に置く	Place a sticky note, rectangle, ellipse, text or frame in the center
+選んだ要素を消す	Delete the selection
+元に戻す / やり直す	Undo / redo
+複製 / グループ化	Duplicate / group
+拡大・縮小・{n}%・全体を表示	Zoom in, zoom out, {n}%, fit all
+選択を解除	Deselect
+画面読み上げを使っているときは、見出し「ボードの要素」の一覧から要素を選ぶこともできます。	With a screen reader, you can also pick elements from the “Board elements” list.
+通話は {n} 人までです	Calls are limited to {n} people
+このブラウザではマイクを使えません(HTTPS か localhost で開いてください)	This browser can't use the microphone (open the page over HTTPS or localhost)
+マイクを使えません	Cannot use the microphone
+通話の設定を読めません	Cannot read the call settings
+マイクの使用が許可されていません(ブラウザのアドレスバーから許可できます)	Microphone access is blocked (you can allow it from the address bar)
+マイクが見つかりません	No microphone found
+マイクを他のアプリが使っています	Another app is using the microphone
+フレームがありません。フレーム (F) で囲んだ範囲が {n} 枚のスライドになります	There are no frames. Each area you enclose with a frame (F) becomes a slide
+無題のフレーム	Untitled frame
+選択なし	Nothing selected
+{n} 個を選択	{n} selected
+削除しました	Deleted
+ロック中のため動かせません	Locked, so it can't be moved
+つなぐには要素を {n} つだけ選んでください	Select exactly one element to connect
+破線	Dashed
+（ミュート中）	(muted)
+（話しています）	(speaking)
+（接続中…）	(connecting…)
+通話中	In call
+通話に参加 · {n}人	Join call · {n} people
+ほかの人が入るのを待っています	Waiting for others to join
+通話はサーバーにつながっているボードで使えます	Calls are available on boards connected to the server
+Mermaid / PlantUML の図として読めませんでした	Could not read it as a Mermaid / PlantUML diagram
+日本語	Japanese
+選択ツール	Select tool
+図形に整形	Clean up shapes
+AI で整形	Clean up with AI
+手書きの線を四角・丸・矢印などの図形に整える	Turn hand-drawn lines into rectangles, circles, arrows and other shapes
+AI が手書きの図と文字を読んで整える	AI reads your hand-drawn shapes and writing and cleans them up
+整形する手書きの線を選んでください	Select the hand-drawn lines to clean up
+図形として読める線がありませんでした。「AI で整形」も試せます	No lines could be read as shapes. You can also try "Clean up with AI"
+{n} 個の図形に整えました。Ctrl/⌘+Z で戻せます	Turned into {n} shapes. Press Ctrl/⌘+Z to undo
+AI が {n} 本の線を読んでいます…	AI is reading {n} lines…
+AI にも図形として読めませんでした	AI could not read these lines as shapes either
+AI が {n} 個の図形と文字に整えました。Ctrl/⌘+Z で戻せます	AI turned them into {n} shapes and text. Press Ctrl/⌘+Z to undo
+AI 機能は共同編集のボードでだけ使えます	AI features are only available on shared boards
+議事録	Minutes
+選択中の要素、なければボード全体から議事録(概要・決定事項・アクション)を作って横に置きます	Writes minutes (summary, decisions, action items) from the selected elements, or the whole board, and places them alongside
+選択中の要素、なければボード全体の内容をもとに答えます	Answers based on the selected elements, or the whole board
+ボードについて質問(例: 決まったことは?)	Ask about the board (e.g. What did we decide?)
+ボードについて質問	Ask about the board
+質問	Ask
+AI が議事録を書いています…(数十秒かかることがあります)	AI is writing the minutes… (this can take a few tens of seconds)
+議事録を作れませんでした	Could not create the minutes
+議事録をボードの右に置きました。Ctrl/⌘+Z で戻せます	Placed the minutes to the right of the board. Press Ctrl/⌘+Z to undo
+AI がボードを読んでいます…	AI is reading the board…
+答えをパネルに出しました	The answer is in the panel
+根拠をすべて表示	Show all sources
+根拠 {n} 件	{n} sources
+会話を消す	Clear conversation
+その要素はもうボードにありません	That element is no longer on the board

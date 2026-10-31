@@ -154,7 +154,7 @@ impl App {
         let mut h = String::new();
         for (i, t) in turns.iter().enumerate() {
             h.push_str(&format!(
-                r#"<p class="q">Q. {}</p><p class="a">{}</p>"#,
+                r#"<p class="q" translate="no">Q. {}</p><p class="a" translate="no">{}</p>"#,
                 esc(&t.q),
                 esc(&t.a)
             ));
@@ -173,7 +173,7 @@ impl App {
                 }
                 for (id, label) in refs {
                     h.push_str(&format!(
-                        r#"<button type="button" data-ref="{:x}" title="{}">{}</button>"#,
+                        r#"<button type="button" data-ref="{:x}" title="{}" translate="no">{}</button>"#,
                         id.0,
                         esc(&label),
                         esc(&label)
