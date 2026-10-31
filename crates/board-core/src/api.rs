@@ -25,6 +25,9 @@
 //! | `GET` | `/api/boards/{id}/versions/{vid}?key=` | そのバージョンの状態(yrs v1 更新のバイナリ) |
 //! | `PATCH` | `/api/boards/{id}/versions/{vid}?key=` | 名前の変更([`NewVersion`]、編集者以上) |
 //! | `POST` | `/api/boards/{id}/versions/{vid}/restore?key=` | そのバージョンに戻す(編集者以上。戻す前の状態も保存する) |
+//! | `GET` | `/api/boards/{id}/slack` | Slack 通知の設定([`SlackSettings`]、オーナーのみ) |
+//! | `PUT` | `/api/boards/{id}/slack` | Slack 通知の設定を変える([`SetSlack`] → [`SlackSettings`]、オーナーのみ) |
+//! | `POST` | `/api/boards/{id}/slack/test` | Slack にテストのメッセージを送る(オーナーのみ) |
 //!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
 
@@ -292,6 +295,50 @@ pub struct VersionInfo {
 pub struct NewVersion {
     #[serde(default)]
     pub label: Option<String>,
+}
+
+/// Slack に知らせる出来事。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SlackEvents {
+    /// すべてのコメントと返信。
+    #[serde(default)]
+    pub comments: bool,
+    /// メンションを含むコメント(`comments` がオフでも送る)。
+    #[serde(default)]
+    pub mentions: bool,
+    /// 名前を付けたバージョンの保存と、バージョンの復元。
+    #[serde(default)]
+    pub versions: bool,
+}
+
+impl Default for SlackEvents {
+    fn default() -> Self {
+        Self {
+            comments: true,
+            mentions: true,
+            versions: true,
+        }
+    }
+}
+
+/// ボードの Slack 通知の設定。Webhook URL は秘密なので末尾だけ返す。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SlackSettings {
+    /// Webhook URL が設定されているか。
+    pub enabled: bool,
+    /// 設定済みの Webhook URL の見分け用(末尾の数文字)。
+    #[serde(default)]
+    pub hint: Option<String>,
+    pub events: SlackEvents,
+}
+
+/// `webhook` が `None` なら URL はそのまま、空文字なら通知をやめる。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetSlack {
+    #[serde(default)]
+    pub webhook: Option<String>,
+    #[serde(default)]
+    pub events: SlackEvents,
 }
 
 /// 本文から `@ログイン名` を拾う(重複なし、出てきた順)。

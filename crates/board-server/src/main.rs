@@ -8,6 +8,8 @@
 //! - `COOKIE_SECURE`(既定 `0`): `1` でログイン Cookie に `Secure` を付ける(HTTPS 用)。
 //! - `ANTHROPIC_API_KEY`: 設定すると AI 機能(付箋の要約・グループ分け)が有効になる。
 //! - `ANTHROPIC_MODEL`(既定 `claude-opus-5-5`): AI 機能で使うモデル。
+//! - `PUBLIC_URL`: 公開している URL(例 `https://board.example.com/`)。Slack 通知のリンクに使う。
+//! - `SLACK_WEBHOOK_PREFIXES`(既定 `https://hooks.slack.com/`): Slack 通知を送ってよい URL の先頭(カンマ区切り)。
 //! - `RUST_LOG`(既定 `info`)
 
 use std::net::SocketAddr;
@@ -67,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             tracing::info!("AI 機能: 有効(モデル {})", c.model);
             Arc::new(board_server::ai::Ai::new(c))
         }),
+        slack: board_server::slack::SlackConfig::from_env(),
     };
     if config.ai.is_none() {
         tracing::info!(
