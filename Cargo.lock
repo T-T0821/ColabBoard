@@ -220,6 +220,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "board-bench"
+version = "0.1.0"
+dependencies = [
+ "board-core",
+ "board-render",
+]
+
+[[package]]
 name = "board-core"
 version = "0.1.0"
 dependencies = [

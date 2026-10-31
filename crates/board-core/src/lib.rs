@@ -21,6 +21,7 @@ pub mod protocol;
 pub mod search;
 pub mod session;
 pub mod shape;
+pub mod spatial;
 pub mod stamp;
 pub mod table;
 pub mod templates;

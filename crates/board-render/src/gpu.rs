@@ -2,6 +2,7 @@ use std::fmt;
 
 use board_core::{Board, Camera, ElementId, Shape, Vec2};
 
+use crate::cull::{VisibleBlocks, clip_ranges};
 use crate::text::TextLayer;
 use crate::{GRID_WGSL, Globals, Layer, SHAPES_WGSL, ShapeInstance, build_layers, changed_range};
 
@@ -34,6 +35,10 @@ pub struct FrameStats {
     pub uploaded_instances: usize,
     /// 文字の重なり順のために分けた段の数。
     pub layers: usize,
+    /// カリング後に頂点シェーダへ渡したインスタンス数。
+    pub drawn: u32,
+    /// 図形の描画命令の数。
+    pub draw_calls: u32,
     /// 描画先が使えず描画を飛ばしたか。
     pub skipped: bool,
 }
@@ -63,6 +68,10 @@ pub struct Renderer {
     layers: Vec<Layer>,
     /// 直近の転送量(インスタンス数)。
     last_upload: usize,
+    /// 画面外のブロックを描画命令から外すための外接矩形。
+    blocks: VisibleBlocks,
+    /// ブロック単位のカリングを使うか(比較計測用に切れる)。
+    block_culling: bool,
 
     /// 選択枠など毎フレーム変わる少数の図形。
     overlay_buf: wgpu::Buffer,
@@ -203,12 +212,24 @@ impl Renderer {
             staging: Vec::new(),
             layers: Vec::new(),
             last_upload: 0,
+            blocks: VisibleBlocks::default(),
+            block_culling: true,
             overlay_buf,
             overlay_cap: 64,
             overlay_count: 0,
             text,
             images,
         })
+    }
+
+    /// ブロック単位のカリングの有無(既定は有効)。無効にすると段ごとに全インスタンスを描く。
+    pub fn set_block_culling(&mut self, on: bool) {
+        self.block_culling = on;
+    }
+
+    /// これまでに提出した描画を GPU が終えたら `f` を呼ぶ(計測用)。
+    pub fn on_submitted_work_done(&self, f: impl FnOnce() + Send + 'static) {
+        self.queue.on_submitted_work_done(f);
     }
 
     /// `"WebGPU"` / `"WebGL2"` など。
@@ -279,7 +300,7 @@ impl Renderer {
             changed_range(&self.uploaded, &self.staging)
         };
         self.last_upload = 0;
-        if let Some(r) = range
+        if let Some(r) = range.clone()
             && !r.is_empty()
         {
             let offset = (r.start * std::mem::size_of::<ShapeInstance>()) as u64;
@@ -291,6 +312,9 @@ impl Renderer {
             );
         }
         std::mem::swap(&mut self.uploaded, &mut self.staging);
+        if let Some(r) = range {
+            self.blocks.update(&self.uploaded, r);
+        }
         self.instance_count = self.uploaded.len() as u32;
         self.uploaded_revision = Some(board.revision());
         true
@@ -360,6 +384,7 @@ impl Renderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
+        let (drawn, draw_calls);
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -384,7 +409,15 @@ impl Renderer {
             pass.set_pipeline(&self.grid_pipeline);
             pass.draw(0..3, 0..1);
 
-            self.draw_layers(&mut pass);
+            // 画面と重なるブロックだけを描く(描画順はそのまま)。
+            let visible = if self.block_culling {
+                self.blocks.visible_ranges(camera).to_vec()
+            } else {
+                std::iter::once(0..self.instance_count).collect()
+            };
+            let (d, c) = self.draw_layers(&mut pass, &visible);
+            drawn = d;
+            draw_calls = c;
             if self.overlay_count > 0 {
                 pass.set_bind_group(0, &self.globals_bind, &[]);
                 pass.set_pipeline(&self.shape_pipeline);
@@ -401,6 +434,8 @@ impl Renderer {
             uploaded,
             uploaded_instances: if uploaded { self.last_upload } else { 0 },
             layers: self.layers.len(),
+            drawn,
+            draw_calls,
             skipped: false,
         })
     }
@@ -427,18 +462,32 @@ impl Renderer {
     }
 
     /// 段ごとに「図形 → 画像 → その段の文字」の順で描く(重なり順を保つ)。
-    fn draw_layers(&self, pass: &mut wgpu::RenderPass<'_>) {
+    /// 段ごとに「図形 → その段の画像と文字」の順で描く(重なり順を保つ)。
+    /// 図形は `visible`(昇順のインスタンス範囲)に入るものだけ描く。戻り値は(描いた数, 描画命令の数)。
+    fn draw_layers(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        visible: &[std::ops::Range<u32>],
+    ) -> (u32, u32) {
+        let (mut drawn, mut calls) = (0, 0);
         for (i, layer) in self.layers.iter().enumerate() {
-            if !layer.instances.is_empty() {
-                // 文字描画が bind group 0 を差し替えるので毎回戻す。
-                pass.set_bind_group(0, &self.globals_bind, &[]);
-                pass.set_pipeline(&self.shape_pipeline);
-                pass.set_vertex_buffer(0, self.instance_buf.slice(..));
-                pass.draw(0..6, layer.instances.clone());
+            let mut bound = false;
+            for r in clip_ranges(visible, layer.instances.clone()) {
+                if !bound {
+                    // 文字描画が bind group 0 を差し替えるので毎回戻す。
+                    pass.set_bind_group(0, &self.globals_bind, &[]);
+                    pass.set_pipeline(&self.shape_pipeline);
+                    pass.set_vertex_buffer(0, self.instance_buf.slice(..));
+                    bound = true;
+                }
+                drawn += r.end - r.start;
+                calls += 1;
+                pass.draw(0..6, r);
             }
             self.images.render(i, &self.globals_bind, pass);
             self.text.render(i, pass);
         }
+        (drawn, calls)
     }
 
     /// ボードのワールド座標の範囲 `area` を、長辺が `max_px` 以下の画像に描く(背景は白、
@@ -514,7 +563,8 @@ impl Renderer {
                 })],
                 ..Default::default()
             });
-            self.draw_layers(&mut pass);
+            let all: Vec<_> = std::iter::once(0..self.instance_count).collect();
+            self.draw_layers(&mut pass, &all);
         }
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {

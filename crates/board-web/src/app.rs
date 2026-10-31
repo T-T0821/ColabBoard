@@ -28,6 +28,7 @@ mod search_ui;
 mod templates_ui;
 mod toolbar;
 
+use crate::bench::Bench;
 use crate::net::{Net, NetEvent, Status};
 use crate::presence::{Cursors, Identity};
 use crate::session::{self, Access, BoardChrome, SharedChrome};
@@ -76,6 +77,11 @@ struct App {
     presence_sent: Option<Option<Vec2>>,
     presence_sent_at: f64,
     last_status: Option<(Status, usize)>,
+    /// `?bench` の計測。
+    bench: Option<Bench>,
+    bench_done_at: Option<f64>,
+    /// 起動の節目の時刻(ページを開いてからのミリ秒)。
+    timings: Timings,
     collab: collab::Collab,
     ai: ai::AiUi,
     follow: follow::Follow,
@@ -185,9 +191,23 @@ async fn create_renderer(
     ))
 }
 
+/// 起動の速さの計測値。`window.__colabboardTimings` にも置く。
+#[derive(Default)]
+struct Timings {
+    /// WASM が読み込まれて動き始めた時刻。
+    wasm_start: f64,
+    /// GPU の準備ができた時刻。
+    gpu_ready: f64,
+    /// 最初のフレームを描いた時刻。
+    first_frame: Option<f64>,
+    /// サーバーとの初回同期が終わった時刻。
+    synced: Option<f64>,
+}
+
 pub async fn run() -> Result<(), String> {
     let window = web_sys::window().ok_or("window がありません")?;
     let document = window.document().ok_or("document がありません")?;
+    let wasm_start = now_ms(&window);
 
     let params = window
         .location()
@@ -196,10 +216,15 @@ pub async fn run() -> Result<(), String> {
         .and_then(|q| web_sys::UrlSearchParams::new_with_str(&q).ok())
         .ok_or("URL を読めません")?;
     // `?n=100000` で性能確認用のダミーボードを開く。
-    let demo_count = params
+    let mut demo_count = params
         .get("n")
         .and_then(|n| n.parse::<usize>().ok())
         .map(|n| n.min(1_000_000));
+    // `?bench` で決まった手順のパン/ズームを描いて計測する(既定は 10 万要素)。
+    let bench_mode = params.has("bench");
+    if bench_mode && demo_count.is_none() {
+        demo_count = Some(100_000);
+    }
     // `?offline` でサーバーにつながず、このタブだけで動かす。
     let offline = params.has("offline");
     let collaborative = demo_count.is_none() && !offline;
@@ -232,7 +257,12 @@ pub async fn run() -> Result<(), String> {
     }
 
     let canvas: HtmlCanvasElement = by_id(&document, "board")?;
-    let (canvas, renderer) = create_renderer(&window, canvas).await?;
+    let (canvas, mut renderer) = create_renderer(&window, canvas).await?;
+    let gpu_ready = now_ms(&window);
+    // `?nocull` でブロック単位のカリングを切る(効果の比較用)。
+    if params.has("nocull") {
+        renderer.set_block_culling(false);
+    }
 
     let (w, h) = renderer.size();
     let camera = Camera::new(Vec2::new(w as f32, h as f32));
@@ -307,6 +337,13 @@ pub async fn run() -> Result<(), String> {
         presence_sent: None,
         presence_sent_at: 0.0,
         last_status: None,
+        bench: None,
+        bench_done_at: None,
+        timings: Timings {
+            wasm_start,
+            gpu_ready,
+            ..Default::default()
+        },
         collab: collab::Collab::new(&document)?,
         ai: ai::AiUi::new(&document)?,
         follow: follow::Follow::new(&document)?,
@@ -330,6 +367,10 @@ pub async fn run() -> Result<(), String> {
             };
             a.hud.net.set_text_content(Some(text));
             let _ = a.hud.net.set_attribute("data-status", "offline");
+        }
+        if bench_mode && let Some(extent) = a.board.bounds() {
+            a.bench = Some(Bench::new(extent));
+            a.continuous = true;
         }
     }
 
@@ -516,6 +557,10 @@ impl App {
                     }
                     if let Err(e) = self.live_board_mut().apply_remote(&state) {
                         log::error!("初回同期に失敗: {e}");
+                    }
+                    if self.timings.synced.is_none() {
+                        self.timings.synced = Some(now_ms(&self.window));
+                        self.publish_timings();
                     }
                     // 切断中の変更も含めて手元の全体を送る(重複は CRDT が吸収する)。
                     let _ = self.live_board_mut().take_outgoing();
@@ -800,15 +845,54 @@ impl App {
         }
         self.last_frame = Some(now);
 
+        if let Some(bench) = self.bench.as_mut()
+            && let Some(cam) = bench.next_camera(self.camera.viewport, now)
+        {
+            self.camera = cam;
+        }
+
         self.layout_text_editor();
         let overlay = self.editor.overlay(&self.board, &self.camera);
         let editing = self.editor.editing();
-        if let Err(e) = self
+        let started = now_ms(&self.window);
+        match self
             .renderer
             .render(&self.board, &self.camera, &overlay, editing)
         {
-            log::error!("{e}");
-            show_error(&e.to_string());
+            Ok(stats) => {
+                let cpu_ms = now_ms(&self.window) - started;
+                if self.timings.first_frame.is_none() && !stats.skipped {
+                    self.timings.first_frame = Some(now_ms(&self.window));
+                    self.publish_timings();
+                }
+                if let Some(bench) = self.bench.as_mut() {
+                    bench.record(cpu_ms, stats.drawn);
+                    // GPU が描き終えるまでの時間(提出からの遅れ)も測る。
+                    if let Some((phase, sink)) = bench.gpu_probe() {
+                        self.renderer.on_submitted_work_done(move || {
+                            let done = web_sys::window()
+                                .and_then(|w| w.performance())
+                                .map_or(0.0, |p| p.now());
+                            if let Ok(mut g) = sink.lock() {
+                                g.push((phase, done - started));
+                            }
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("{e}");
+                show_error(&e.to_string());
+            }
+        }
+        if let Some(bench) = self.bench.as_ref()
+            && bench.is_done()
+        {
+            // GPU の完了通知を少しだけ待つ。
+            let waited = *self.bench_done_at.get_or_insert(now);
+            if bench.gpu_settled() || now - waited > 3000.0 {
+                self.finish_bench();
+            }
         }
 
         self.hud
@@ -824,6 +908,63 @@ impl App {
             };
             self.hud.fps.set_text_content(Some(&text));
         }
+    }
+
+    // ---- 計測 ----
+
+    fn timing_pairs(&self) -> Vec<(&'static str, f64)> {
+        let t = &self.timings;
+        let mut v = vec![("wasm_start", t.wasm_start), ("gpu_ready", t.gpu_ready)];
+        if let Some(f) = t.first_frame {
+            v.push(("first_frame", f));
+        }
+        if let Some(s) = t.synced {
+            v.push(("synced", s));
+        }
+        v
+    }
+
+    /// 起動の節目を `window.__colabboardTimings` に置く(自動計測用)。
+    fn publish_timings(&self) {
+        let pairs: Vec<String> = self
+            .timing_pairs()
+            .iter()
+            .map(|(k, v)| format!("{k:?}:{v:.1}"))
+            .collect();
+        let json = format!("{{{}}}", pairs.join(","));
+        let _ = js_sys::Reflect::set(
+            &self.window,
+            &"__colabboardTimings".into(),
+            &JsValue::from_str(&json),
+        );
+    }
+
+    fn finish_bench(&mut self) {
+        let Some(bench) = self.bench.take() else {
+            return;
+        };
+        self.continuous = false;
+        let meta = [
+            ("backend", self.renderer.backend_name()),
+            ("adapter", self.renderer.adapter_name().to_string()),
+            ("elements", self.board.len().to_string()),
+            (
+                "viewport",
+                format!("{}x{}", self.camera.viewport.x, self.camera.viewport.y),
+            ),
+            (
+                "user_agent",
+                self.window.navigator().user_agent().unwrap_or_default(),
+            ),
+        ];
+        let json = bench.result_json(&meta, &self.timing_pairs());
+        log::info!("計測結果: {json}");
+        self.hud.fps.set_text_content(Some(&bench.summary()));
+        let _ = js_sys::Reflect::set(
+            &self.window,
+            &"__benchResult".into(),
+            &JsValue::from_str(&json),
+        );
     }
 
     // ---- ポインタ ----
@@ -1407,6 +1548,10 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
         })?;
     }
     Ok(())
+}
+
+fn now_ms(window: &Window) -> f64 {
+    window.performance().map_or(0.0, |p| p.now())
 }
 
 fn start_loop(app: Rc<RefCell<App>>) {

@@ -7,10 +7,12 @@
 //! CPU 側の仕事は「ボードが変わったときにインスタンスバッファを送る」ことと
 //! 「毎フレーム 96 バイトのカメラ情報を送る」ことだけ。
 
+mod cull;
 mod gpu;
 pub mod images;
 mod text;
 
+pub use cull::VisibleBlocks;
 pub use gpu::{Capture, FrameStats, RenderError, Renderer};
 pub use wgpu;
 
