@@ -180,6 +180,9 @@ pub struct Editor {
     tool: Tool,
     selection: Vec<ElementId>,
     drag: Option<Drag>,
+    /// 文字を編集中の要素。
+    editing: Option<ElementId>,
+    pending_edit: Option<ElementId>,
     pub shape_fill: Rgba8,
     pub sticky_color: Rgba8,
     pub pen_color: Rgba8,
@@ -205,6 +208,8 @@ impl Editor {
             tool: Tool::Select,
             selection: Vec::new(),
             drag: None,
+            editing: None,
+            pending_edit: None,
             shape_fill: Rgba8::WHITE,
             sticky_color: STICKY_COLORS[0],
             pen_color: Rgba8::BLACK,
@@ -222,6 +227,49 @@ impl Editor {
 
     pub fn selection(&self) -> &[ElementId] {
         &self.selection
+    }
+
+    pub fn editing(&self) -> Option<ElementId> {
+        self.editing
+    }
+
+    /// 文字編集を始める。図形(付箋・四角形・楕円)だけが対象。
+    pub fn begin_edit(&mut self, board: &Board, id: ElementId) -> bool {
+        if board.get(id).and_then(Element::as_shape).is_none() {
+            return false;
+        }
+        self.drag = None;
+        self.selection = vec![id];
+        self.editing = Some(id);
+        true
+    }
+
+    /// 文字編集を終える。`text` があれば反映する。
+    pub fn end_edit(&mut self, board: &mut Board, text: Option<String>) {
+        let Some(id) = self.editing.take() else {
+            return;
+        };
+        if let Some(text) = text {
+            board.update(id, |e| {
+                if let Element::Shape(s) = e {
+                    s.text = text;
+                }
+            });
+        }
+    }
+
+    /// ダブルクリックで編集できる要素。
+    pub fn editable_at(&self, board: &Board, camera: &Camera, screen: Vec2) -> Option<ElementId> {
+        let world = camera.screen_to_world(screen);
+        board
+            .hit_test(world, HIT_TOLERANCE_PX / camera.zoom)
+            .filter(|e| e.as_shape().is_some())
+            .map(Element::id)
+    }
+
+    /// 付箋を置いた直後など、すぐ文字入力に入るべき要素。
+    pub fn take_pending_edit(&mut self) -> Option<ElementId> {
+        self.pending_edit.take()
     }
 
     pub fn is_dragging(&self) -> bool {
@@ -371,6 +419,7 @@ impl Editor {
                 board.push(note);
                 self.selection = vec![id];
                 self.tool = Tool::Select;
+                self.pending_edit = Some(id);
                 // そのままドラッグで位置を調整できる。
                 self.drag = Some(Drag::Move { last: world });
                 true
@@ -707,5 +756,28 @@ mod tests {
         );
         assert_eq!(e.delete_selection(&mut b), 1);
         assert!(b.is_empty());
+    }
+
+    #[test]
+    fn edit_text_flow() {
+        let (mut b, c, mut e) = setup();
+        e.set_tool(Tool::Sticky);
+        e.pointer_down(&mut b, &c, Vec2::new(400.0, 300.0), NO);
+        e.pointer_up(&mut b, &c, Vec2::new(400.0, 300.0));
+        let id = e.take_pending_edit().unwrap();
+        assert!(e.take_pending_edit().is_none());
+        assert!(e.begin_edit(&b, id));
+        assert_eq!(e.editing(), Some(id));
+        e.end_edit(&mut b, Some("こんにちは".into()));
+        assert_eq!(e.editing(), None);
+        assert_eq!(b.get(id).unwrap().text(), "こんにちは");
+        assert_eq!(e.editable_at(&b, &c, Vec2::new(400.0, 300.0)), Some(id));
+
+        // 手書き線は編集できない。
+        e.set_tool(Tool::Pen);
+        e.pointer_down(&mut b, &c, Vec2::new(0.0, 0.0), NO);
+        e.pointer_up(&mut b, &c, Vec2::new(0.0, 0.0));
+        let stroke = b.elements().last().unwrap().id();
+        assert!(!e.begin_edit(&b, stroke));
     }
 }

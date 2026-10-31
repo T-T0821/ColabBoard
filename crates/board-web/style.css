@@ -1,3 +1,9 @@
+@font-face {
+  font-family: "Noto Sans JP Board";
+  src: url("fonts/NotoSansJP-Regular.ttf") format("truetype");
+  font-display: swap;
+}
+
 :root {
   --bg: #f5f5f4;
   --panel: #ffffff;
@@ -28,6 +34,26 @@ html, body {
   touch-action: none;
   outline: none;
 }
+
+/* 図形の上に重ねる文字入力欄。見た目は GPU 描画の文字に合わせる。 */
+#text-editor {
+  display: none;
+  position: fixed;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  background: transparent;
+  color: #1f1f1f;
+  text-align: center;
+  font-family: "Noto Sans JP Board", sans-serif;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  caret-color: #2f6fed;
+}
+#text-editor[data-visible] { display: block; }
 
 .panel {
   position: fixed;

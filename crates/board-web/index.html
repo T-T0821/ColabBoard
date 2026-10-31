@@ -6,9 +6,11 @@
   <title>ColabBoard</title>
   <link data-trunk rel="rust" data-wasm-opt="s" />
   <link data-trunk rel="css" href="style.css" />
+  <link data-trunk rel="copy-dir" href="assets/fonts" />
 </head>
 <body>
   <canvas id="board" tabindex="0" aria-label="ホワイトボード"></canvas>
+  <textarea id="text-editor" spellcheck="false" aria-label="文字を入力"></textarea>
 
   <header class="panel hud">
     <strong class="brand">ColabBoard</strong>
@@ -70,7 +72,7 @@
     <button id="zoom-fit">全体</button>
   </nav>
 
-  <p class="panel help">スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ Delete: 削除</p>
+  <p class="panel help">スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ ダブルクリック/Enter: 文字入力 ・ Delete: 削除</p>
 
   <div id="error" role="alert"></div>
 </body>

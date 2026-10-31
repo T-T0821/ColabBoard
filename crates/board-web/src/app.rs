@@ -2,13 +2,15 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
-use board_core::{Board, Camera, Editor, Modifiers, Navigator, Tool, Vec2};
+use board_core::{
+    Board, Camera, Editor, Element as BoardElement, ElementId, Modifiers, Navigator, Tool, Vec2,
+};
 use board_render::{Renderer, wgpu};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{
     Document, Element, HtmlButtonElement, HtmlCanvasElement, HtmlElement, HtmlInputElement,
-    KeyboardEvent, PointerEvent, WheelEvent, Window,
+    HtmlTextAreaElement, KeyboardEvent, PointerEvent, WheelEvent, Window,
 };
 
 use crate::{format_count, format_zoom, parse_hex};
@@ -17,6 +19,7 @@ struct App {
     window: Window,
     document: Document,
     canvas: HtmlCanvasElement,
+    text_editor: HtmlTextAreaElement,
     renderer: Renderer,
     board: Board,
     camera: Camera,
@@ -173,6 +176,7 @@ pub async fn run() -> Result<(), String> {
         window: window.clone(),
         document: document.clone(),
         canvas: canvas.clone(),
+        text_editor: by_id(&document, "text-editor")?,
         renderer,
         board,
         camera,
@@ -192,6 +196,8 @@ pub async fn run() -> Result<(), String> {
     }));
 
     install_pointer(&app, &canvas)?;
+    install_text_editor(&app)?;
+    load_font(app.clone());
     install_keyboard(&app, &window)?;
     install_controls(&app, &document)?;
     start_loop(app);
@@ -299,8 +305,13 @@ impl App {
         }
         self.last_frame = Some(now);
 
+        self.layout_text_editor();
         let overlay = self.editor.overlay(&self.board, &self.camera);
-        if let Err(e) = self.renderer.render(&self.board, &self.camera, &overlay) {
+        let editing = self.editor.editing();
+        if let Err(e) = self
+            .renderer
+            .render(&self.board, &self.camera, &overlay, editing)
+        {
             log::error!("{e}");
             show_error(&e.to_string());
         }
@@ -390,7 +401,71 @@ impl App {
         } else if self.editor.pointer_up(&mut self.board, &self.camera, p) {
             self.dirty = true;
         }
+        if let Some(id) = self.editor.take_pending_edit() {
+            self.begin_text_edit(id);
+        }
         self.update_cursor(Some(p));
+    }
+
+    // ---- 文字編集 ----
+
+    fn begin_text_edit(&mut self, id: ElementId) {
+        if !self.editor.begin_edit(&self.board, id) {
+            return;
+        }
+        let text = self.board.get(id).map(BoardElement::text).unwrap_or("");
+        self.text_editor.set_value(text);
+        let _ = self.text_editor.set_attribute("data-visible", "true");
+        self.layout_text_editor();
+        let _ = self.text_editor.focus();
+        let len = self.text_editor.value().encode_utf16().count() as u32;
+        let _ = self.text_editor.set_selection_range(len, len);
+        self.dirty = true;
+    }
+
+    /// 編集中の文字を確定する(`commit` が false なら破棄)。
+    fn end_text_edit(&mut self, commit: bool) {
+        if self.editor.editing().is_none() {
+            return;
+        }
+        let text = commit.then(|| self.text_editor.value());
+        self.editor.end_edit(&mut self.board, text);
+        let _ = self.text_editor.remove_attribute("data-visible");
+        self.dirty = true;
+    }
+
+    /// 入力欄を編集中の図形の上に重ねる。カメラが動いても追従する。
+    fn layout_text_editor(&self) {
+        let Some(id) = self.editor.editing() else {
+            return;
+        };
+        let Some(shape) = self.board.get(id).and_then(BoardElement::as_shape) else {
+            return;
+        };
+        let dpr = self.window.device_pixel_ratio() as f32;
+        let zoom = self.camera.zoom;
+        let rect = shape.text_rect();
+        let style = shape.text_style();
+        let min = self.camera.world_to_screen(rect.min) / dpr;
+        let size = rect.size() * zoom / dpr;
+        let canvas_rect = self.canvas.get_bounding_client_rect();
+        let el: &HtmlElement = self.text_editor.as_ref();
+        let css = el.style();
+        let px = |v: f32| format!("{v}px");
+        let _ = css.set_property("left", &px(canvas_rect.left() as f32 + min.x));
+        let _ = css.set_property("top", &px(canvas_rect.top() as f32 + min.y));
+        let _ = css.set_property("width", &px(size.x));
+        let _ = css.set_property("height", &px(size.y));
+        let _ = css.set_property("font-size", &px(style.font_size * zoom / dpr));
+        let _ = css.set_property("line-height", &px(style.line_height * zoom / dpr));
+        // 縦方向の中央寄せ: 中身の高さを測って上の余白を決める。
+        let _ = css.set_property("padding-top", "0px");
+        let _ = css.set_property("height", "0px");
+        let content = self.text_editor.scroll_height() as f32;
+        let _ = css.set_property("height", &px(size.y));
+        let pad = ((size.y - content) * 0.5).max(0.0);
+        let _ = css.set_property("padding-top", &px(pad));
+        let _ = css.set_property("box-sizing", "border-box");
     }
 
     // ---- キーボード ----
@@ -403,6 +478,14 @@ impl App {
                 if !self.space_down {
                     self.space_down = true;
                     self.update_cursor(None);
+                }
+            }
+            "Enter" => {
+                if let [id] = self.editor.selection() {
+                    let id = *id;
+                    self.begin_text_edit(id);
+                } else {
+                    return false;
                 }
             }
             "Delete" | "Backspace" => {
@@ -484,6 +567,20 @@ fn install_pointer(app: &Rc<RefCell<App>>, canvas: &HtmlCanvasElement) -> Result
     }
     {
         let app = app.clone();
+        listen(target, "dblclick", false, move |e: web_sys::MouseEvent| {
+            let mut a = app.borrow_mut();
+            let p = a.css_to_physical(e.client_x() as f64, e.client_y() as f64);
+            if a.editor.tool() != Tool::Select {
+                return;
+            }
+            if let Some(id) = a.editor.editable_at(&a.board, &a.camera, p) {
+                e.prevent_default();
+                a.begin_text_edit(id);
+            }
+        })?;
+    }
+    {
+        let app = app.clone();
         listen(target, "pointermove", false, move |e: PointerEvent| {
             app.borrow_mut().on_pointer_move(&e);
         })?;
@@ -515,6 +612,69 @@ fn install_pointer(app: &Rc<RefCell<App>>, canvas: &HtmlCanvasElement) -> Result
         })?;
     }
     Ok(())
+}
+
+fn install_text_editor(app: &Rc<RefCell<App>>) -> Result<(), String> {
+    let el = app.borrow().text_editor.clone();
+    let target: &web_sys::EventTarget = el.as_ref();
+    {
+        let app = app.clone();
+        listen(target, "blur", false, move |_: web_sys::FocusEvent| {
+            app.borrow_mut().end_text_edit(true);
+        })?;
+    }
+    {
+        let app = app.clone();
+        listen(target, "input", false, move |_: web_sys::Event| {
+            app.borrow().layout_text_editor();
+        })?;
+    }
+    {
+        let el2 = el.clone();
+        listen(target, "keydown", false, move |e: KeyboardEvent| {
+            if e.is_composing() {
+                return;
+            }
+            // Esc か Ctrl/⌘+Enter で確定(blur で反映される)。
+            if e.key() == "Escape" || (e.key() == "Enter" && (e.ctrl_key() || e.meta_key())) {
+                e.prevent_default();
+                let _ = el2.blur();
+            }
+        })?;
+    }
+    Ok(())
+}
+
+/// 日本語フォントを後から読み込む。読み込み前は文字以外を描画しておく。
+fn load_font(app: Rc<RefCell<App>>) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let window = app.borrow().window.clone();
+        let result: Result<Vec<u8>, String> = async {
+            let resp = wasm_bindgen_futures::JsFuture::from(
+                window.fetch_with_str("fonts/NotoSansJP-Regular.ttf"),
+            )
+            .await
+            .map_err(js_err)?
+            .dyn_into::<web_sys::Response>()
+            .map_err(|_| "fetch の結果が Response ではありません".to_string())?;
+            if !resp.ok() {
+                return Err(format!("HTTP {}", resp.status()));
+            }
+            let buf = wasm_bindgen_futures::JsFuture::from(resp.array_buffer().map_err(js_err)?)
+                .await
+                .map_err(js_err)?;
+            Ok(js_sys::Uint8Array::new(&buf).to_vec())
+        }
+        .await;
+        match result {
+            Ok(bytes) => {
+                let mut a = app.borrow_mut();
+                a.renderer.load_font(bytes);
+                a.dirty = true;
+            }
+            Err(e) => log::warn!("フォントを読み込めませんでした: {e}"),
+        }
+    });
 }
 
 fn install_keyboard(app: &Rc<RefCell<App>>, window: &Window) -> Result<(), String> {

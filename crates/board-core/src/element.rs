@@ -137,6 +137,13 @@ impl Element {
         }
     }
 
+    pub fn text(&self) -> &str {
+        match self {
+            Element::Shape(s) => &s.text,
+            Element::Stroke(_) => "",
+        }
+    }
+
     pub fn as_shape(&self) -> Option<&Shape> {
         match self {
             Element::Shape(s) => Some(s),

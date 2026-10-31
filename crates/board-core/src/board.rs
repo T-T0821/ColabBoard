@@ -134,9 +134,16 @@ impl Board {
             (Vec2::new(240.0, 0.0), STICKY_COLORS[4]),
             (Vec2::new(480.0, 0.0), STICKY_COLORS[2]),
         ];
-        for (pos, c) in notes {
+        let texts = [
+            "ようこそ ColabBoard へ!\nダブルクリックで編集できます",
+            "付箋・図形・ペンは下のツールバーから",
+            "Ctrl/⌘ + スクロールでズーム",
+        ];
+        for ((pos, c), text) in notes.into_iter().zip(texts) {
             let id = b.alloc_id();
-            b.push(Shape::sticky(id, pos, c));
+            let mut note = Shape::sticky(id, pos, c);
+            note.text = text.to_string();
+            b.push(note);
         }
         let id = b.alloc_id();
         b.push(Shape::rect(
