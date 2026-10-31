@@ -1,7 +1,7 @@
 //! グラボード の同期サーバー。
 //!
 //! - `GET /ws/{room}?key=`: WebSocket。メッセージ形式は [`board_core::protocol`]。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])と図の生成([`ai_diagram`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])と図の生成([`ai_diagram`])、Slack 通知([`slack`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -17,6 +17,7 @@ pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
 pub mod room;
+pub mod slack;
 pub mod store;
 pub mod versions;
 
@@ -56,6 +57,8 @@ pub struct Config {
     pub secure_cookies: bool,
     /// AI 機能(付箋の要約・クラスタリング)。`None` なら無効。
     pub ai: Option<Arc<ai::Ai>>,
+    /// Slack 通知(送ってよい Webhook URL とメッセージのリンク)。
+    pub slack: slack::SlackConfig,
 }
 
 impl Default for Config {
@@ -66,6 +69,7 @@ impl Default for Config {
             anonymous_boards: true,
             secure_cookies: false,
             ai: None,
+            slack: slack::SlackConfig::default(),
         }
     }
 }
