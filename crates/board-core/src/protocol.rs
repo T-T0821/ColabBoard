@@ -10,6 +10,7 @@
 //! | `0x03` Leave | サーバー → クライアント | 参加者番号 `u32` |
 //! | `0x04` View | 双方向 | 参加者番号 `u32`, 見えている範囲 min x, min y, max x, max y `f32`, フラグ `u8` |
 //! | `0x05` Reaction | 双方向 | 参加者番号 `u32`, x `f32`, y `f32`, 絵文字(UTF-8) |
+//! | `0x10` Refresh | サーバー → クライアント | 話題 `u8`([`TOPIC_COMMENTS`] など)。HTTP API で取り直す合図 |
 //!
 //! Reaction はその場で浮かんで消える絵文字リアクション(保存しない)。
 //!
@@ -28,6 +29,13 @@ const REACTION: u8 = 0x05;
 
 /// リアクションの絵文字の最大バイト数。
 pub const MAX_REACTION_BYTES: usize = 32;
+
+const REFRESH: u8 = 0x10;
+
+/// [`Message::Refresh`] の話題: コメントが変わった。
+pub const TOPIC_COMMENTS: u8 = 1;
+/// [`Message::Refresh`] の話題: バージョン履歴が変わった。
+pub const TOPIC_VERSIONS: u8 = 2;
 
 /// 名前の最大バイト数(超えた分は切り詰める)。
 pub const MAX_NAME_BYTES: usize = 64;
@@ -91,12 +99,17 @@ impl Reaction {
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Message {
-    Sync { you: u32, state: Vec<u8> },
+    Sync {
+        you: u32,
+        state: Vec<u8>,
+    },
     Update(Vec<u8>),
     Presence(Presence),
     Leave(u32),
     View(View),
     Reaction(Reaction),
+    /// サーバーの持つ情報(コメントなど)が変わったので取り直してほしい。
+    Refresh(u8),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -170,6 +183,7 @@ impl Message {
                 out.extend_from_slice(emoji.as_bytes());
                 out
             }
+            Self::Refresh(topic) => vec![REFRESH, *topic],
         }
     }
 
@@ -224,6 +238,7 @@ impl Message {
                     emoji: truncate_utf8(&emoji, MAX_REACTION_BYTES).to_string(),
                 }))
             }
+            REFRESH => Ok(Self::Refresh(*body.first().ok_or(DecodeError::Truncated)?)),
             k => Err(DecodeError::UnknownKind(k)),
         }
     }
@@ -255,6 +270,7 @@ mod tests {
 
     #[test]
     fn roundtrips() {
+        roundtrip(Message::Refresh(TOPIC_COMMENTS));
         roundtrip(Message::Sync {
             you: 7,
             state: vec![1, 2, 3],

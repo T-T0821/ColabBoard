@@ -196,6 +196,14 @@ impl Hub {
         }
     }
 
+    /// 参加者に「取り直して」と知らせる(コメントなど HTTP API で持つ情報が変わったとき)。
+    pub fn refresh(&self, name: &str, topic: u8) {
+        if let Some(room) = self.get(name) {
+            let msg = board_core::protocol::Message::Refresh(topic).encode();
+            room.broadcast(0, Arc::from(msg));
+        }
+    }
+
     /// ルームを消す(参加者は切断され、保存データも消える)。
     pub fn delete(&self, name: &str) -> Result<(), crate::store::StoreError> {
         if let Some(room) = self.rooms.lock().unwrap().remove(name) {
