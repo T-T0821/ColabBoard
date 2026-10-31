@@ -1167,9 +1167,25 @@ fn install_text_editor(app: &Rc<RefCell<App>>) -> Result<(), String> {
     }
     {
         let el2 = el.clone();
+        let app = app.clone();
         listen(target, "keydown", false, move |e: KeyboardEvent| {
             if e.is_composing() {
                 return;
+            }
+            // 表のセルでは Tab / Shift+Tab で隣のセルへ。
+            if e.key() == "Tab" {
+                let next = {
+                    let a = app.borrow();
+                    a.editor
+                        .editing()
+                        .and_then(|id| board_core::table::next_cell(&a.board, id, !e.shift_key()))
+                };
+                if let Some(next) = next {
+                    e.prevent_default();
+                    let _ = el2.blur();
+                    app.borrow_mut().begin_text_edit(next);
+                    return;
+                }
             }
             // Esc か Ctrl/⌘+Enter で確定(blur で反映される)。
             if e.key() == "Escape" || (e.key() == "Enter" && (e.ctrl_key() || e.meta_key())) {
