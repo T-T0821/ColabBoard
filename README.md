@@ -20,6 +20,7 @@ Miro や FigJam のように、Web 上で複数人が同時に編集できるホ
 - ダミー要素 1 千〜100 万個での性能確認(右上のボタン、または `?n=100000`)
 - WebGPU が使えないブラウザでは WebGL2 に自動で切り替え(`?webgl` で強制)
 - **構成図**: 左上の「構成図」から AWS サービス(約 70 種、公式のカテゴリ色)と、AWS Cloud / Region / VPC / AZ / サブネットなどの枠を置ける。サンプル(Web 3 層、サーバーレス、フローチャート)は自動レイアウトして矢印でつないだ状態で挿入される
+- **生成 AI で図を作る**: 「構成図・AI」パネルに作りたい構成や手順を書くと、Claude が AWS 構成図やフローチャートを作ってボードに置く(サーバーに `ANTHROPIC_API_KEY` が必要。1 回の Undo で取り消せる)
 
 ## 動かし方
 
@@ -41,6 +42,8 @@ cargo run -p board-server --release
 | `PORT` | `8080` | 待ち受けポート |
 | `DATA_DIR` | `data` | 保存先(`boards.redb`)。空にすると保存しない |
 | `STATIC_DIR` | `crates/board-web/dist` | 配信するクライアント |
+| `ANTHROPIC_API_KEY` | (なし) | 設定すると生成 AI(文章から図を作る)が使える |
+| `CLAUDE_MODEL` | `claude-opus-5-5` | 生成 AI のモデル |
 | `RUST_LOG` | `info` | ログの詳しさ |
 | `ANONYMOUS_BOARDS` | `1` | `0` にするとログインなしのボード(`?room=` で誰でも作れて誰でも編集できるもの)を禁止 |
 | `COOKIE_SECURE` | `0` | HTTPS で公開するときは `1`(ログイン Cookie に `Secure` を付ける) |
