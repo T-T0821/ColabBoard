@@ -174,11 +174,20 @@ impl App {
             }
         }
         if self.editor.selection() != self.a11y.last_selection.as_slice() {
-            let had = !self.a11y.last_selection.is_empty();
-            self.a11y.last_selection = self.editor.selection().to_vec();
-            if had || !self.a11y.last_selection.is_empty() {
+            let prev = std::mem::replace(
+                &mut self.a11y.last_selection,
+                self.editor.selection().to_vec(),
+            );
+            if !self.a11y.last_selection.is_empty() {
                 let msg = self.describe_selection();
                 self.announce(&msg);
+            } else if !prev.is_empty() {
+                let gone = prev.iter().all(|id| self.board.get(*id).is_none());
+                self.announce(if gone {
+                    "削除しました"
+                } else {
+                    "選択を解除"
+                });
             }
         }
         if let Some((_, at)) = &self.a11y.pending
