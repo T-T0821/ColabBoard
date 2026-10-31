@@ -72,9 +72,14 @@ impl From<&Shape> for ShapeInstance {
             stroke_width: s.stroke_width,
             radius: s.corner_radius,
             kind: match s.kind {
-                ShapeKind::Rect => KIND_RECT,
+                ShapeKind::Rect | ShapeKind::Frame | ShapeKind::Text => KIND_RECT,
                 ShapeKind::Ellipse => KIND_ELLIPSE,
                 ShapeKind::Sticky => KIND_STICKY,
+                ShapeKind::Triangle => KIND_TRIANGLE,
+                ShapeKind::Diamond => KIND_DIAMOND,
+                ShapeKind::Star => KIND_STAR,
+                ShapeKind::Hexagon => KIND_HEXAGON,
+                ShapeKind::Parallelogram => KIND_PARALLELOGRAM,
             },
             _pad: 0,
         }
@@ -85,16 +90,25 @@ pub const KIND_RECT: u32 = 0;
 pub const KIND_ELLIPSE: u32 = 1;
 pub const KIND_STICKY: u32 = 2;
 pub const KIND_SEGMENT: u32 = 3;
+pub const KIND_TRIANGLE: u32 = 4;
+pub const KIND_DIAMOND: u32 = 5;
+pub const KIND_STAR: u32 = 6;
+pub const KIND_HEXAGON: u32 = 7;
+pub const KIND_PARALLELOGRAM: u32 = 8;
 
 impl ShapeInstance {
     fn segment(a: [f32; 2], b: [f32; 2], s: &Stroke) -> Self {
+        Self::line(a, b, s.color, s.width)
+    }
+
+    fn line(a: [f32; 2], b: [f32; 2], color: board_core::Rgba8, width: f32) -> Self {
         Self {
             pos: a,
             size: b,
-            fill: s.color.to_u32(),
+            fill: color.to_u32(),
             stroke: 0,
             stroke_width: 0.0,
-            radius: s.width * 0.5,
+            radius: width * 0.5,
             kind: KIND_SEGMENT,
             _pad: 0,
         }
@@ -104,7 +118,22 @@ impl ShapeInstance {
 /// 要素をインスタンス列に変換して `out` に足す。手書き線は線分ごとに 1 インスタンス。
 pub fn push_instances(e: &Element, out: &mut Vec<ShapeInstance>) {
     match e {
+        // 文字だけの要素は図形を描かない(文字は文字描画で出す)。
+        Element::Shape(s) if s.kind == ShapeKind::Text => {}
         Element::Shape(s) => out.push(s.into()),
+        Element::Connector(c) => {
+            let line = |a: board_core::Vec2, b: board_core::Vec2| {
+                ShapeInstance::line(a.to_array(), b.to_array(), c.color, c.width)
+            };
+            out.extend(c.path.windows(2).map(|w| line(w[0], w[1])));
+            for (cap, at_end) in [(c.start_cap, false), (c.end_cap, true)] {
+                if cap == board_core::Cap::Arrow
+                    && let Some(lines) = c.arrow_lines(at_end)
+                {
+                    out.extend(lines.iter().map(|(a, b)| line(*a, *b)));
+                }
+            }
+        }
         Element::Stroke(s) => match s.points.as_slice() {
             [] => {}
             [p] => out.push(ShapeInstance::segment(p.to_array(), p.to_array(), s)),

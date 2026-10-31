@@ -22,6 +22,7 @@ struct Cached {
     text: String,
     width: f32,
     font_size: f32,
+    align: board_core::TextAlign,
     buffer: Buffer,
     height: f32,
     /// 前回の prepare で使ったか(使われなくなったものを捨てる)。
@@ -106,7 +107,7 @@ impl TextLayer {
             .filter_map(|(i, e)| Some((i, e.as_shape()?)))
             .filter(|(_, s)| !s.text.is_empty() && Some(s.id) != skip)
             .filter(|(_, s)| s.text_style().font_size * camera.zoom >= MIN_SCREEN_FONT_PX)
-            .filter(|(_, s)| s.bounds().intersects(&view))
+            .filter(|(_, s)| s.text_clip().intersects(&view))
             .take(MAX_TEXT_AREAS + 1)
             .collect();
         if visible.is_empty() || visible.len() > MAX_TEXT_AREAS {
@@ -135,6 +136,7 @@ impl TextLayer {
                 text: String::new(),
                 width: -1.0,
                 font_size: 0.0,
+                align: style.align,
                 buffer: Buffer::new(
                     font_system,
                     Metrics::new(style.font_size, style.line_height),
@@ -143,7 +145,11 @@ impl TextLayer {
                 used: false,
             });
             entry.used = true;
-            if entry.text != s.text || entry.width != width || entry.font_size != style.font_size {
+            if entry.text != s.text
+                || entry.width != width
+                || entry.font_size != style.font_size
+                || entry.align != style.align
+            {
                 let b = &mut entry.buffer;
                 b.set_metrics(Metrics::new(style.font_size, style.line_height));
                 b.set_wrap(Wrap::WordOrGlyph);
@@ -152,7 +158,11 @@ impl TextLayer {
                     &s.text,
                     &Attrs::new().family(Family::SansSerif),
                     Shaping::Advanced,
-                    Some(glyphon::cosmic_text::Align::Center),
+                    Some(match style.align {
+                        board_core::TextAlign::Left => glyphon::cosmic_text::Align::Left,
+                        board_core::TextAlign::Center => glyphon::cosmic_text::Align::Center,
+                        board_core::TextAlign::Right => glyphon::cosmic_text::Align::Right,
+                    }),
                 );
                 b.shape_until_scroll(font_system, false);
                 entry.height = b
@@ -163,6 +173,7 @@ impl TextLayer {
                 entry.text.clone_from(&s.text);
                 entry.width = width;
                 entry.font_size = style.font_size;
+                entry.align = style.align;
             }
         }
 
@@ -181,8 +192,9 @@ impl TextLayer {
             // 縦方向も中央に寄せる(はみ出す場合は上詰め)。
             let top = rect.min.y + ((rect.size().y - c.height) * 0.5).max(0.0);
             let origin = camera.world_to_screen(glam::Vec2::new(rect.min.x, top));
-            let clip_min = camera.world_to_screen(s.bounds().min);
-            let clip_max = camera.world_to_screen(s.bounds().max);
+            let clip = s.text_clip();
+            let clip_min = camera.world_to_screen(clip.min);
+            let clip_max = camera.world_to_screen(clip.max);
             let [r, g, b, a] = s.text_style().color.0;
             Some(TextArea {
                 buffer: &c.buffer,

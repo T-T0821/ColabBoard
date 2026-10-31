@@ -754,6 +754,9 @@ impl App {
         let _ = css.set_property("height", &px(size.y));
         let _ = css.set_property("font-size", &px(style.font_size * zoom / dpr));
         let _ = css.set_property("line-height", &px(style.line_height * zoom / dpr));
+        let _ = css.set_property("text-align", style.align.name());
+        let [r, g, b, _] = style.color.0;
+        let _ = css.set_property("color", &format!("rgb({r},{g},{b})"));
         // 縦方向の中央寄せ: 中身の高さを測って上の余白を決める。
         let _ = css.set_property("padding-top", "0px");
         let _ = css.set_property("height", "0px");
