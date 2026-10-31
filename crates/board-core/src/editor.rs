@@ -480,6 +480,56 @@ impl Editor {
         self.shape_kind = kind;
     }
 
+    /// コネクタの線の引き方(キーボードでつなぐときにも使う)。
+    pub fn connector_style(&self) -> PathStyle {
+        self.connector_style
+    }
+
+    /// 今のツールで作る要素を `center` を中心に既定の大きさで置く(キーボード操作用)。
+    /// 置けないツールなら `None`。置いた要素を選び、1 回きりのツールは選択に戻す。
+    pub fn create_at(&mut self, board: &mut Board, center: Vec2) -> Option<ElementId> {
+        let id = board.alloc_id();
+        let shape = match self.tool {
+            Tool::Sticky => Shape::sticky(id, Vec2::ZERO, self.sticky_color),
+            Tool::Shape => Shape::new(
+                id,
+                self.shape_kind,
+                Vec2::ZERO,
+                self.shape_kind.default_size(),
+                self.shape_fill,
+            ),
+            Tool::Text => {
+                let mut t = Shape::text(id, Vec2::ZERO, ShapeKind::Text.default_size());
+                t.text_color = Rgba8::BLACK;
+                t
+            }
+            Tool::Frame => Shape::frame(id, Vec2::ZERO, ShapeKind::Frame.default_size()),
+            Tool::Stamp => self.stamp.shape(id, Vec2::ZERO),
+            _ => return None,
+        };
+        let mut shape = shape;
+        let size = shape.size;
+        let want = Rect::new(center - size * 0.5, center + size * 0.5);
+        shape.pos = if self.tool == Tool::Frame {
+            want.min
+        } else {
+            crate::a11y::free_spot(board, want, Vec2::new(size.x + 40.0, 0.0))
+        };
+        shape.fit_text_height();
+        if self.tool == Tool::Frame {
+            let (lo, _) = board.z_range();
+            board.push(shape);
+            board.set_z(&[(id, lo - 1.0)]);
+        } else {
+            board.push(shape);
+        }
+        self.selection = vec![id];
+        if self.tool.one_shot() {
+            self.tool = Tool::Select;
+        }
+        Some(id)
+    }
+
     pub fn selection(&self) -> &[ElementId] {
         &self.selection
     }
