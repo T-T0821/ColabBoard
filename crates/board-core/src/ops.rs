@@ -492,6 +492,12 @@ pub struct OpsRequest {
     pub ops: Vec<Op>,
 }
 
+impl From<Vec<Op>> for OpsRequest {
+    fn from(ops: Vec<Op>) -> Self {
+        OpsRequest { ops }
+    }
+}
+
 /// 一括操作の結果。
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct OpsResult {

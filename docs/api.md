@@ -7,7 +7,7 @@
 - ベース URL: `https://<サーバー>/api/v1`
 - 形式: JSON(UTF-8)
 - 認証: `Authorization: Bearer <API トークン>`
-- Rust からは SDK クレート `graboard-sdk` も使える(準備中)。
+- Rust からは SDK クレート `graboard-sdk` を使うと楽(下の「[Rust SDK](#rust-sdk)」)。
 
 ## API トークン
 
@@ -179,6 +179,63 @@ curl -s -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
 
 # 「課題」を含む付箋を探す
 curl -s -H "Authorization: Bearer $TOKEN" "$BASE/boards/$BOARD/elements?kind=sticky&text=課題"
+```
+
+## Rust SDK
+
+`crates/board-sdk`(クレート名 `graboard-sdk`)。非同期(tokio + reqwest)で、型は `board_core::ops` と共通。
+
+```toml
+[dependencies]
+graboard-sdk = { git = "https://github.com/T-T0821/ColabBoard" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+```
+
+```rust
+use graboard_sdk::{Batch, Client, ElementQuery, NewElement};
+
+#[tokio::main]
+async fn main() -> Result<(), graboard_sdk::Error> {
+    // GRABOARD_URL と GRABOARD_TOKEN から作る(Client::new(url, token) でもよい)
+    let client = Client::from_env()?;
+    let board = client.board("abc123def456");
+
+    // 付箋を置き、文字を変え、動かす
+    let note = board.create(NewElement::sticky(0.0, 0.0, "下書き")).await?;
+    board.set_text(&note.id, "清書").await?;
+    board.move_to(&note.id, 200.0, 0.0).await?;
+
+    // 「課題」を含む付箋を探す
+    let found = board
+        .elements(&ElementQuery { kind: Some("sticky".into()), text: Some("課題".into()), ..Default::default() })
+        .await?;
+
+    // まとめて作ってつなぐ(1 つでも失敗したら何も変わらない)
+    let mut batch = Batch::new();
+    let a = batch.create(NewElement::shape("rect", 0.0, 400.0, 160.0, 100.0));
+    let b = batch.create(NewElement::shape("rect", 400.0, 400.0, 160.0, 100.0));
+    batch.create(NewElement::connector(a.endpoint(), b.endpoint()));
+    board.apply(batch).await?;
+    println!("{} 件見つかりました", found.len());
+    Ok(())
+}
+```
+
+| メソッド | 内容 |
+| --- | --- |
+| `Client::new(url, token)` / `Client::from_env()` / `Client::anonymous(url)` | クライアントを作る |
+| `client.me()` / `client.boards()` / `client.create_board(title)` | 自分・ボード一覧・ボード作成 |
+| `client.board(id)` → `Board` | 1 枚のボード(`.with_key(key)` で共有リンクの鍵) |
+| `board.info()` / `board.elements(&query)` / `board.stickies()` / `board.element(id)` | 読む |
+| `board.create(new)` / `board.update(id, patch)` / `board.set_text(id, s)` / `board.move_to(id, x, y)` / `board.delete(id)` | 書く |
+| `board.apply(batch)` | 一括操作(`Batch` で組み立てる) |
+| `board.comments()` / `board.comment(body, x, y)` | コメント |
+
+エラーは `graboard_sdk::Error`。`err.status()` で HTTP ステータス、`err.is_not_found()` で 404 かどうかがわかる。
+動く例は `crates/board-sdk/examples/standup.rs`(朝会用のボードを作って付箋を並べる)。
+
+```sh
+GRABOARD_URL=http://localhost:8080 GRABOARD_TOKEN=gbt_… cargo run -p graboard-sdk --example standup
 ```
 
 ## 仕組み

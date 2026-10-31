@@ -213,6 +213,7 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 
 - ログインした状態で `POST /api/tokens` からトークンを作ると、`/api/v1` の REST API でボードの要素を読み書きできる。変更は開いている人の画面にすぐ反映される。
 - トークンは「読むだけ / 読み書き」と使えるボードを選べ、権限は持ち主の権限を超えない。
+- Rust からは SDK クレート `graboard-sdk`(`crates/board-sdk`)で使える。
 - 詳しくは [docs/api.md](docs/api.md)。
 
 ## 構成
@@ -222,6 +223,7 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `board-core` | データモデル(図形・手書き線・ボード、yrs による CRDT と Undo)、タイマーと投票の共有状態(`session`)、付箋の自動整理(`tidy`)、カメラ座標変換、パン/ズームと編集操作(`Editor`)。描画にも通信にも依存しない |
 | `board-render` | wgpu の描画エンジン。WGSL シェーダ(`grid.wgsl`, `shapes.wgsl`)と文字描画(glyphon / cosmic-text) |
 | `board-web` | ブラウザ用クライアント(WASM)。canvas、入力イベント、HUD、WebSocket 接続とカーソル表示 |
+| `board-sdk` | REST API(`/api/v1`)の Rust クライアント(クレート名 `graboard-sdk`) |
 | `board-server` | 同期サーバー(axum + tokio)。ルームごとに yrs ドキュメントを持って更新を中継し、redb に保存する |
 | `board-bench` | 再現可能なベンチマーク(CPU 側の処理時間、初回同期の速さ) |
 
