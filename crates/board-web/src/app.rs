@@ -21,6 +21,7 @@ mod toolbar;
 
 use crate::net::{Net, NetEvent, Status};
 use crate::presence::{Cursors, Identity};
+use crate::session::{self, Access, BoardChrome, SharedChrome};
 use crate::{format_count, format_zoom, parse_hex};
 
 /// カーソル位置を送る最短間隔(ミリ秒)。
@@ -67,6 +68,12 @@ struct App {
     last_status: Option<(Status, usize)>,
     collab: collab::Collab,
     follow: follow::Follow,
+    /// ボード名・権限・共有パネル(サーバーの API が使えるときだけ)。
+    chrome: Option<SharedChrome>,
+    /// 権限の確かめ直しの結果(非同期で届く)。
+    access_slot: Rc<RefCell<Option<Access>>>,
+    /// 初回同期の回数(2 回目以降はつなぎ直し)。
+    syncs: u32,
 }
 
 struct Hud {
@@ -164,9 +171,6 @@ async fn create_renderer(
 pub async fn run() -> Result<(), String> {
     let window = web_sys::window().ok_or("window がありません")?;
     let document = window.document().ok_or("document がありません")?;
-    let canvas: HtmlCanvasElement = by_id(&document, "board")?;
-
-    let (canvas, renderer) = create_renderer(&window, canvas).await?;
 
     let params = window
         .location()
@@ -181,6 +185,37 @@ pub async fn run() -> Result<(), String> {
         .map(|n| n.min(1_000_000));
     // `?offline` でサーバーにつながず、このタブだけで動かす。
     let offline = params.has("offline");
+    let collaborative = demo_count.is_none() && !offline;
+
+    // `?room=` がなければボード一覧(サーバーに API がなければ従来どおり新しいボード)。
+    if collaborative
+        && params.get("room").filter(|r| valid_room(r)).is_none()
+        && let crate::home::Outcome::Shown = crate::home::run(&window, &document).await?
+    {
+        return Ok(());
+    }
+    // 共有リンクの鍵(`&key=`)。
+    let key = params.get("key").filter(|k| valid_room(k));
+    let mut me = None;
+    let mut info = None;
+    if collaborative {
+        let room = ensure_room(&window, &params);
+        match session::check_access(&room, key.as_deref()).await {
+            Access::Denied => {
+                let me = session::fetch_me().await;
+                session::show_denied(&document, me.is_some(), false);
+                return Ok(());
+            }
+            Access::Granted(i) => {
+                info = Some(i);
+                me = session::fetch_me().await;
+            }
+            Access::Unavailable => {}
+        }
+    }
+
+    let canvas: HtmlCanvasElement = by_id(&document, "board")?;
+    let (canvas, renderer) = create_renderer(&window, canvas).await?;
 
     let (w, h) = renderer.size();
     let camera = Camera::new(Vec2::new(w as f32, h as f32));
@@ -189,7 +224,7 @@ pub async fn run() -> Result<(), String> {
         None if offline => (Board::welcome(), None, None),
         None => {
             let room = ensure_room(&window, &params);
-            let mut net = Net::new(server_url(&window, &params, &room)?);
+            let mut net = Net::new(server_url(&window, &params, &room, key.as_deref())?);
             net.connect();
             // 共同編集のボードはサーバーから中身を受け取るまで空。
             (Board::new(), Some(room), Some(net))
@@ -205,6 +240,23 @@ pub async fn run() -> Result<(), String> {
     };
     hud.backend.set_text_content(Some(&renderer.backend_name()));
     hud.backend.set_title(renderer.adapter_name());
+
+    let mut identity = Identity::load(&window);
+    if let Some(me) = &me {
+        identity.name = me.name.clone();
+    }
+    // サーバーの API が使えるとき(info がある)だけ、ボード名や共有パネルを出す。
+    let chrome = match (&room, info) {
+        (Some(room), Some(info)) => Some(BoardChrome::new(
+            &window,
+            &document,
+            room.clone(),
+            key.clone(),
+            me,
+            Some(info),
+        )),
+        _ => None,
+    };
 
     let app = Rc::new(RefCell::new(App {
         window: window.clone(),
@@ -230,7 +282,7 @@ pub async fn run() -> Result<(), String> {
         hud,
         room,
         net,
-        identity: Identity::load(&window),
+        identity,
         cursors: Cursors::new(document.clone(), by_id(&document, "cursors")?),
         cursors_dirty: false,
         view_initialized: false,
@@ -240,6 +292,9 @@ pub async fn run() -> Result<(), String> {
         last_status: None,
         collab: collab::Collab::new(&document)?,
         follow: follow::Follow::new(&document)?,
+        chrome,
+        access_slot: Rc::default(),
+        syncs: 0,
     }));
     {
         let mut a = app.borrow_mut();
@@ -300,7 +355,12 @@ fn server_url(
     window: &Window,
     params: &web_sys::UrlSearchParams,
     room: &str,
+    key: Option<&str>,
 ) -> Result<String, String> {
+    let room = match key {
+        Some(k) => format!("{room}?key={k}"),
+        None => room.to_string(),
+    };
     if let Some(base) = params.get("server") {
         return Ok(format!("{}/ws/{room}", base.trim_end_matches('/')));
     }
@@ -345,7 +405,63 @@ impl App {
 
     // ---- 同期 ----
 
+    /// 編集できるか(閲覧のみ・コメント可の人は見るだけ)。
+    fn can_edit(&self) -> bool {
+        self.chrome
+            .as_ref()
+            .is_none_or(|c| c.borrow().role().can_edit())
+    }
+
+    /// 権限を確かめ直す(つなぎ直したとき)。結果は `apply_access` で反映する。
+    fn recheck_access(&self) {
+        let Some(chrome) = &self.chrome else {
+            return;
+        };
+        let (room, key) = {
+            let c = chrome.borrow();
+            (c.room.clone(), c.key.clone())
+        };
+        let slot = self.access_slot.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let access = session::check_access(&room, key.as_deref()).await;
+            *slot.borrow_mut() = Some(access);
+        });
+    }
+
+    fn apply_access(&mut self) {
+        let Some(access) = self.access_slot.borrow_mut().take() else {
+            return;
+        };
+        let Some(chrome) = self.chrome.clone() else {
+            return;
+        };
+        match access {
+            Access::Granted(info) => {
+                chrome.borrow_mut().set_info(info);
+                if !self.can_edit() {
+                    // 編集できなくなった: 途中の操作をやめる。
+                    self.end_text_edit(true);
+                    if self.editor.is_dragging() {
+                        self.editor.cancel(&mut self.board);
+                    }
+                    self.editor.clear_selection();
+                    self.editor.set_tool(Tool::Select);
+                    self.dirty = true;
+                }
+            }
+            Access::Denied => {
+                if let Some(net) = self.net.as_mut() {
+                    net.disable();
+                }
+                let logged_in = chrome.borrow().me.is_some();
+                session::show_denied(&self.document, logged_in, true);
+            }
+            Access::Unavailable => {}
+        }
+    }
+
     fn pump_net(&mut self, now: f64) {
+        self.apply_access();
         let Some(net) = self.net.as_mut() else {
             return;
         };
@@ -355,6 +471,10 @@ impl App {
                 NetEvent::Open => {}
                 NetEvent::Message(Message::Sync { you, state }) => {
                     log::info!("同期しました(参加者番号 {you})");
+                    self.syncs += 1;
+                    if self.syncs > 1 {
+                        self.recheck_access();
+                    }
                     if let Err(e) = self.board.apply_remote(&state) {
                         log::error!("初回同期に失敗: {e}");
                     }
@@ -392,6 +512,9 @@ impl App {
                 NetEvent::Closed => {
                     self.cursors.clear();
                     self.follow_reset();
+                    if self.net.as_ref().map(|n| n.status) == Some(Status::Reconnecting) {
+                        self.recheck_access();
+                    }
                     let offline = self.net.as_ref().map(|n| n.status) == Some(Status::Offline);
                     if offline && self.board.is_empty() && !self.view_initialized {
                         log::warn!("サーバーにつながらないので、このタブだけで動かします");
@@ -493,7 +616,7 @@ impl App {
     }
 
     fn undo(&mut self) {
-        if self.editor.is_dragging() {
+        if self.editor.is_dragging() || !self.can_edit() {
             return;
         }
         self.board.end_gesture();
@@ -503,7 +626,7 @@ impl App {
     }
 
     fn redo(&mut self) {
-        if self.editor.is_dragging() {
+        if self.editor.is_dragging() || !self.can_edit() {
             return;
         }
         self.board.end_gesture();
@@ -513,6 +636,9 @@ impl App {
     }
 
     fn set_tool(&mut self, tool: Tool) {
+        if !self.can_edit() && tool != Tool::Hand {
+            return;
+        }
         self.editor.set_tool(tool);
         self.dirty = true;
     }
@@ -654,6 +780,7 @@ impl App {
         self.pointers.insert(id, p);
 
         let wants_nav = e.button() == 1
+            || !self.can_edit()
             || self.space_down
             || self.editor.tool() == Tool::Hand
             || self.pointers.len() > 1;
@@ -730,7 +857,7 @@ impl App {
     // ---- 文字編集 ----
 
     fn begin_text_edit(&mut self, id: ElementId) {
-        if !self.editor.begin_edit(&self.board, id) {
+        if !self.can_edit() || !self.editor.begin_edit(&self.board, id) {
             return;
         }
         let text = self.board.get(id).map(BoardElement::text).unwrap_or("");
@@ -806,6 +933,17 @@ impl App {
         }
         let key = e.key();
         let ctrl = e.ctrl_key() || e.meta_key();
+        if key == "Escape"
+            && let Some(c) = &self.chrome
+            && c.borrow().share_open()
+        {
+            c.borrow().close_share();
+            return true;
+        }
+        // 見るだけの人は表示の操作だけ。
+        if !self.can_edit() && !matches!(key.as_str(), " " | "+" | "=" | "-" | "0" | "1") {
+            return false;
+        }
         match key.as_str() {
             " " => {
                 if !self.space_down {
@@ -1103,6 +1241,9 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
             false,
             move |_: web_sys::MouseEvent| {
                 let mut a = app.borrow_mut();
+                if !a.can_edit() {
+                    return;
+                }
                 let App { editor, board, .. } = &mut *a;
                 board.end_gesture();
                 editor.apply_color(board, color);
@@ -1129,7 +1270,14 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
             a.set_board(Board::welcome());
         }
     })?;
-    on_click(doc, "share", app, |a| a.copy_link())?;
+    on_click(doc, "share", app, |a| {
+        if let Some(c) = a.chrome.clone()
+            && BoardChrome::on_share_click(&c)
+        {
+            return;
+        }
+        a.copy_link();
+    })?;
     collab::install(app, doc)?;
     follow::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
