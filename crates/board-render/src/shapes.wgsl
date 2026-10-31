@@ -16,6 +16,8 @@ struct Globals {
 const KIND_RECT: u32 = 0u;
 const KIND_ELLIPSE: u32 = 1u;
 const KIND_STICKY: u32 = 2u;
+// 手書き線の 1 区間。pos = 始点、size = 終点、radius = 線幅の半分。
+const KIND_SEGMENT: u32 = 3u;
 
 struct Instance {
     @location(0) pos: vec2f,
@@ -45,8 +47,30 @@ const SHADOW_BLUR: f32 = 10.0;
 fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     var out: VsOut;
 
-    let half = inst.size * 0.5;
-    let center = inst.pos + half;
+    // 要素ごとに「中心・半径(half)・x 軸の向き・外接矩形」を求める。
+    var center: vec2f;
+    var half: vec2f;
+    var axis = vec2f(1.0, 0.0);
+    var lo: vec2f;
+    var hi: vec2f;
+    var radius = inst.radius;
+    if (inst.kind == KIND_SEGMENT) {
+        let d = inst.size - inst.pos;
+        let len = length(d);
+        if (len > 1e-6) {
+            axis = d / len;
+        }
+        center = (inst.pos + inst.size) * 0.5;
+        half = vec2f(len * 0.5 + inst.radius, inst.radius);
+        lo = min(inst.pos, inst.size) - inst.radius;
+        hi = max(inst.pos, inst.size) + inst.radius;
+    } else {
+        half = inst.size * 0.5;
+        center = inst.pos + half;
+        lo = inst.pos;
+        hi = inst.pos + inst.size;
+        radius = min(inst.radius, min(half.x, half.y));
+    }
 
     // 画面外の要素は面積 0 の三角形にしてラスタライズさせない(GPU 側カリング)。
     let view_min = g.origin;
@@ -55,11 +79,9 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     if (inst.kind == KIND_STICKY) {
         margin = margin + SHADOW_BLUR + SHADOW_OFFSET.y;
     }
-    let lo = inst.pos - margin;
-    let hi = inst.pos + inst.size + margin;
-    let offscreen = any(hi < view_min) || any(lo > view_max);
+    let offscreen = any(hi + margin < view_min) || any(lo - margin > view_max);
     // 1px 未満に縮んだ要素も描かない(ズームアウト時の LOD)。
-    let tiny = max(inst.size.x, inst.size.y) * g.zoom < 0.5;
+    let tiny = max(half.x, half.y) * 2.0 * g.zoom < 0.5;
     if (offscreen || tiny) {
         out.clip = vec4f(0.0, 0.0, -2.0, 1.0);
         return out;
@@ -72,13 +94,15 @@ fn vs_main(@builtin(vertex_index) vi: u32, inst: Instance) -> VsOut {
     );
     let c = corners[vi];
     let local = c * (half + margin);
+    let normal = vec2f(-axis.y, axis.x);
+    let world = center + axis * local.x + normal * local.y;
 
-    out.clip = g.view_proj * vec4f(center + local, 0.0, 1.0);
+    out.clip = g.view_proj * vec4f(world, 0.0, 1.0);
     out.local = local;
     out.half = half;
     out.fill = unpack4x8unorm(inst.fill);
     out.stroke = unpack4x8unorm(inst.stroke);
-    out.params = vec2f(inst.stroke_width, min(inst.radius, min(half.x, half.y)));
+    out.params = vec2f(inst.stroke_width, radius);
     out.kind = inst.kind;
     return out;
 }

@@ -24,8 +24,44 @@
     <button id="demo-10k">1万</button>
     <button id="demo-100k">10万</button>
     <button id="demo-1m">100万</button>
+    <button id="demo-clear">初期化</button>
     <label class="check"><input id="continuous" type="checkbox" /> 常時再描画(計測)</label>
   </section>
+
+  <nav class="panel toolbar" aria-label="ツール">
+    <button id="tool-select" class="tool" title="選択 (V)" aria-pressed="true">
+      <svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 1.5L10 19z"/></svg>
+    </button>
+    <button id="tool-hand" class="tool" title="手のひら (H / Space)" aria-pressed="false">
+      <svg viewBox="0 0 24 24"><path d="M8 13V5.5a1.5 1.5 0 013 0V11m0-6.5a1.5 1.5 0 013 0V11m0-5a1.5 1.5 0 013 0v7c0 4-2.5 7-6.5 7S5 17 4 14.5l-1-2.5a1.4 1.4 0 012.4-1.4L8 13"/></svg>
+    </button>
+    <span class="sep"></span>
+    <button id="tool-sticky" class="tool" title="付箋 (S)" aria-pressed="false">
+      <svg viewBox="0 0 24 24"><path d="M4 4h16v11l-5 5H4z M15 20v-5h5"/></svg>
+    </button>
+    <button id="tool-rect" class="tool" title="四角形 (R)" aria-pressed="false">
+      <svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="2"/></svg>
+    </button>
+    <button id="tool-ellipse" class="tool" title="楕円 (O)" aria-pressed="false">
+      <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8" ry="7"/></svg>
+    </button>
+    <button id="tool-pen" class="tool" title="ペン (P)" aria-pressed="false">
+      <svg viewBox="0 0 24 24"><path d="M4 20l1-4L16 5l3 3L8 19z M14 7l3 3"/></svg>
+    </button>
+    <span class="sep"></span>
+    <div class="swatches" aria-label="色">
+      <button class="swatch" data-color="#fff3a3" style="--c:#fff3a3" title="黄"></button>
+      <button class="swatch" data-color="#ffd2a8" style="--c:#ffd2a8" title="オレンジ"></button>
+      <button class="swatch" data-color="#ffb8c9" style="--c:#ffb8c9" title="ピンク"></button>
+      <button class="swatch" data-color="#d3c2ff" style="--c:#d3c2ff" title="紫"></button>
+      <button class="swatch" data-color="#b5e3ff" style="--c:#b5e3ff" title="青"></button>
+      <button class="swatch" data-color="#c4f0c2" style="--c:#c4f0c2" title="緑"></button>
+      <button class="swatch" data-color="#ffffff" style="--c:#ffffff" title="白"></button>
+      <button class="swatch" data-color="#1f1f1f" style="--c:#1f1f1f" title="黒"></button>
+      <button class="swatch" data-color="#e5484d" style="--c:#e5484d" title="赤"></button>
+      <button class="swatch" data-color="#2f6fed" style="--c:#2f6fed" title="青(濃)"></button>
+    </div>
+  </nav>
 
   <nav class="panel zoom" aria-label="ズーム">
     <button id="zoom-out" aria-label="縮小">−</button>
@@ -34,7 +70,7 @@
     <button id="zoom-fit">全体</button>
   </nav>
 
-  <p class="panel help">ドラッグ / スクロール: 移動 ・ Ctrl/⌘+スクロール / ピンチ: ズーム ・ 1: 全体表示 ・ 0: 100%</p>
+  <p class="panel help">スクロール: 移動 ・ Ctrl/⌘+スクロール: ズーム ・ Space+ドラッグ: 移動 ・ Shift: 追加選択/縦横比固定 ・ Delete: 削除</p>
 
   <div id="error" role="alert"></div>
 </body>

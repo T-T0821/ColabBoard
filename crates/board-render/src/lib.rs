@@ -12,7 +12,7 @@ mod gpu;
 pub use gpu::{FrameStats, RenderError, Renderer};
 pub use wgpu;
 
-use board_core::{Shape, ShapeKind};
+use board_core::{Element, Shape, ShapeKind, Stroke};
 use bytemuck::{Pod, Zeroable};
 
 /// シェーダの `Globals` と同じ並び(96 バイト)。
@@ -71,12 +71,47 @@ impl From<&Shape> for ShapeInstance {
             stroke_width: s.stroke_width,
             radius: s.corner_radius,
             kind: match s.kind {
-                ShapeKind::Rect => 0,
-                ShapeKind::Ellipse => 1,
-                ShapeKind::Sticky => 2,
+                ShapeKind::Rect => KIND_RECT,
+                ShapeKind::Ellipse => KIND_ELLIPSE,
+                ShapeKind::Sticky => KIND_STICKY,
             },
             _pad: 0,
         }
+    }
+}
+
+pub const KIND_RECT: u32 = 0;
+pub const KIND_ELLIPSE: u32 = 1;
+pub const KIND_STICKY: u32 = 2;
+pub const KIND_SEGMENT: u32 = 3;
+
+impl ShapeInstance {
+    fn segment(a: [f32; 2], b: [f32; 2], s: &Stroke) -> Self {
+        Self {
+            pos: a,
+            size: b,
+            fill: s.color.to_u32(),
+            stroke: 0,
+            stroke_width: 0.0,
+            radius: s.width * 0.5,
+            kind: KIND_SEGMENT,
+            _pad: 0,
+        }
+    }
+}
+
+/// 要素をインスタンス列に変換して `out` に足す。手書き線は線分ごとに 1 インスタンス。
+pub fn push_instances(e: &Element, out: &mut Vec<ShapeInstance>) {
+    match e {
+        Element::Shape(s) => out.push(s.into()),
+        Element::Stroke(s) => match s.points.as_slice() {
+            [] => {}
+            [p] => out.push(ShapeInstance::segment(p.to_array(), p.to_array(), s)),
+            pts => out.extend(
+                pts.windows(2)
+                    .map(|w| ShapeInstance::segment(w[0].to_array(), w[1].to_array(), s)),
+            ),
+        },
     }
 }
 
@@ -86,6 +121,24 @@ pub const SHAPES_WGSL: &str = include_str!("shapes.wgsl");
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stroke_becomes_segments() {
+        use board_core::{ElementId, Rgba8, Vec2};
+        let mut st = Stroke::new(ElementId(1), Vec2::ZERO, Rgba8::BLACK, 4.0);
+        let mut out = Vec::new();
+        push_instances(&Element::Stroke(st.clone()), &mut out);
+        assert_eq!(out.len(), 1);
+        st.push_point(Vec2::new(10.0, 0.0), 0.0);
+        st.push_point(Vec2::new(20.0, 5.0), 0.0);
+        out.clear();
+        push_instances(&Element::Stroke(st), &mut out);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[1].pos, [10.0, 0.0]);
+        assert_eq!(out[1].size, [20.0, 5.0]);
+        assert_eq!(out[1].radius, 2.0);
+        assert_eq!(out[1].kind, KIND_SEGMENT);
+    }
 
     #[test]
     fn struct_sizes_match_shaders() {

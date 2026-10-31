@@ -2,23 +2,21 @@ use glam::Vec2;
 
 use crate::color::Rgba8;
 
-/// ボード内で一意な要素 ID。共同編集では CRDT 側のキーになる。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ShapeId(pub u64);
+use crate::element::ElementId;
+use crate::geom::Rect;
 
-/// 要素の種類。値は GPU シェーダの分岐にそのまま使う。
-#[repr(u32)]
+/// 図形の種類。
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShapeKind {
-    Rect = 0,
-    Ellipse = 1,
-    Sticky = 2,
+    Rect,
+    Ellipse,
+    Sticky,
 }
 
 /// キャンバス上の 1 要素。座標はワールド座標(px 相当、y 下向き)。
 #[derive(Clone, Debug, PartialEq)]
 pub struct Shape {
-    pub id: ShapeId,
+    pub id: ElementId,
     pub kind: ShapeKind,
     /// 左上の位置。
     pub pos: Vec2,
@@ -30,7 +28,7 @@ pub struct Shape {
 }
 
 impl Shape {
-    pub fn rect(id: ShapeId, pos: Vec2, size: Vec2, fill: Rgba8) -> Self {
+    pub fn rect(id: ElementId, pos: Vec2, size: Vec2, fill: Rgba8) -> Self {
         Self {
             id,
             kind: ShapeKind::Rect,
@@ -43,7 +41,7 @@ impl Shape {
         }
     }
 
-    pub fn ellipse(id: ShapeId, pos: Vec2, size: Vec2, fill: Rgba8) -> Self {
+    pub fn ellipse(id: ElementId, pos: Vec2, size: Vec2, fill: Rgba8) -> Self {
         Self {
             kind: ShapeKind::Ellipse,
             corner_radius: 0.0,
@@ -51,7 +49,7 @@ impl Shape {
         }
     }
 
-    pub fn sticky(id: ShapeId, pos: Vec2, fill: Rgba8) -> Self {
+    pub fn sticky(id: ElementId, pos: Vec2, fill: Rgba8) -> Self {
         Self {
             id,
             kind: ShapeKind::Sticky,
@@ -70,6 +68,15 @@ impl Shape {
 
     pub fn max(&self) -> Vec2 {
         self.pos + self.size
+    }
+
+    pub fn bounds(&self) -> Rect {
+        Rect::new(self.min(), self.max())
+    }
+
+    pub fn set_bounds(&mut self, r: Rect) {
+        self.pos = r.min;
+        self.size = r.size();
     }
 
     /// ワールド座標の点が要素の内側か。
@@ -96,11 +103,21 @@ mod tests {
 
     #[test]
     fn contains_rect_and_ellipse() {
-        let r = Shape::rect(ShapeId(1), Vec2::ZERO, Vec2::new(100.0, 50.0), Rgba8::WHITE);
+        let r = Shape::rect(
+            ElementId(1),
+            Vec2::ZERO,
+            Vec2::new(100.0, 50.0),
+            Rgba8::WHITE,
+        );
         assert!(r.contains(Vec2::new(99.0, 49.0)));
         assert!(!r.contains(Vec2::new(101.0, 10.0)));
 
-        let e = Shape::ellipse(ShapeId(2), Vec2::ZERO, Vec2::new(100.0, 50.0), Rgba8::WHITE);
+        let e = Shape::ellipse(
+            ElementId(2),
+            Vec2::ZERO,
+            Vec2::new(100.0, 50.0),
+            Rgba8::WHITE,
+        );
         assert!(e.contains(Vec2::new(50.0, 25.0)));
         // 外接矩形の角は楕円の外。
         assert!(!e.contains(Vec2::new(2.0, 2.0)));

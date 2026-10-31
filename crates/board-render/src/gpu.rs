@@ -1,8 +1,8 @@
 use std::fmt;
 
-use board_core::{Board, Camera};
+use board_core::{Board, Camera, Shape};
 
-use crate::{GRID_WGSL, Globals, SHAPES_WGSL, ShapeInstance};
+use crate::{GRID_WGSL, Globals, SHAPES_WGSL, ShapeInstance, push_instances};
 
 #[derive(Debug)]
 pub enum RenderError {
@@ -52,6 +52,11 @@ pub struct Renderer {
     instance_count: u32,
     uploaded_revision: Option<u64>,
     staging: Vec<ShapeInstance>,
+
+    /// 選択枠など毎フレーム変わる少数の図形。
+    overlay_buf: wgpu::Buffer,
+    overlay_cap: u64,
+    overlay_count: u32,
 }
 
 impl Renderer {
@@ -159,6 +164,7 @@ impl Renderer {
 
         let instance_cap = 1024;
         let instance_buf = make_instance_buffer(&device, instance_cap);
+        let overlay_buf = make_instance_buffer(&device, 64);
 
         Ok(Self {
             device,
@@ -177,6 +183,9 @@ impl Renderer {
             instance_count: 0,
             uploaded_revision: None,
             staging: Vec::new(),
+            overlay_buf,
+            overlay_cap: 64,
+            overlay_count: 0,
         })
     }
 
@@ -214,8 +223,9 @@ impl Renderer {
             return false;
         }
         self.staging.clear();
-        self.staging
-            .extend(board.shapes().iter().map(ShapeInstance::from));
+        for e in board.elements() {
+            push_instances(e, &mut self.staging);
+        }
         let needed = self.staging.len() as u64;
         if needed > self.instance_cap {
             self.instance_cap = needed.next_power_of_two();
@@ -230,8 +240,29 @@ impl Renderer {
         true
     }
 
-    pub fn render(&mut self, board: &Board, camera: &Camera) -> Result<FrameStats, RenderError> {
+    fn sync_overlay(&mut self, overlay: &[Shape]) {
+        let data: Vec<ShapeInstance> = overlay.iter().map(ShapeInstance::from).collect();
+        let needed = data.len() as u64;
+        if needed > self.overlay_cap {
+            self.overlay_cap = needed.next_power_of_two();
+            self.overlay_buf = make_instance_buffer(&self.device, self.overlay_cap);
+        }
+        if !data.is_empty() {
+            self.queue
+                .write_buffer(&self.overlay_buf, 0, bytemuck::cast_slice(&data));
+        }
+        self.overlay_count = data.len() as u32;
+    }
+
+    /// `overlay` は選択枠など、ボードの上に重ねる図形。
+    pub fn render(
+        &mut self,
+        board: &Board,
+        camera: &Camera,
+        overlay: &[Shape],
+    ) -> Result<FrameStats, RenderError> {
         let uploaded = self.sync_instances(board);
+        self.sync_overlay(overlay);
 
         let globals = Globals {
             view_proj: camera.view_proj().to_cols_array_2d(),
@@ -298,6 +329,11 @@ impl Renderer {
                 pass.set_pipeline(&self.shape_pipeline);
                 pass.set_vertex_buffer(0, self.instance_buf.slice(..));
                 pass.draw(0..6, 0..self.instance_count);
+            }
+            if self.overlay_count > 0 {
+                pass.set_pipeline(&self.shape_pipeline);
+                pass.set_vertex_buffer(0, self.overlay_buf.slice(..));
+                pass.draw(0..6, 0..self.overlay_count);
             }
         }
         self.queue.submit([encoder.finish()]);
