@@ -11,7 +11,7 @@ use crate::shape::{Shape, ShapeKind, TextAlign};
 /// 書式バーで選べる文字の大きさ。
 pub const FONT_SIZES: [f32; 7] = [12.0, 16.0, 20.0, 24.0, 32.0, 48.0, 64.0];
 /// 書式バーで選べる線の太さ。
-pub const WIDTHS: [f32; 3] = [2.0, 4.0, 8.0];
+pub const WIDTHS: [f32; 3] = [2.0, 4.0, 6.0];
 
 /// 書式を 1 つ変える操作。
 #[derive(Clone, Debug, PartialEq)]
@@ -34,7 +34,7 @@ pub enum Change {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Summary {
     pub count: usize,
-    /// 文字を持てる要素(図形・コネクタ)があるか。
+    /// 文字の書式を変えられる図形があるか。
     pub has_text: bool,
     pub font_size: Option<f32>,
     pub align: Option<TextAlign>,
@@ -91,7 +91,6 @@ pub fn summarize(board: &Board, ids: &[ElementId]) -> Summary {
                 }
             }
             Element::Connector(c) => {
-                out.has_text = true;
                 out.has_connector = true;
                 merge(&mut path, c.style);
                 merge(&mut sc, c.start_cap);
@@ -299,8 +298,8 @@ mod tests {
         let mut b = Board::local();
         let id = b.alloc_id();
         b.push(Stroke::new(id, Vec2::ZERO, Rgba8::BLACK, 3.0));
-        apply(&mut b, &[id], &Change::Width(8.0));
-        assert_eq!(summarize(&b, &[id]).width, Some(8.0));
+        apply(&mut b, &[id], &Change::Width(6.0));
+        assert_eq!(summarize(&b, &[id]).width, Some(6.0));
         assert!(!summarize(&b, &[id]).has_text);
     }
 

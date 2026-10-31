@@ -500,3 +500,43 @@ body.home-mode > :not(#home):not(#error) { display: none !important; }
   #board-title { max-width: 14ch; }
   .home-card { padding: 20px 16px; }
 }
+
+/* ---- 書式バー(選択の上に浮かぶ) ---- */
+.format-bar {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  max-width: calc(100vw - 16px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+}
+.format-bar[hidden] { display: none; }
+.format-bar button,
+.format-bar select,
+.format-bar .fb-open {
+  height: 30px;
+  min-width: 30px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.format-bar select { border-color: var(--border); padding: 0 4px; cursor: pointer; }
+.format-bar button:hover, .format-bar .fb-open:hover { background: #f1f1ef; color: var(--text); }
+.format-bar button[aria-pressed="true"] { background: #e8f0fe; color: var(--accent); }
+.format-bar svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.format-bar small { font-size: 10px; margin-left: 1px; }
+.format-bar .fb-open { color: var(--accent); text-decoration: none; }
+.fb-sep { width: 1px; height: 20px; margin: 0 4px; background: var(--border); }
+.fb-link { display: flex; gap: 4px; width: 100%; padding: 4px 2px 0; }
+.fb-link input { flex: 1; min-width: 200px; height: 28px; padding: 0 8px; border: 1px solid var(--border); border-radius: 6px; font: inherit; font-size: 13px; }
+.fb-link input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
