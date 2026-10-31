@@ -285,6 +285,15 @@ impl Editor {
         self.selection.clear();
     }
 
+    /// 選択を置き換える(存在しない要素は除く)。
+    pub fn set_selection(&mut self, board: &Board, ids: &[ElementId]) {
+        self.selection = ids
+            .iter()
+            .copied()
+            .filter(|id| board.get(*id).is_some())
+            .collect();
+    }
+
     pub fn select_all(&mut self, board: &Board) {
         self.selection = board.elements().iter().map(Element::id).collect();
     }

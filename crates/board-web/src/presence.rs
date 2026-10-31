@@ -26,6 +26,8 @@ const ANIMALS: [&str; 12] = [
 ];
 
 pub struct Identity {
+    /// 参加者を見分ける ID(投票の集計に使う)。タブを開き直しても変わらない。
+    pub id: String,
     pub name: String,
     pub color: u32,
 }
@@ -42,11 +44,15 @@ impl Identity {
         let color = get("colabboard.color")
             .and_then(|c| u32::from_str_radix(&c, 16).ok())
             .unwrap_or_else(|| COLORS[rand() % COLORS.len()]);
+        let id = get("colabboard.user")
+            .filter(|u| (8..=32).contains(&u.len()) && u.bytes().all(|b| b.is_ascii_hexdigit()))
+            .unwrap_or_else(|| format!("{:08x}{:08x}", rand() as u32, rand() as u32));
         if let Some(s) = &storage {
+            let _ = s.set_item("colabboard.user", &id);
             let _ = s.set_item("colabboard.name", &name);
             let _ = s.set_item("colabboard.color", &format!("{color:06x}"));
         }
-        Self { name, color }
+        Self { id, name, color }
     }
 }
 

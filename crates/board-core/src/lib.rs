@@ -12,6 +12,7 @@ pub mod element;
 pub mod geom;
 pub mod navigation;
 pub mod protocol;
+pub mod session;
 pub mod shape;
 
 pub use board::Board;
