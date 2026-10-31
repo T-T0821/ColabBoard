@@ -26,6 +26,9 @@ pub struct BoardMeta {
     pub members: BTreeMap<String, Role>,
     #[serde(default)]
     pub link: Option<LinkShare>,
+    /// Slack 通知の送り先。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slack: Option<crate::slack::SlackHook>,
     /// 削除済み。ID を使い回して誰でも開けるボードとして復活しないよう、印だけ残す。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deleted: bool,
@@ -134,6 +137,7 @@ pub fn create(store: &Store, owner: &str, title: &str) -> Result<BoardMeta, Stor
             updated: now,
             members: BTreeMap::new(),
             link: None,
+            slack: None,
             deleted: false,
         };
         // ID がぶつかるのはまずないが、ぶつかったら作り直す。既存の(情報のない)ルームとも避ける。
@@ -247,6 +251,7 @@ mod tests {
                 key: "secret".into(),
                 role: Role::Commenter,
             }),
+            slack: None,
             deleted: false,
         }
     }
