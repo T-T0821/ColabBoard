@@ -7,6 +7,7 @@
   <link data-trunk rel="rust" data-wasm-opt="s" />
   <link data-trunk rel="css" href="style.css" />
   <link data-trunk rel="copy-dir" href="assets/fonts" />
+  <link data-trunk rel="copy-dir" href="assets/cloud-icons" />
 </head>
 <body>
   <canvas id="board" tabindex="0" aria-label="ホワイトボード"></canvas>
@@ -191,6 +192,8 @@
       <select id="ai-mode" aria-label="図の種類">
         <option value="auto">おまかせ</option>
         <option value="aws">AWS 構成図</option>
+        <option value="azure">Azure 構成図</option>
+        <option value="gcp">Google Cloud 構成図</option>
         <option value="flowchart">フローチャート</option>
       </select>
       <button id="ai-generate" class="primary">生成</button>
