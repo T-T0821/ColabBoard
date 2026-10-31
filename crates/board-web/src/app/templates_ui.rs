@@ -31,6 +31,10 @@ impl App {
         self.board.end_gesture();
         if let Some(r) = self.board.bounds_of(&ids) {
             self.camera.fit(r.min, r.max, 96.0);
+            // 右側にファシリテーションのパネル(進め方)が開くので、その分あけて合わせ直す。
+            let panel = 340.0 / self.camera.zoom;
+            self.camera
+                .fit(r.min, Vec2::new(r.max.x + panel, r.max.y), 96.0);
         }
         self.editor.set_selection(ids);
         self.dirty = true;
