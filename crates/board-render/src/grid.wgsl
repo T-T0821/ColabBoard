@@ -53,7 +53,7 @@ fn fs_main(in: VsOut) -> @location(0) vec4f {
     let t = clamp((spacing * g.zoom - 16.0) / 64.0, 0.0, 1.0);
     let a = mix(dots(world, spacing * 5.0), dots(world, spacing), t);
 
-    let bg = vec3f(0.961, 0.961, 0.957);
-    let dot = vec3f(0.78, 0.78, 0.77);
+    let bg = vec3f(0.965, 0.969, 0.976);
+    let dot = vec3f(0.79, 0.80, 0.83);
     return vec4f(to_output(mix(bg, dot, a)), 1.0);
 }
