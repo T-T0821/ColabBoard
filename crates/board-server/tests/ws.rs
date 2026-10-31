@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use board_core::protocol::{Message, Presence, Reaction, View};
+use board_core::protocol::{Message, Presence, Reaction, Signal, SignalKind, View, Voice};
 use board_core::{Board, Rgba8, Shape, Vec2};
 use board_server::{Config, Hub, Store, router};
 use futures_util::{SinkExt, StreamExt};
@@ -189,4 +189,81 @@ async fn reactions_are_relayed_not_stored() {
     let (mut c, _, _) = join(&base, "react").await;
     let got = tokio::time::timeout(Duration::from_millis(300), c.next()).await;
     assert!(got.is_err(), "リアクションが再送された: {got:?}");
+}
+
+#[tokio::test]
+async fn voice_state_is_replayed_and_signals_go_to_one_peer() {
+    let base = serve().await;
+    let (mut a, _, id_a) = join(&base, "call").await;
+    let (mut b, _, id_b) = join(&base, "call").await;
+    let (mut c, _, _) = join(&base, "call").await;
+
+    // A が通話に入る → B と C に届く(番号はサーバーが付ける)。
+    let voice = Voice {
+        peer: 0,
+        in_call: true,
+        muted: false,
+        speaking: false,
+    };
+    send(&mut a, Message::Voice(voice)).await;
+    for ws in [&mut b, &mut c] {
+        let Message::Voice(v) = recv(ws).await else {
+            panic!("Voice のはず")
+        };
+        assert_eq!(v.peer, id_a);
+        assert!(v.in_call);
+    }
+
+    // あとから来た人にも通話中の人が分かる。
+    let (mut d, _, _) = join(&base, "call").await;
+    let Message::Voice(v) = recv(&mut d).await else {
+        panic!("途中参加でも Voice が届くはず")
+    };
+    assert_eq!(v.peer, id_a);
+
+    // B → A の offer は A にだけ届き、送り主はサーバーが書き換える。
+    send(
+        &mut b,
+        Message::Signal(Signal {
+            from: 999,
+            to: id_a,
+            kind: SignalKind::Offer,
+            payload: "sdp".into(),
+        }),
+    )
+    .await;
+    let Message::Signal(s) = recv(&mut a).await else {
+        panic!("Signal のはず")
+    };
+    assert_eq!((s.from, s.to, s.kind), (id_b, id_a, SignalKind::Offer));
+    assert_eq!(s.payload, "sdp");
+
+    // C には Signal は届かない。次に届くのは A の退出。
+    send(
+        &mut a,
+        Message::Voice(Voice {
+            in_call: false,
+            ..voice
+        }),
+    )
+    .await;
+    let Message::Voice(v) = recv(&mut c).await else {
+        panic!("Signal ではなく Voice が先に届くはず")
+    };
+    assert!(!v.in_call);
+
+    // 通話をやめた人は途中参加の人に送られない。
+    drop(d);
+    let (mut e, _, _) = join(&base, "call").await;
+    send(
+        &mut b,
+        Message::Reaction(Reaction {
+            peer: 0,
+            x: 0.0,
+            y: 0.0,
+            emoji: "👍".into(),
+        }),
+    )
+    .await;
+    assert!(matches!(recv(&mut e).await, Message::Reaction(_)));
 }
