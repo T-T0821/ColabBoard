@@ -1,14 +1,19 @@
+use std::collections::HashMap;
+
 use glam::Vec2;
 
 use crate::color::{Rgba8, STICKY_COLORS};
-use crate::shape::{Shape, ShapeId};
+use crate::element::{Element, ElementId};
+use crate::geom::Rect;
+use crate::shape::Shape;
 
 /// ボード全体。並び順がそのまま描画順(後ろほど手前)。
 ///
 /// 共同編集の段階でこの中身は CRDT ドキュメントのビューに置き換わる。
 #[derive(Clone, Debug, Default)]
 pub struct Board {
-    shapes: Vec<Shape>,
+    elements: Vec<Element>,
+    index: HashMap<ElementId, usize>,
     /// 内容が変わるたびに増える。描画側がバッファ再転送の要否を判断する。
     revision: u64,
     next_id: u64,
@@ -19,8 +24,8 @@ impl Board {
         Self::default()
     }
 
-    pub fn shapes(&self) -> &[Shape] {
-        &self.shapes
+    pub fn elements(&self) -> &[Element] {
+        &self.elements
     }
 
     pub fn revision(&self) -> u64 {
@@ -28,46 +33,133 @@ impl Board {
     }
 
     pub fn len(&self) -> usize {
-        self.shapes.len()
+        self.elements.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.shapes.is_empty()
+        self.elements.is_empty()
     }
 
-    pub fn alloc_id(&mut self) -> ShapeId {
+    pub fn alloc_id(&mut self) -> ElementId {
         self.next_id += 1;
-        ShapeId(self.next_id)
+        ElementId(self.next_id)
     }
 
-    pub fn push(&mut self, shape: Shape) {
-        self.next_id = self.next_id.max(shape.id.0);
-        self.shapes.push(shape);
+    pub fn get(&self, id: ElementId) -> Option<&Element> {
+        self.index.get(&id).map(|&i| &self.elements[i])
+    }
+
+    /// 要素を変更する。変更したら revision が進む。
+    pub fn update<R>(&mut self, id: ElementId, f: impl FnOnce(&mut Element) -> R) -> Option<R> {
+        let i = *self.index.get(&id)?;
         self.revision += 1;
+        Some(f(&mut self.elements[i]))
+    }
+
+    /// 最前面に追加する。
+    pub fn push(&mut self, element: impl Into<Element>) -> ElementId {
+        let element = element.into();
+        let id = element.id();
+        self.next_id = self.next_id.max(id.0);
+        if let Some(&i) = self.index.get(&id) {
+            self.elements[i] = element;
+        } else {
+            self.index.insert(id, self.elements.len());
+            self.elements.push(element);
+        }
+        self.revision += 1;
+        id
+    }
+
+    pub fn remove(&mut self, ids: &[ElementId]) -> usize {
+        let before = self.elements.len();
+        self.elements.retain(|e| !ids.contains(&e.id()));
+        let removed = before - self.elements.len();
+        if removed > 0 {
+            self.reindex();
+            self.revision += 1;
+        }
+        removed
     }
 
     pub fn clear(&mut self) {
-        self.shapes.clear();
+        self.elements.clear();
+        self.index.clear();
         self.revision += 1;
     }
 
+    fn reindex(&mut self) {
+        self.index = self
+            .elements
+            .iter()
+            .enumerate()
+            .map(|(i, e)| (e.id(), i))
+            .collect();
+    }
+
     /// 全要素を囲む矩形。空なら `None`。
-    pub fn bounds(&self) -> Option<(Vec2, Vec2)> {
-        let mut it = self.shapes.iter();
-        let first = it.next()?;
-        Some(it.fold((first.min(), first.max()), |(lo, hi), s| {
-            (lo.min(s.min()), hi.max(s.max()))
-        }))
+    pub fn bounds(&self) -> Option<Rect> {
+        Self::union_bounds(self.elements.iter())
+    }
+
+    /// 指定要素を囲む矩形。
+    pub fn bounds_of(&self, ids: &[ElementId]) -> Option<Rect> {
+        Self::union_bounds(ids.iter().filter_map(|id| self.get(*id)))
+    }
+
+    fn union_bounds<'a>(mut it: impl Iterator<Item = &'a Element>) -> Option<Rect> {
+        let first = it.next()?.bounds();
+        Some(it.fold(first, |r, e| r.union(&e.bounds())))
     }
 
     /// 最前面から探して、点の下にある要素を返す。
-    pub fn hit_test(&self, world: Vec2) -> Option<&Shape> {
-        self.shapes.iter().rev().find(|s| s.contains(world))
+    pub fn hit_test(&self, world: Vec2, tolerance: f32) -> Option<&Element> {
+        self.elements.iter().rev().find(|e| e.hit(world, tolerance))
+    }
+
+    /// 矩形に完全に含まれる要素(範囲選択用)。
+    pub fn query_inside(&self, r: &Rect) -> Vec<ElementId> {
+        self.elements
+            .iter()
+            .filter(|e| r.contains_rect(&e.bounds()))
+            .map(Element::id)
+            .collect()
+    }
+
+    /// 初回表示用の小さなボード。
+    pub fn welcome() -> Self {
+        let mut b = Self::new();
+        let notes = [
+            (Vec2::new(0.0, 0.0), STICKY_COLORS[0]),
+            (Vec2::new(240.0, 0.0), STICKY_COLORS[4]),
+            (Vec2::new(480.0, 0.0), STICKY_COLORS[2]),
+        ];
+        for (pos, c) in notes {
+            let id = b.alloc_id();
+            b.push(Shape::sticky(id, pos, c));
+        }
+        let id = b.alloc_id();
+        b.push(Shape::rect(
+            id,
+            Vec2::new(0.0, 260.0),
+            Vec2::new(300.0, 140.0),
+            Rgba8::hex(0xe8f0fe),
+        ));
+        let id = b.alloc_id();
+        b.push(Shape::ellipse(
+            id,
+            Vec2::new(380.0, 250.0),
+            Vec2::new(160.0, 160.0),
+            Rgba8::hex(0xe6f4ea),
+        ));
+        b
     }
 
     /// 性能確認用に `n` 個の要素を格子状に並べたボードを作る(決定的)。
     pub fn demo(n: usize) -> Self {
         let mut board = Self::new();
+        board.elements.reserve(n);
+        board.index.reserve(n);
         let cols = (n as f32).sqrt().ceil().max(1.0) as usize;
         let cell = 260.0;
         let mut rng = SplitMix64(0x0005_eedc_01ab_0a2d);
@@ -132,10 +224,9 @@ mod tests {
         let a = Board::demo(1000);
         let b = Board::demo(1000);
         assert_eq!(a.len(), 1000);
-        assert_eq!(a.shapes(), b.shapes());
-        let (lo, hi) = a.bounds().unwrap();
-        assert!(lo.cmpge(Vec2::ZERO).all());
-        assert!(hi.x > 0.0 && hi.y > 0.0);
+        assert_eq!(a.elements(), b.elements());
+        let r = a.bounds().unwrap();
+        assert!(r.min.cmpge(Vec2::ZERO).all());
     }
 
     #[test]
@@ -155,17 +246,23 @@ mod tests {
             Vec2::splat(100.0),
             Rgba8::WHITE,
         ));
-        assert_eq!(b.hit_test(Vec2::splat(75.0)).unwrap().id, id2);
-        assert_eq!(b.hit_test(Vec2::splat(10.0)).unwrap().id, id1);
-        assert!(b.hit_test(Vec2::splat(500.0)).is_none());
+        assert_eq!(b.hit_test(Vec2::splat(75.0), 0.0).unwrap().id(), id2);
+        assert_eq!(b.hit_test(Vec2::splat(10.0), 0.0).unwrap().id(), id1);
+        assert!(b.hit_test(Vec2::splat(500.0), 0.0).is_none());
     }
 
     #[test]
-    fn revision_increments() {
-        let mut b = Board::new();
+    fn update_remove_and_index() {
+        let mut b = Board::welcome();
+        let ids: Vec<_> = b.elements().iter().map(Element::id).collect();
         let r0 = b.revision();
-        let id = b.alloc_id();
-        b.push(Shape::sticky(id, Vec2::ZERO, Rgba8::WHITE));
+        b.update(ids[1], |e| e.translate(Vec2::new(5.0, 0.0)));
         assert!(b.revision() > r0);
+        assert_eq!(b.remove(&[ids[0]]), 1);
+        assert!(b.get(ids[0]).is_none());
+        // 削除後も ID から引ける。
+        assert_eq!(b.get(ids[2]).unwrap().id(), ids[2]);
+        let inside = b.query_inside(&Rect::new(Vec2::splat(-1000.0), Vec2::splat(1000.0)));
+        assert_eq!(inside.len(), b.len());
     }
 }
