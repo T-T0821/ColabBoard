@@ -42,7 +42,8 @@ impl App {
         }
         let center = self.camera.screen_to_world(self.camera.viewport * 0.5);
         self.board.end_gesture();
-        let root = mindmap::create(&mut self.board, center, "中心のテーマ", MindLayout::Both);
+        let text = crate::i18n::tr("中心のテーマ");
+        let root = mindmap::create(&mut self.board, center, &text, MindLayout::Both);
         self.board.end_gesture();
         self.editor.set_tool(board_core::Tool::Select);
         self.editor.set_selection(vec![root]);
@@ -69,14 +70,14 @@ impl App {
         self.board.end_gesture();
         if let Some(new) = new {
             self.editor.set_selection(vec![new]);
-            self.reveal(new);
+            self.mind_reveal(new);
             self.begin_text_edit(new);
         }
         self.dirty = true;
     }
 
     /// 要素が画面に入っていなければ表示を動かす。
-    fn reveal(&mut self, id: ElementId) {
+    fn mind_reveal(&mut self, id: ElementId) {
         let Some(b) = self.board.get(id).map(|e| e.bounds()) else {
             return;
         };
@@ -154,7 +155,7 @@ impl App {
                 };
                 if let Some(next) = mindmap::navigate(&self.board, id, nav) {
                     self.editor.set_selection(vec![next]);
-                    self.reveal(next);
+                    self.mind_reveal(next);
                     self.dirty = true;
                 }
             }
