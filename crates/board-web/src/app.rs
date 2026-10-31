@@ -17,6 +17,7 @@ use web_sys::{
 mod actions;
 mod collab;
 mod follow;
+mod format_bar;
 mod toolbar;
 
 use crate::net::{Net, NetEvent, Status};
@@ -68,6 +69,7 @@ struct App {
     last_status: Option<(Status, usize)>,
     collab: collab::Collab,
     follow: follow::Follow,
+    format_bar: format_bar::FormatBar,
     /// ボード名・権限・共有パネル(サーバーの API が使えるときだけ)。
     chrome: Option<SharedChrome>,
     /// 権限の確かめ直しの結果(非同期で届く)。
@@ -292,6 +294,7 @@ pub async fn run() -> Result<(), String> {
         last_status: None,
         collab: collab::Collab::new(&document)?,
         follow: follow::Follow::new(&document)?,
+        format_bar: format_bar::FormatBar::default(),
         chrome,
         access_slot: Rc::default(),
         syncs: 0,
@@ -318,6 +321,7 @@ pub async fn run() -> Result<(), String> {
     actions::install_clipboard(&app)?;
     actions::install_context_menu(&app)?;
     toolbar::install(&app)?;
+    format_bar::install(&app)?;
     start_loop(app);
     Ok(())
 }
@@ -731,6 +735,7 @@ impl App {
         }
         if self.dirty {
             self.layout_collab();
+            self.layout_format_bar();
         }
         if !(self.dirty || self.continuous) {
             self.last_frame = None;
@@ -796,6 +801,8 @@ impl App {
             }
         } else if self.navigating {
             self.nav.pointer_down(id, p);
+        } else if e.button() == 0 && (e.ctrl_key() || e.meta_key()) && self.open_link_at(p) {
+            // Ctrl/⌘ + クリックでリンクを開いた。
         } else if e.button() == 0 && self.collab_pointer_down(p, e.shift_key()) {
             // 投票として扱った。
         } else if e.button() == 0 {
@@ -807,6 +814,22 @@ impl App {
         }
         self.dirty = true;
         self.update_cursor(Some(p));
+    }
+
+    /// 画面の点 `p` にある要素にリンクがあれば新しいタブで開く。
+    fn open_link_at(&self, p: Vec2) -> bool {
+        let world = self.camera.screen_to_world(p);
+        let Some(url) = self
+            .board
+            .hit_test(world, 4.0 / self.camera.zoom)
+            .and_then(|e| board_core::format::normalize_link(&e.meta().link))
+        else {
+            return false;
+        };
+        let _ = self
+            .window
+            .open_with_url_and_target_and_features(&url, "_blank", "noopener");
+        true
     }
 
     fn on_pointer_move(&mut self, e: &PointerEvent) {

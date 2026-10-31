@@ -354,36 +354,7 @@ impl Shape {
 
     /// ワールド座標の点が要素の内側か。
     pub fn contains(&self, p: Vec2) -> bool {
-        match self.kind {
-            ShapeKind::Ellipse => {
-                let half = self.size * 0.5;
-                if half.x <= 0.0 || half.y <= 0.0 {
-                    return false;
-                }
-                let d = (p - (self.pos + half)) / half;
-                d.length_squared() <= 1.0
-            }
-            ShapeKind::Diamond => {
-                let half = self.size * 0.5;
-                if half.x <= 0.0 || half.y <= 0.0 {
-                    return false;
-                }
-                let d = ((p - (self.pos + half)) / half).abs();
-                d.x + d.y <= 1.0
-            }
-            ShapeKind::Triangle => {
-                // 上の頂点と下の 2 頂点。
-                let b = self.bounds();
-                if !b.contains(p) || self.size.y <= 0.0 {
-                    return false;
-                }
-                let t = (p.y - b.min.y) / self.size.y; // 0(頂点)..1(底辺)
-                let half_w = self.size.x * 0.5 * t;
-                (p.x - b.center().x).abs() <= half_w
-            }
-            // 星・六角形・平行四辺形は外接矩形で判定する(掴みやすさ優先)。
-            _ => p.cmpge(self.min()).all() && p.cmple(self.max()).all(),
-        }
+        kind_contains(self.kind, &self.bounds(), p)
     }
 
     /// フレームの見出し部分か(フレームは見出しを掴んで動かす)。
@@ -392,9 +363,65 @@ impl Shape {
     }
 }
 
+/// 種類 `kind` の図形を外接矩形 `r` に置いたとき、点 `p` が内側か。
+pub fn kind_contains(kind: ShapeKind, r: &Rect, p: Vec2) -> bool {
+    let half = r.size() * 0.5;
+    if !r.contains(p) || half.x <= 0.0 || half.y <= 0.0 {
+        return false;
+    }
+    let d = (p - r.center()) / half; // -1..1
+    match kind {
+        ShapeKind::Ellipse => d.length_squared() <= 1.0,
+        ShapeKind::Diamond => d.x.abs() + d.y.abs() <= 1.0,
+        // 上の頂点と下の 2 頂点。
+        ShapeKind::Triangle => d.x.abs() <= (d.y + 1.0) * 0.5,
+        // 上下が平らで、左右が頂点(上辺の幅は全体の半分)。
+        ShapeKind::Hexagon => d.x.abs() <= 1.0 - 0.5 * d.y.abs(),
+        // 上辺が右へ 1/4 ずれる。
+        ShapeKind::Parallelogram => (d.x + 0.25 * d.y).abs() <= 0.75,
+        // 星は外接矩形で判定する(掴みやすさ優先)。
+        _ => true,
+    }
+}
+
+/// 外接矩形 `r` の中心から矩形上の点 `p` へ向かう線が、図形の輪郭と交わる点。
+pub fn outline_point(kind: ShapeKind, r: &Rect, p: Vec2) -> Vec2 {
+    let c = r.center();
+    let inside = |q: Vec2| kind_contains(kind, &r.expand(0.01), q);
+    if inside(p) {
+        return p;
+    }
+    let (mut lo, mut hi) = (0.0_f32, 1.0_f32);
+    for _ in 0..20 {
+        let mid = (lo + hi) * 0.5;
+        if inside(c + (p - c) * mid) {
+            lo = mid;
+        } else {
+            hi = mid;
+        }
+    }
+    c + (p - c) * lo
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn outline_points_lie_on_shapes() {
+        let r = Rect::new(Vec2::ZERO, Vec2::new(200.0, 100.0));
+        // ひし形: 右上の角へ向かう線は辺の中ほどで止まる。
+        let q = outline_point(ShapeKind::Diamond, &r, Vec2::new(200.0, 0.0));
+        assert!((q - Vec2::new(150.0, 25.0)).length() < 0.1, "{q}");
+        // 頂点はそのまま。
+        let q = outline_point(ShapeKind::Diamond, &r, Vec2::new(200.0, 50.0));
+        assert!((q - Vec2::new(200.0, 50.0)).length() < 0.1, "{q}");
+        let q = outline_point(ShapeKind::Rect, &r, Vec2::new(200.0, 0.0));
+        assert_eq!(q, Vec2::new(200.0, 0.0));
+        let q = outline_point(ShapeKind::Ellipse, &r, Vec2::new(200.0, 0.0));
+        let d = (q - r.center()) / Vec2::new(100.0, 50.0);
+        assert!((d.length() - 1.0).abs() < 0.01);
+    }
 
     #[test]
     fn contains_rect_and_ellipse() {
