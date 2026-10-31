@@ -28,6 +28,7 @@ use board_core::plugin::{
     BoardRef, HostCall, HostContext, Permission, PluginManifest, Reply, RunInput, RunOutput,
     UserRef,
 };
+pub use board_core::plugin::{PluginInfo, RunRequest, RunResult};
 use serde::{Deserialize, Serialize};
 use wasmi::{
     Caller, Config as WasmConfig, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder,
@@ -109,17 +110,6 @@ pub struct LoadedPlugin {
     pub manifest: PluginManifest,
     pub module: Module,
     pub size: usize,
-}
-
-/// 実行の結果。
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct RunResult {
-    pub output: RunOutput,
-    /// ボードに適用した操作の数。
-    pub ops: usize,
-    pub logs: Vec<String>,
-    /// 使った燃料(命令数の目安)。
-    pub fuel_used: u64,
 }
 
 /// 実行の失敗。
@@ -417,18 +407,6 @@ pub struct PluginRecord {
     pub size: usize,
 }
 
-/// 一覧に出すプラグイン。
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct PluginInfo {
-    #[serde(flatten)]
-    pub manifest: PluginManifest,
-    /// `server`(サーバーのプラグイン)か `user`(自分で入れたもの)。
-    pub source: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub installed: Option<u64>,
-    pub size: usize,
-}
-
 fn server_info(p: &LoadedPlugin) -> PluginInfo {
     PluginInfo {
         manifest: p.manifest.clone(),
@@ -576,16 +554,6 @@ async fn uninstall(
     state.store().remove_pair(PLUGINS, &login, &pid)?;
     state.store().remove_pair(PLUGIN_WASM, &login, &pid)?;
     Ok(StatusCode::NO_CONTENT)
-}
-
-/// 実行のリクエスト。
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct RunRequest {
-    pub command: String,
-    #[serde(default)]
-    pub args: serde_json::Value,
-    #[serde(default)]
-    pub selection: Vec<String>,
 }
 
 /// 実行するプラグインを探す(自分のものが先)。

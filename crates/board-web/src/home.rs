@@ -178,6 +178,7 @@ impl Home {
             Some(me) => self.render_list(me),
         };
         self.root.set_inner_html(&html);
+        crate::developer::mount(&self.root, self.me.is_some());
         // フォームの最初の入力欄へ。
         if let Ok(Some(el)) = self.root.query_selector("[autofocus]")
             && let Ok(el) = el.dyn_into::<HtmlElement>()
