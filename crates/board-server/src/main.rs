@@ -144,6 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         slack: board_server::slack::SlackConfig::from_env(),
         plugins: board_server::plugins::PluginConfig::from_env(),
         issues: board_server::issues::IssuesConfig::from_env(),
+        github: board_server::github::GithubConfig::from_env(),
         embed_origins: std::env::var("EMBED_ALLOWED_ORIGINS")
             .ok()
             .map(|v| v.replace(',', " ").trim().to_string())

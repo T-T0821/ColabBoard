@@ -310,6 +310,24 @@ impl Board {
         }
     }
 
+    /// 要素を重なり順つきで追加・置き換え、`removes` を消す(1 回の変更として書く)。
+    /// ファイルからの読み込みなど、外で決めた状態に合わせるときに使う。
+    pub fn replace_elements(&mut self, puts: Vec<(Element, f64)>, removes: &[ElementId]) {
+        let mut writes: Vec<(ElementId, Option<(Element, f64)>)> = puts
+            .into_iter()
+            .map(|(e, z)| (e.id(), Some((e, z))))
+            .collect();
+        writes.extend(
+            removes
+                .iter()
+                .filter(|id| self.index.contains_key(id))
+                .map(|id| (*id, None)),
+        );
+        if !writes.is_empty() {
+            self.write(ORIGIN_LOCAL, writes);
+        }
+    }
+
     /// マインドマップの要素が前回から変わったか(読むと戻る)。
     pub fn take_mind_dirty(&mut self) -> bool {
         std::mem::take(&mut self.mind_dirty)

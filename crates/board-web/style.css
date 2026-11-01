@@ -1396,6 +1396,21 @@ body:not([data-comments="on"]) #comment-pins { display: none; }
   animation: pop-in var(--t-med) var(--ease);
 }
 .history-panel p { margin: 0; }
+.github-sync {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.github-sync .row.wrap { flex-wrap: wrap; }
+.github-sync .stack { display: flex; flex-direction: column; gap: 6px; }
+.github-sync details summary { cursor: pointer; color: var(--muted); }
+.github-sync details[open] summary { margin-bottom: 6px; }
+.github-sync details .row + p { margin-top: 6px; }
+.share-panel code { font-size: 11px; word-break: break-all; }
 .versions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .versions .version {
   width: 100%;

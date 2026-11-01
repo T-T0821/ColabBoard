@@ -227,6 +227,8 @@ volumes:
 | `MAX_MESSAGE_MB` | `128` | WebSocket で受け取る 1 通の上限。初回同期でボード全体を送るので、数十万要素のボードを使うなら増やす(10 万要素で約 28 MB) |
 | `ANTHROPIC_API_KEY` | なし | 設定すると AI 機能が使える |
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | AI 機能で使うモデル |
+| `GITHUB_TOKEN` / `GITHUB_SYNC_REPOS` | なし | ボードを GitHub で管理するときのサーバーのトークンと、それを使ってよいリポジトリ([docs/github.md](github.md)) |
+| `GITHUB_WEBHOOK_SECRET` | なし | GitHub の push を自動で取り込む Webhook の署名の鍵 |
 | `RUST_LOG` | `info` | ログの詳しさ |
 
 ## バックアップと更新

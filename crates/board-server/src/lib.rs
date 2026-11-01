@@ -5,7 +5,7 @@
 //! - `/api/boards/{id}/media`: 動画メモの保存と配信([`media`])。
 //! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])、ボードの GitHub での管理([`github`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -23,6 +23,7 @@ pub mod boards;
 pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
+pub mod github;
 pub mod guard;
 pub mod issues;
 pub mod media;
@@ -82,6 +83,8 @@ pub struct Config {
     pub plugins: plugins::PluginConfig,
     /// GitHub・Jira の課題カード。
     pub issues: issues::IssuesConfig,
+    /// ボードを GitHub のリポジトリで管理する。
+    pub github: github::GithubConfig,
     /// 音声通話の ICE サーバー(`RTCIceServer` の配列)。`GET /api/rtc` で配る。
     pub ice_servers: serde_json::Value,
     /// `?embed=1` のページを iframe で埋め込んでよいサイト(CSP の `frame-ancestors` の値)。
@@ -136,6 +139,7 @@ impl Default for Config {
             slack: slack::SlackConfig::default(),
             plugins: plugins::PluginConfig::default(),
             issues: issues::IssuesConfig::default(),
+            github: github::GithubConfig::default(),
             ice_servers: default_ice_servers(),
             embed_origins: "*".into(),
             admins: Vec::new(),
@@ -187,6 +191,15 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/boards/{id}/ai/mindmap", post(ai_board::mindmap))
         .route("/api/ai/status", get(ai_diagram::status))
         .route("/api/boards/{id}/issues", post(issues::lookup))
+        .route(
+            "/api/boards/{id}/github",
+            get(github::get_link)
+                .put(github::set_link)
+                .delete(github::unlink),
+        )
+        .route("/api/boards/{id}/github/status", get(github::status))
+        .route("/api/boards/{id}/github/sync", post(github::sync))
+        .route("/api/github/webhook", post(github::webhook))
         .route("/api/rtc", get(rtc_config))
         .route("/p/{id}/{slug}", get(public::page))
         .route("/p/{id}/{slug}/og.png", get(public::image))
