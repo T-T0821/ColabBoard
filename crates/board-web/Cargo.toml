@@ -109,6 +109,6 @@ web-sys = { version = "0.3", features = [
     "CanvasRenderingContext2d",
     "CanvasGradient",
 ] }
-# PDF の取り込み(Pure Rust のラスタライザ)。wasm が数 MB 増えるので機能で切れるようにする。
-calamine = "0.37.0"
+# 画像の縮小だけを使う(PDF・表計算の読み取りは Worker 側の別の wasm)。
+board-files = { path = "../board-files", default-features = false }
 encoding_rs = "0.8.44"
