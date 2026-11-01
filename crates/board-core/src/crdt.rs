@@ -273,7 +273,9 @@ pub fn decode<T: ReadTxn>(id: ElementId, m: &MapRef, txn: &T) -> Option<(Element
     if kind == "stroke" {
         let points = match m.get(txn, "pts") {
             Some(Out::Any(Any::Buffer(b))) => b
-                .chunks_exact(8)
+                .as_chunks::<8>()
+                .0
+                .iter()
                 .map(|c| {
                     Vec2::new(
                         f32::from_le_bytes([c[0], c[1], c[2], c[3]]),
