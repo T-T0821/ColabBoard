@@ -1,0 +1,17 @@
+{
+  "name": "グラボード",
+  "short_name": "グラボード",
+  "description": "みんなで同時に書き込めるオンラインホワイトボード",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f7f9",
+  "theme_color": "#4c5cf5",
+  "icons": [
+    { "src": "brand/logo.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "brand/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "brand/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "brand/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

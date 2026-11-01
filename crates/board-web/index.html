@@ -4,12 +4,21 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
   <title>グラボード</title>
+  <link rel="icon" href="brand/logo.svg" type="image/svg+xml" />
+  <link rel="icon" href="favicon.ico" sizes="16x16 32x32 48x48" />
+  <link rel="apple-touch-icon" href="brand/apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#1c1d22" media="(prefers-color-scheme: dark)" />
   <link data-trunk rel="rust" data-wasm-opt="s" />
   <!-- PDF の取り込み(hayro)は別の wasm。PDF が貼られたときに Web Worker で初めて読み込む -->
   <link data-trunk rel="rust" href="../board-pdf/Cargo.toml" data-type="worker" data-loader-shim data-wasm-opt="s" />
   <link data-trunk rel="css" href="style.css" />
   <link data-trunk rel="copy-dir" href="assets/fonts" />
   <link data-trunk rel="copy-dir" href="assets/cloud-icons" />
+  <link data-trunk rel="copy-dir" href="assets/brand" />
+  <link data-trunk rel="copy-file" href="assets/brand/favicon.ico" />
+  <link data-trunk rel="copy-file" href="manifest.webmanifest" />
   <link data-trunk rel="copy-file" href="sw.js" />
   <script>
     // アプリ本体を端末に置いて、オフラインでも開けるようにする(https か localhost のときだけ動く)。

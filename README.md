@@ -1,3 +1,5 @@
+<img src="crates/board-web/assets/brand/logo.svg" width="72" height="72" alt="グラボードのロゴ">
+
 # グラボード (Graboard)
 
 > 英字表記は **Graboard**。リポジトリ名・クレート名(`colabboard` / `board-*`)と、端末に保存済みのデータを引き継ぐための内部キー(`colabboard.*` など)は旧名のまま。

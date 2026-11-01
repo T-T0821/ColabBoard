@@ -292,6 +292,36 @@ fn draw_board(cv: &mut Canvas, board: &Board, area: Rect) {
     }
 }
 
+/// アプリのロゴ(`crates/board-web/assets/brand/logo.svg` から作った PNG)。
+const LOGO_PNG: &[u8] = include_bytes!("../../board-web/assets/brand/logo-96.png");
+
+/// ロゴを `(x, y)` に `size` 四方で描く。読めなければアクセント色の角丸で代わりにする。
+fn draw_logo(cv: &mut Canvas, x: i32, y: i32, size: u32) {
+    let Ok(img) = image::load_from_memory_with_format(LOGO_PNG, image::ImageFormat::Png) else {
+        let r = Rect::new(
+            Vec2::new(x as f32, y as f32),
+            Vec2::new((x + size as i32) as f32, (y + size as i32) as f32),
+        );
+        cv.rounded(r, size as f32 * 0.23, ACCENT);
+        return;
+    };
+    let img = image::imageops::resize(
+        &img.to_rgba8(),
+        size,
+        size,
+        image::imageops::FilterType::Lanczos3,
+    );
+    for (px, py, p) in img.enumerate_pixels() {
+        let [r, g, b, a] = p.0;
+        cv.blend(
+            x + px as i32,
+            y + py as i32,
+            Rgba8([r, g, b, 255]),
+            a as f32 / 255.0,
+        );
+    }
+}
+
 /// 帯に文字を描く(フォントがなければ何もしない)。
 fn draw_text(
     cv: &mut Canvas,
@@ -388,16 +418,7 @@ pub fn render(board: &Board, title: &str, font: Option<&FontArc>) -> Vec<u8> {
         1.0,
         Rgba8::hex(0xe3e6ec),
     );
-    // ロゴ(グラデーションの代わりにアクセント色の角丸)。
-    let logo = Rect::new(Vec2::new(40.0, ft + 28.0), Vec2::new(80.0, ft + 68.0));
-    cv.rounded(logo, 12.0, ACCENT);
-    cv.ellipse(
-        Rect::new(
-            logo.min + Vec2::new(8.0, 8.0),
-            logo.min + Vec2::new(20.0, 20.0),
-        ),
-        Rgba8([255, 255, 255, 140]),
-    );
+    draw_logo(&mut cv, 40, (ft + 28.0) as i32, 40);
     if let Some(font) = font {
         draw_text(
             &mut cv,
@@ -447,5 +468,17 @@ mod tests {
         );
         // 空のボードでも描ける。
         assert!(!render(&Board::new(), "", None).is_empty());
+    }
+
+    #[test]
+    fn draws_app_logo() {
+        let logo = image::load_from_memory(LOGO_PNG).unwrap();
+        assert_eq!(logo.width(), logo.height());
+        // 下の帯のロゴの中心は付箋の白、左上の角はグラデーションの紫になる。
+        let png = render(&Board::new(), "", None);
+        let img = image::load_from_memory(&png).unwrap().to_rgba8();
+        let top = HEIGHT - FOOTER + 28;
+        let corner = img.get_pixel(40 + 6, top + 6).0;
+        assert!(corner[2] > 200 && corner[1] < 140, "{corner:?}");
     }
 }
