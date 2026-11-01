@@ -26,6 +26,8 @@ mod theme;
 #[cfg(target_arch = "wasm32")]
 mod tooltip;
 #[cfg(target_arch = "wasm32")]
+mod transcribe;
+#[cfg(target_arch = "wasm32")]
 mod voice;
 
 #[cfg(target_arch = "wasm32")]

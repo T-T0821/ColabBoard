@@ -29,6 +29,7 @@ mod imports;
 mod ink_ui;
 mod issues;
 mod media;
+mod meeting_ui;
 mod mindmap_ui;
 mod offline;
 mod plugins_ui;
@@ -110,6 +111,8 @@ struct App {
     /// 音声通話(サーバーにつながるボードだけ)。
     voice: Option<crate::voice::VoiceCall>,
     call_ui: call_ui::CallUi,
+    /// 会議パネル(AI ファシリテーター・リアルタイム議事録・文字起こし)。
+    meeting: meeting_ui::MeetingUi,
     video: video_memo::VideoMemo,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
     live_board: Option<Board>,
@@ -419,6 +422,7 @@ pub async fn run() -> Result<(), String> {
         history: history::History::new(&document)?,
         voice,
         call_ui: call_ui::CallUi::new(&document)?,
+        meeting: meeting_ui::MeetingUi::new(&document)?,
         video: video_memo::VideoMemo::new(&document)?,
         live_board: None,
         show_authors: true,
@@ -958,6 +962,7 @@ impl App {
         self.a11y_frame(now);
         self.touch_frame(now);
         self.call_frame();
+        self.meeting_frame(now);
         self.mind_frame();
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
@@ -1791,6 +1796,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     history::install(app)?;
     plugins_ui::install(app, doc)?;
     call_ui::install(app, doc)?;
+    meeting_ui::install(app, doc)?;
     video_memo::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
@@ -1833,6 +1839,7 @@ fn start_loop(app: Rc<RefCell<App>>) {
     *tick2.borrow_mut() = Some(Closure::new(move |now: f64| {
         app.borrow_mut().frame(now);
         touch::open_pending_menu(&app);
+        meeting_ui::pump(&app);
         if let Some(cb) = tick.borrow().as_ref() {
             let _ = window2.request_animation_frame(cb.as_ref().unchecked_ref());
         }
