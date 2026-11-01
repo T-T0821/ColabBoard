@@ -5,7 +5,7 @@
 //! - `/api/boards/{id}/media`: 動画メモの保存と配信([`media`])。
 //! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])、自作テンプレートのギャラリー([`templates`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -36,6 +36,7 @@ pub mod slack;
 pub mod storage;
 pub mod store;
 pub mod teams;
+pub mod templates;
 pub mod tokens;
 pub mod versions;
 
@@ -200,6 +201,7 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
             api::routes()
                 .merge(rest::token_routes())
                 .merge(teams::routes())
+                .merge(templates::routes())
                 .merge(audit::routes())
                 .merge(oidc::routes()),
         )

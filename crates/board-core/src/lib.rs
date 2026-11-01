@@ -19,6 +19,7 @@ pub mod editor;
 pub mod element;
 pub mod export;
 pub mod format;
+pub mod gallery;
 pub mod geom;
 pub mod ink;
 pub mod issue;

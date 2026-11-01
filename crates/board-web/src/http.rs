@@ -190,6 +190,14 @@ pub async fn send_bytes<T: DeserializeOwned>(
     Err(HttpError::Status(status, msg))
 }
 
+/// 本文なしで送り、JSON の応答を受け取る。
+pub async fn send_empty_json<T: DeserializeOwned>(
+    method: &str,
+    path: &str,
+) -> Result<T, HttpError> {
+    parse(call(method, path, None).await?)
+}
+
 /// 応答の中身を使わない呼び出し。
 pub async fn send_empty(method: &str, path: &str) -> Result<(), HttpError> {
     call(method, path, None).await.map(|_| ())

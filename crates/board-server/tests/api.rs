@@ -1194,3 +1194,120 @@ async fn security_headers_and_csp() {
     assert_eq!(res.headers()["x-content-type-options"], "nosniff");
     assert!(!res.headers().contains_key("content-security-policy"));
 }
+
+#[tokio::test]
+async fn templates_published_to_team() {
+    let s = start(Config::default()).await;
+    let alice = s.signup("alice").await;
+    let bob = s.signup("bob").await;
+    let carol = s.signup("carol").await;
+    let (_, team, _) = s
+        .call(
+            "POST",
+            "/api/teams",
+            Some(&alice),
+            Some(json!({"name": "開発部"})),
+        )
+        .await;
+    let tid = team["id"].as_str().unwrap().to_string();
+    s.call(
+        "PUT",
+        &format!("/api/teams/{tid}/members"),
+        Some(&alice),
+        Some(json!({"login": "bob", "role": "member"})),
+    )
+    .await;
+
+    // bob が選んだ要素をチームに公開する。
+    let mut board = Board::new();
+    let ids =
+        board_core::templates::insert(&mut board, board_core::templates::Template::Kpt, Vec2::ZERO);
+    let data = board_core::arrange::copy(&board, &ids).unwrap();
+    let (status, t, _) = s
+        .call(
+            "POST",
+            "/api/templates",
+            Some(&bob),
+            Some(json!({"title": "定例の振り返り", "category": "振り返り", "team": tid, "data": data})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{t}");
+    let id = t["id"].as_str().unwrap().to_string();
+    assert_eq!(t["team_name"], "開発部");
+    assert_eq!(t["owner_name"], "BOB");
+    assert!(t["preview"].as_str().unwrap().starts_with("<svg"));
+
+    // チーム外の人は公開先にできないし、見られない。
+    let (status, _, _) = s
+        .call(
+            "POST",
+            "/api/templates",
+            Some(&carol),
+            Some(json!({"title": "x", "team": tid, "data": data})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (_, list, _) = s.call("GET", "/api/templates", Some(&carol), None).await;
+    assert_eq!(list.as_array().unwrap().len(), 0);
+    let (status, _, _) = s
+        .call(
+            "POST",
+            &format!("/api/templates/{id}/use"),
+            Some(&carol),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // alice(チームのオーナー)は使えて、回数が増える。管理者なので消せる。
+    let (_, list, _) = s.call("GET", "/api/templates", Some(&alice), None).await;
+    assert_eq!(list[0]["id"], id.as_str());
+    assert_eq!(list[0]["can_edit"], true);
+    let (status, used, _) = s
+        .call(
+            "POST",
+            &format!("/api/templates/{id}/use"),
+            Some(&alice),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(used["template"]["uses"], 1);
+    assert_eq!(used["data"], data.as_str());
+
+    // bob が名前を変え、自分だけに戻す。
+    let (status, t, _) = s
+        .call(
+            "PATCH",
+            &format!("/api/templates/{id}"),
+            Some(&bob),
+            Some(json!({"title": "定例の KPT", "team": ""})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    assert_eq!(t["title"], "定例の KPT");
+    assert_eq!(t["uses"], 1);
+    assert!(t.get("team").is_none());
+    let (_, list, _) = s.call("GET", "/api/templates", Some(&alice), None).await;
+    assert_eq!(list.as_array().unwrap().len(), 0);
+
+    // 操作ログに残る。
+    let (_, log, _) = s
+        .call("GET", &format!("/api/audit?team={tid}"), Some(&alice), None)
+        .await;
+    let actions: Vec<&str> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["action"].as_str().unwrap())
+        .collect();
+    assert!(actions.contains(&"template.create"), "{actions:?}");
+    assert!(actions.contains(&"template.update"), "{actions:?}");
+
+    let (status, _, _) = s
+        .call("DELETE", &format!("/api/templates/{id}"), Some(&bob), None)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, list, _) = s.call("GET", "/api/templates", Some(&bob), None).await;
+    assert_eq!(list.as_array().unwrap().len(), 0);
+}

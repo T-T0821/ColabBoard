@@ -8,7 +8,9 @@ use std::rc::Rc;
 use board_core::api::{
     AuditEvent, BoardInfo, Login, Me, NewBoard, NewTeam, Role, SetBoardTeam, SetTeamMember,
     SetTeamStorage, Signup, SsoStatus, StorageLocation, Team, TeamInfo, TeamRole, TeamSso,
+    UserTemplate,
 };
+use board_core::templates::{Category, Template};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{Document, Element, HtmlElement, HtmlInputElement, Window};
@@ -59,6 +61,8 @@ struct Home {
     locations: Vec<StorageLocation>,
     /// 保存場所を移している最中か。
     moving: bool,
+    /// 開いているテンプレートギャラリー(自作テンプレートの一覧。`None` は閉じている)。
+    gallery: Option<Option<Vec<UserTemplate>>>,
 }
 
 /// 操作ログの表示。
@@ -168,6 +172,7 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         sso,
         locations: Vec::new(),
         moving: false,
+        gallery: None,
     }));
     install(&home)?;
     if home.borrow().me.is_some() {
@@ -386,8 +391,10 @@ impl Home {
   <form data-form="create" class="create">
     <input name="title" maxlength="80" placeholder="{placeholder}" autofocus />
     <button type="submit" class="primary" {busy}>ボードを作る</button>
+    <button type="button" data-action="gallery" aria-expanded="{gallery_open}">テンプレートから作る</button>
   </form>
   {err}
+  {gallery}
   {team_panel}
   {audit}
   <ul class="boards">{rows}</ul>
@@ -408,6 +415,108 @@ impl Home {
                 ""
             },
             audit = self.render_audit(),
+            gallery_open = self.gallery.is_some(),
+            gallery = self.render_gallery(me),
+        )
+    }
+
+    /// テンプレートギャラリー。選ぶと新しいボードを作り、そのテンプレートを置いて開く。
+    fn render_gallery(&self, me: &Me) -> String {
+        let Some(list) = &self.gallery else {
+            return String::new();
+        };
+        let card = |t: &UserTemplate| {
+            let mut meta = String::new();
+            if !t.category.is_empty() {
+                meta.push_str(&format!(
+                    r#"<span class="chip" translate="no">{}</span>"#,
+                    escape(&t.category)
+                ));
+            }
+            meta.push_str(&format!(
+                r#"<span translate="no">{}</span><span>{} 回使用</span>"#,
+                escape(&t.owner_name),
+                t.uses
+            ));
+            format!(
+                r#"<button type="button" class="gallery-card" data-action="from-template" data-id="u:{id}" data-team="{team}" data-title="{title}"><span class="template-thumb">{preview}</span><strong translate="no">{title}</strong><span class="template-desc" translate="no">{desc}</span><span class="template-meta">{meta}</span></button>"#,
+                id = escape(&t.id),
+                team = escape(t.team.as_deref().unwrap_or("")),
+                title = escape(&t.title),
+                desc = escape(&t.description),
+                // 縮小図はサーバーが数値と色だけで作ったもの。
+                preview = if t.preview.starts_with("<svg") {
+                    t.preview.as_str()
+                } else {
+                    ""
+                },
+            )
+        };
+        let mut html = String::new();
+        match list {
+            None => html.push_str(r#"<p class="muted small">読み込み中…</p>"#),
+            Some(list) => {
+                for team in &self.teams {
+                    let cards: String = list
+                        .iter()
+                        .filter(|t| t.team.as_deref() == Some(team.id.as_str()))
+                        .map(card)
+                        .collect();
+                    if !cards.is_empty() {
+                        html.push_str(&format!(
+                            r#"<h3><span translate="no">{}</span> <span class="muted small">チームのテンプレート</span></h3><div class="gallery-grid">{cards}</div>"#,
+                            escape(&team.name)
+                        ));
+                    }
+                }
+                let mine: String = list
+                    .iter()
+                    .filter(|t| t.team.is_none() && t.owner == me.login)
+                    .map(card)
+                    .collect();
+                if !mine.is_empty() {
+                    html.push_str(&format!(
+                        r#"<h3>自分のテンプレート</h3><div class="gallery-grid">{mine}</div>"#
+                    ));
+                }
+                if list.is_empty() {
+                    html.push_str(r#"<p class="muted small">ボードでよく使う配置を選び、テンプレートのメニューの「＋ テンプレートに保存」を押すと、ここに並びます。チームに公開すると、メンバー全員が使えます。</p>"#);
+                }
+            }
+        }
+        html.push_str("<h3>標準のテンプレート</h3>");
+        for c in Category::ALL {
+            let items: String = Template::ALL
+                .iter()
+                .filter(|t| t.category() == c)
+                .map(|t| {
+                    format!(
+                        r#"<button type="button" class="chip-button" data-action="from-template" data-id="{}" data-title="{}" title="{}">{}</button>"#,
+                        t.name(),
+                        escape(t.title()),
+                        escape(t.description()),
+                        escape(t.title())
+                    )
+                })
+                .collect();
+            html.push_str(&format!(
+                r#"<div class="gallery-builtin"><span class="muted small">{}</span><div>{items}</div></div>"#,
+                escape(c.title())
+            ));
+        }
+        format!(
+            r#"<section class="home-gallery" aria-label="テンプレートギャラリー">
+  <header><h2>テンプレートギャラリー</h2><button type="button" class="quiet" data-action="close-gallery">閉じる</button></header>
+  <p class="muted small">{lead}</p>
+  {html}
+</section>"#,
+            lead = match self.current_team() {
+                Some(t) => format!(
+                    "選ぶと新しいボードを作って置きます。チームのテンプレートはそのチームの、それ以外は「{}」のボードになります。",
+                    escape(&t.name)
+                ),
+                None => "選ぶと新しいボードを作って置きます。チームのテンプレートはそのチームのボードになります。".into(),
+            },
         )
     }
 
@@ -985,6 +1094,65 @@ fn install(home: &Shared) -> Result<(), String> {
                 let mut hm = h.borrow_mut();
                 hm.audit = None;
                 hm.render();
+            }
+            "gallery" | "close-gallery" => {
+                if action == "close-gallery" || h.borrow().gallery.is_some() {
+                    let mut hm = h.borrow_mut();
+                    hm.gallery = None;
+                    hm.render();
+                    return;
+                }
+                {
+                    let mut hm = h.borrow_mut();
+                    hm.gallery = Some(None);
+                    hm.render();
+                }
+                let h = h.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let list = http::get::<Vec<UserTemplate>>("/templates")
+                        .await
+                        .unwrap_or_default();
+                    let mut hm = h.borrow_mut();
+                    if hm.gallery.is_some() {
+                        hm.gallery = Some(Some(list));
+                        hm.render();
+                    }
+                });
+            }
+            "from-template" => {
+                let Some(template) = id.filter(|t| !t.is_empty()) else {
+                    return;
+                };
+                if h.borrow().busy {
+                    return;
+                }
+                let title = el.get_attribute("data-title").unwrap_or_default();
+                let team = el
+                    .get_attribute("data-team")
+                    .filter(|t| !t.is_empty())
+                    .or_else(|| h.borrow().filter.team().map(str::to_string));
+                h.borrow_mut().busy = true;
+                let h = h.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    match http::send::<_, BoardInfo>("POST", "/boards", &NewBoard { title, team })
+                        .await
+                    {
+                        Ok(b) => navigate(
+                            &h.borrow().window,
+                            &format!(
+                                "{}&template={}",
+                                board_url(&b.id, None),
+                                http::encode(&template)
+                            ),
+                        ),
+                        Err(e) => {
+                            let mut hm = h.borrow_mut();
+                            hm.busy = false;
+                            hm.error = Some(e.message());
+                            hm.render();
+                        }
+                    }
+                });
             }
             "new-team" | "cancel-team" => {
                 let mut hm = h.borrow_mut();
