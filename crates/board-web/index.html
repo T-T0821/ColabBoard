@@ -45,6 +45,7 @@
     <span id="hud-net" data-status="connecting" role="status">接続中…</span>
     <button id="share" title="このボードを共有">リンクをコピー</button>
     <button id="slides-start" title="フレームを 1 枚ずつスライドとして全画面で表示 (← → で移動、Esc で終了)">スライド</button>
+    <button id="meeting-toggle" title="Zoom・Meet・Teams の会議とカレンダーの予定" aria-pressed="false" hidden>会議</button>
     <button id="call-toggle" title="ボードを開いたまま、参加者と音声で話す" aria-pressed="false">通話</button>
     <button id="comments-toggle" title="コメント" aria-pressed="false">コメント</button>
     <button id="history-toggle" title="バージョン履歴" aria-pressed="false" hidden>履歴</button>
@@ -67,6 +68,7 @@
 
   <a id="embed-open" class="panel embed-open" target="_blank" rel="noopener" hidden>グラボードで開く ↗</a>
   <section id="share-panel" class="panel share-panel" aria-label="共有" hidden></section>
+  <section id="meeting-panel" class="panel share-panel meeting-panel" aria-label="会議と予定" hidden></section>
 
   <section class="panel demo" aria-label="性能確認">
     <span class="label">ダミー要素</span>

@@ -31,6 +31,8 @@
 //! | `PUT` | `/api/boards/{id}/slack` | Slack 通知の設定を変える([`SetSlack`] → [`SlackSettings`]、オーナーのみ) |
 //! | `POST` | `/api/boards/{id}/slack/test` | Slack にテストのメッセージを送る(オーナーのみ) |
 //! | `POST` | `/api/boards/{id}/issues?key=` | GitHub・Jira の課題の状態を引く([`IssueQuery`] → [`IssueLookup`] の配列、編集者以上) |
+//! | `GET` | `/api/boards/{id}/meeting?key=` | 紐づけた会議と予定([`Meeting`](crate::meeting::Meeting)、閲覧者以上) |
+//! | `PUT` | `/api/boards/{id}/meeting?key=` | 会議と予定を紐づける・外す([`SetMeeting`](crate::meeting::SetMeeting) → `Meeting`、編集者以上・要ログイン) |
 //! | `PUT` | `/api/boards/{id}/team` | チームへ移す・チームから外す([`SetBoardTeam`] → [`BoardInfo`]、オーナーのみ) |
 //! | `GET` | `/api/teams` | 自分の入っているチーム([`TeamInfo`] の配列) |
 //! | `POST` | `/api/teams` | チームを作る([`NewTeam`] → [`Team`]、作った人がオーナー) |
