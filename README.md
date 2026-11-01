@@ -92,6 +92,7 @@ Miro や FigJam のように、Web 上で複数人が同時に編集できるホ
 - **生成 AI で図を作る**(サーバーに `ANTHROPIC_API_KEY` を設定したとき): 「構成図・AI」パネルに作りたい構成や手順を書くと、Claude が AWS・Azure・Google Cloud の構成図やフローチャートを作り、自動レイアウトしてボードに置く。1 回の Undo で戻せる
 - ダミー要素 1 千〜100 万個での性能確認(右上のボタン、または `?n=100000`)。`?bench` で決まった手順のパン/ズームを自動で計測([docs/benchmarks.md](docs/benchmarks.md))
 - WebGPU が使えないブラウザでは WebGL2 に自動で切り替え(`?webgl` で強制)
+- **デスクトップアプリ**(Windows・macOS・Linux、Tauri): サーバーを内蔵していて、ネットワークがなくてもこの PC だけで使える。メニューの「接続先」からチームのサーバーにつなぐこともでき、一度開いたサーバーはつながらないときも前回のボードを開いて編集できる([docs/desktop.md](docs/desktop.md))
 
 ## はじめかた
 
@@ -107,6 +108,8 @@ cargo install trunk --locked
 cargo run -p board-server --release
 # → http://localhost:8080 を開く
 ```
+
+**デスクトップアプリ**(Windows・macOS・Linux): `crates/board-desktop` を Tauri でビルドすると、サーバーを内蔵したアプリになる。この PC だけでオフラインで使うことも、チームのサーバーにつないで共同編集することもできる。ビルドと使い方は [docs/desktop.md](docs/desktop.md)。
 
 サーバーなしで試すだけなら、`cd crates/board-web && trunk serve` で開いたページがそのタブだけで動く(サーバーが見つからないと自動でオフラインになる)。
 クライアントを編集しながら開発するときは、サーバーを起動したまま `trunk serve` を使う(`/ws` はサーバーへ中継される)。
@@ -314,6 +317,7 @@ STORAGE_TOKYO_ACCESS_KEY_ID=…  STORAGE_TOKYO_SECRET_ACCESS_KEY=…   # なけ�
 | `board-sdk` | REST API(`/api/v1`)の Rust クライアント(クレート名 `graboard-sdk`) |
 | `board-server` | 同期サーバー(axum + tokio)。ルームごとに yrs ドキュメントを持って更新を中継し、redb に保存する |
 | `board-bench` | 再現可能なベンチマーク(CPU 側の処理時間、初回同期の速さ) |
+| `board-desktop` | デスクトップアプリ(Tauri)。`board-server` をアプリの中で動かし、埋め込みの Web クライアントを WebView で開く。WebView の開発用ライブラリが要るので別のワークスペース |
 
 ### 同期の仕組み
 

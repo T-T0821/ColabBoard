@@ -13,6 +13,8 @@ members = [
     "tools/cloud-icons",
     "tools/precompress",
 ]
+# デスクトップアプリ(Tauri)は OS の WebView の開発用ライブラリが要るので、別のワークスペースにする。
+exclude = ["crates/board-desktop"]
 
 [workspace.package]
 edition = "2024"
