@@ -689,7 +689,7 @@ async fn post_comment(
     if !role.can_comment() {
         return Err(Error::forbidden());
     }
-    let posted = comments::post(
+    let (posted, sent) = comments::post(
         state.store(),
         meta.as_ref(),
         &id,
@@ -697,6 +697,7 @@ async fn post_comment(
         req,
         state.config.anonymous_boards,
     )?;
+    state.config.notifier.deliver(state.store(), sent);
     // コメントしたボードは一覧に載せる。
     boards::remember(state.store(), &user.login, &id, q.key.as_deref())?;
     state.hub.refresh(&id, TOPIC_COMMENTS);

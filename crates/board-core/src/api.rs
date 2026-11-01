@@ -22,6 +22,12 @@
 //! | `DELETE` | `/api/boards/{id}/comments/{cid}?key=` | 削除(本人かオーナー。スレッドの先頭なら返信ごと) |
 //! | `GET` | `/api/notifications` | 自分宛ての通知([`Notification`] の配列、新しい順) |
 //! | `POST` | `/api/notifications/read` | 既読にする([`MarkRead`]) |
+//! | `GET` | `/api/notify/settings` | メール・プッシュ通知の設定([`NotifyStatus`]) |
+//! | `PUT` | `/api/notify/settings` | メール・プッシュ通知の設定を変える([`SetNotify`] → [`NotifyStatus`]。メールアドレスを変えると確認のメールを送る) |
+//! | `GET` | `/api/notify/verify?token=` | メールアドレスの確認(メールのリンク。終わるとボード一覧へ戻る) |
+//! | `POST` | `/api/notify/push` | このブラウザでプッシュ通知を受け取る([`PushSubscribe`]) |
+//! | `DELETE` | `/api/notify/push` | このブラウザのプッシュ通知をやめる([`PushUnsubscribe`]) |
+//! | `POST` | `/api/notify/test` | 自分にテストの通知を送る(メールとプッシュ) |
 //! | `GET` | `/api/boards/{id}/versions?key=` | バージョン履歴([`VersionInfo`] の配列、新しい順、閲覧者以上) |
 //! | `POST` | `/api/boards/{id}/versions?key=` | 今の状態に名前を付けて保存([`NewVersion`] → [`VersionInfo`]、編集者以上) |
 //! | `GET` | `/api/boards/{id}/versions/{vid}?key=` | そのバージョンの状態(yrs v1 更新のバイナリ) |
@@ -452,6 +458,16 @@ pub struct Comment {
     /// 通知したメンション(ログイン名)。
     #[serde(default)]
     pub mentions: Vec<String>,
+    /// 期限(UNIX ミリ秒。スレッドの先頭だけが持つ)。近づくと・過ぎるとメンションした人と書いた人に知らせる。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due: Option<u64>,
+    /// 期限の知らせをどこまで送ったか(サーバーが使う。0: まだ、1: 近づいた、2: 過ぎた)。
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub due_stage: u8,
+}
+
+fn is_zero(v: &u8) -> bool {
+    *v == 0
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -466,6 +482,9 @@ pub struct NewComment {
     /// 返信先(スレッドの先頭でも返信でもよい)。
     #[serde(default)]
     pub parent: Option<u64>,
+    /// 期限(UNIX ミリ秒)。新しいスレッドのときだけ使う。
+    #[serde(default)]
+    pub due: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -474,6 +493,9 @@ pub struct EditComment {
     pub body: Option<String>,
     #[serde(default)]
     pub resolved: Option<bool>,
+    /// 期限を変える(UNIX ミリ秒、`0` で外す。スレッドの先頭だけ、コメント可以上)。
+    #[serde(default)]
+    pub due: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -490,6 +512,28 @@ pub enum NotificationKind {
     Mention,
     /// 参加しているスレッドに返信があった。
     Reply,
+    /// 担当している(メンションされた・書いた)スレッドの期限が近づいた。
+    Due,
+    /// 担当しているスレッドの期限が過ぎた(まだ解決していない)。
+    Overdue,
+}
+
+impl NotificationKind {
+    /// メール・プッシュ通知の設定でどの種類に入るか。
+    pub fn group(self) -> NotifyGroup {
+        match self {
+            Self::Mention => NotifyGroup::Mention,
+            Self::Reply => NotifyGroup::Reply,
+            Self::Due | Self::Overdue => NotifyGroup::Due,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotifyGroup {
+    Mention,
+    Reply,
+    Due,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -511,6 +555,100 @@ pub struct Notification {
     /// 共有リンクで開いているボードなら、その鍵。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
+    /// 期限の通知なら、その期限(UNIX ミリ秒)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due: Option<u64>,
+}
+
+impl Notification {
+    /// 一文での説明(「〜が〜しました」)。画面・メール・プッシュ通知で使う。
+    pub fn headline(&self) -> String {
+        match self.kind {
+            NotificationKind::Mention => format!("{} があなたをメンションしました", self.from_name),
+            NotificationKind::Reply => format!("{} がスレッドに返信しました", self.from_name),
+            NotificationKind::Due => "コメントの期限が近づいています".to_string(),
+            NotificationKind::Overdue => "コメントの期限を過ぎました".to_string(),
+        }
+    }
+}
+
+/// メール・プッシュ通知で知らせる種類。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotifyKinds {
+    /// メンションされた。
+    #[serde(default)]
+    pub mention: bool,
+    /// 参加しているスレッドに返信があった。
+    #[serde(default)]
+    pub reply: bool,
+    /// 期限が近づいた・過ぎた。
+    #[serde(default)]
+    pub due: bool,
+}
+
+impl NotifyKinds {
+    pub const ALL: Self = Self {
+        mention: true,
+        reply: true,
+        due: true,
+    };
+
+    pub fn allows(self, kind: NotificationKind) -> bool {
+        match kind.group() {
+            NotifyGroup::Mention => self.mention,
+            NotifyGroup::Reply => self.reply,
+            NotifyGroup::Due => self.due,
+        }
+    }
+}
+
+/// `PUT /api/notify/settings` で送る、メール・プッシュ通知の設定。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SetNotify {
+    /// 送り先のメールアドレス(空で外す)。変えると確認のメールを送り、リンクを開くまで使わない。
+    #[serde(default)]
+    pub email: String,
+    pub email_on: NotifyKinds,
+    pub push_on: NotifyKinds,
+}
+
+/// `GET /api/notify/settings` の結果。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NotifyStatus {
+    pub email: String,
+    /// 確認のリンクを開いたか(開くまでメールは送らない)。
+    pub email_verified: bool,
+    pub email_on: NotifyKinds,
+    pub push_on: NotifyKinds,
+    /// サーバーでメールを送れるか(`SMTP_URL` が設定されているか)。
+    pub email_available: bool,
+    /// プッシュ通知の購読に使う公開鍵(VAPID、base64url)。`None` ならプッシュ通知は使えない。
+    #[serde(default)]
+    pub push_key: Option<String>,
+    /// プッシュ通知を受け取る端末(ブラウザ)の数。
+    pub push_devices: u32,
+}
+
+/// ブラウザの `PushSubscription.toJSON()` の形。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PushSubscribe {
+    pub endpoint: String,
+    #[serde(default)]
+    pub keys: Option<PushKeys>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PushKeys {
+    #[serde(default)]
+    pub p256dh: String,
+    #[serde(default)]
+    pub auth: String,
+}
+
+/// `DELETE /api/notify/push` で送る。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PushUnsubscribe {
+    pub endpoint: String,
 }
 
 /// `ids` が `None` ならすべて既読にする。

@@ -11,6 +11,10 @@
   <link data-trunk rel="copy-dir" href="assets/fonts" />
   <link data-trunk rel="copy-dir" href="assets/cloud-icons" />
   <link data-trunk rel="copy-file" href="sw.js" />
+  <link data-trunk rel="copy-file" href="manifest.webmanifest" />
+  <!-- ホーム画面に追加したとき(iPhone・iPad のプッシュ通知はここから有効にする)の名前と表示 -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="apple-mobile-web-app-title" content="グラボード" />
   <script>
     // アプリ本体を端末に置いて、オフラインでも開けるようにする(https か localhost のときだけ動く)。
     // 他のサイトに埋め込まれたとき(?embed=1)は登録しない。

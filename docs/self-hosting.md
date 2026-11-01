@@ -227,7 +227,42 @@ volumes:
 | `MAX_MESSAGE_MB` | `128` | WebSocket で受け取る 1 通の上限。初回同期でボード全体を送るので、数十万要素のボードを使うなら増やす(10 万要素で約 28 MB) |
 | `ANTHROPIC_API_KEY` | なし | 設定すると AI 機能が使える |
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | AI 機能で使うモデル |
+| `PUBLIC_URL` | なし | 公開している URL。Slack 通知・通知メールのリンクとメールアドレスの確認リンクに使う |
+| `SMTP_URL` / `MAIL_FROM` | なし | そろうとメール通知が使える。下の「メール・プッシュ通知」を参照 |
+| `PUSH_NOTIFICATIONS` | `1` | `0` でプッシュ通知を止める |
+| `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | 自動 | プッシュ通知の鍵と問い合わせ先 |
+| `PUSH_ALLOWED_HOSTS` | 主要なプッシュサービス | プッシュ通知を送ってよいホスト |
+| `DUE_REMIND_HOURS` | `24` | コメントの期限の何時間前に知らせるか |
+| `NOTIFY_UTC_OFFSET` | `+09:00` | 通知メールに書く時刻のタイムゾーン |
 | `RUST_LOG` | `info` | ログの詳しさ |
+
+## メール・プッシュ通知
+
+メンション・返信・コメントの期限は、画面のベルに加えてメールとプッシュ通知でも届けられます。
+各自がボード一覧の「通知の設定」で、メールアドレスの登録・この端末でのプッシュ通知の有効化・受け取る種類を選びます。
+
+**メール** は SMTP で送ります。`SMTP_URL` と `MAIL_FROM` をそろえ、確認リンクのために `PUBLIC_URL` も設定してください。
+
+```sh
+SMTP_URL=smtps://apikey:SECRET@smtp.example.com      # 465 番(TLS)
+# SMTP_URL=smtp://user:pass@smtp.example.com:587?tls=required   # 587 番(STARTTLS)
+MAIL_FROM="グラボード <noreply@example.com>"
+PUBLIC_URL=https://board.example.com/
+```
+
+- 登録したアドレスには確認のメールを送り、リンク(24 時間有効)を開くまで通知は送りません(他人のアドレスに送りつけられないように)。送り直しは 1 分に 1 回まで
+- 既定で送るのはメンションと期限。返信はメールだと多くなりがちなので、各自がオンにしたときだけ
+- 送り主のドメインには SPF・DKIM を設定しておくと、迷惑メールに入りにくくなります
+
+**プッシュ通知** は Web Push(VAPID)で、設定なしで使えます(鍵はサーバーが作って `DATA_DIR` に保存)。
+
+- ブラウザの決まりで、HTTPS(か `localhost`)で開いたときだけ有効にできます
+- iPhone・iPad(iOS 16.4 以降)は、Safari の共有メニューから「ホーム画面に追加」したアプリで開いたときに有効にできます
+- サーバーが送るのは中身のない合図だけです。受け取った端末の Service Worker が `/api/notifications` から内容を取って表示するので、コメントの本文は Google・Apple などのプッシュサービスを通りません
+- 複数台のサーバーで動かすときや鍵を固定したいときは、`VAPID_PRIVATE_KEY`(P-256 の秘密鍵 32 バイトを base64url にしたもの)を指定します。鍵を変えると、各自がプッシュ通知を有効にし直す必要があります
+- 送り先は既知のプッシュサービス(`fcm.googleapis.com`・`*.push.services.mozilla.com`・`*.push.apple.com`・`*.notify.windows.com`)だけです。社内の別のサービスを使うなら `PUSH_ALLOWED_HOSTS` を設定します
+
+**期限** はコメントのスレッドに付けられ、1 分ごとに見回って、期限の `DUE_REMIND_HOURS` 時間前と過ぎたときに、メンションされた人と書いた人へ知らせます(スレッドを解決すれば止まり、期限を変えると知らせ直します)。
 
 ## バックアップと更新
 

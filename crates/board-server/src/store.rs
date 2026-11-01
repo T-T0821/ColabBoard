@@ -22,6 +22,11 @@
 //! | `team_boards` | (チーム ID, ボード ID) | 加わった時刻(JSON) |
 //! | `sso_identities` | `{issuer}\n{sub}` | 結びついたログイン名(JSON) |
 //! | `audit` | (`*` か `team:{id}`, 記録 ID) | [`AuditEvent`](board_core::api::AuditEvent)(JSON) |
+//! | `due_comments` | (ボード ID, コメント ID) | 期限(UNIX ミリ秒、JSON)。期限の知らせを送る前のスレッドの索引 |
+//! | `notify_settings` | ログイン名 | [`NotifyRecord`](crate::notify::NotifyRecord)(JSON) |
+//! | `notify_verify` | 確認トークン | [`VerifyRecord`](crate::notify::VerifyRecord)(JSON) |
+//! | `push_subs` | (ログイン名, 送り先 URL のハッシュ) | [`PushRecord`](crate::notify::PushRecord)(JSON) |
+//! | `server_keys` | 名前(`vapid`) | サーバーが作った鍵(JSON) |
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -64,6 +69,15 @@ pub(crate) const TEAM_BOARDS: TableDefinition<(&str, &str), &[u8]> =
 pub(crate) const SSO_IDENTITIES: TableDefinition<&str, &[u8]> =
     TableDefinition::new("sso_identities");
 pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit");
+pub(crate) const DUE_COMMENTS: TableDefinition<(&str, u64), &[u8]> =
+    TableDefinition::new("due_comments");
+pub(crate) const NOTIFY_SETTINGS: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("notify_settings");
+pub(crate) const NOTIFY_VERIFY: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("notify_verify");
+pub(crate) const PUSH_SUBS: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("push_subs");
+pub(crate) const SERVER_KEYS: TableDefinition<&str, &[u8]> = TableDefinition::new("server_keys");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
 pub fn next_id() -> u64 {
@@ -141,6 +155,11 @@ impl Store {
         txn.open_table(TEAM_BOARDS)?;
         txn.open_table(AUDIT)?;
         txn.open_table(SSO_IDENTITIES)?;
+        txn.open_table(DUE_COMMENTS)?;
+        txn.open_table(NOTIFY_SETTINGS)?;
+        txn.open_table(NOTIFY_VERIFY)?;
+        txn.open_table(PUSH_SUBS)?;
+        txn.open_table(SERVER_KEYS)?;
         txn.commit()?;
         Ok(Self {
             db,
@@ -602,6 +621,22 @@ impl Store {
         for entry in t.range((a, 0)..=(a, u64::MAX))? {
             let (k, v) = entry?;
             out.push((k.value().1, serde_json::from_slice(v.value())?));
+        }
+        Ok(out)
+    }
+
+    /// テーブルの中身を(1 つ目のキーにかかわらず)全部読む。
+    pub(crate) fn scan_seq_all<T: DeserializeOwned>(
+        &self,
+        table: SeqTable,
+    ) -> Result<Vec<(String, u64, T)>, StoreError> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(table)?;
+        let mut out = Vec::new();
+        for entry in t.iter()? {
+            let (k, v) = entry?;
+            let (a, id) = k.value();
+            out.push((a.to_string(), id, serde_json::from_slice(v.value())?));
         }
         Ok(out)
     }
