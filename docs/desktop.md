@@ -95,7 +95,7 @@ Mac で Intel と Apple シリコンの両方で動かすには `cargo tauri bui
 
 ### アイコン
 
-`icons/` はスクリプトで作った仮のアイコン。差し替えるときは 1024×1024 の PNG を用意して `cargo tauri icon 画像.png` を実行すると、全サイズが作り直される。
+`icons/` はアプリロゴ(`tools/brand/render-icons.js` で作る)から生成したもの。ロゴを変えたらそのスクリプトで作り直すか、1024×1024 の PNG を用意して `cargo tauri icon 画像.png` を実行する。
 
 ## できないこと・注意
 
