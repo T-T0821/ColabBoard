@@ -984,3 +984,28 @@ SSO 自動参加	SSO auto-join
 一致するボードはありません	No matching boards
 お気に入りはまだありません。ボードの ☆ を押すとここに集まります。	No favorites yet. Press ☆ on a board to collect it here.
 フォルダの名前を入れてください	Enter a folder name
+外部と通信する	Connect to the internet
+データを保存する	Store data
+ボードの要素(付箋・図形・文字など)を読みます	Reads the board's elements (stickies, shapes, text and so on)
+ボードの要素を作る・変える・消すことができます	Can create, change and delete elements on the board
+書かれた接続先にボードの内容を送ったり、そこからデータを取ったりできます	Can send board content to the listed hosts and fetch data from them
+このプラグイン専用の場所に、あなたごとのデータ(設定など)を残せます	Can keep your own data (such as settings) in a place only this plugin uses
+(サーバーの設定で使えません)	(not allowed by this server)
+選んだ権限を許可	Allow selected
+許可しない	Don't allow
+保存	Save
+最初に戻す	Reset
+ボードの読み書き以外の許可を取り消し、次の実行でまた確認します	Revokes everything except reading and editing the board, and asks again next time
+保存したデータを消す({n} KB)	Delete saved data ({n} KB)
+許可していません	Not allowed
+このプラグインは外部との通信やデータの保存を求めています。ログインすると、許可してから実行できます。	This plugin wants to connect to the internet or store data. Sign in to allow it and run it.
+権限の確認	Permission request
+このプラグインは次の権限を求めています。	This plugin is asking for the following permissions.
+許可するものを選んでください。許可しなかった権限は、プラグインからは使えません。	Choose what to allow. The plugin can't use anything you don't allow.
+権限の設定	Permissions
+先に権限を許可するかどうか決めてください	Decide on the permissions first
+外部との通信 {n} 件	Network requests: {n}
+失敗	Failed
+権限の設定を保存しました	Permissions saved
+権限の設定を最初に戻しました	Permissions reset
+保存したデータを消しました	Saved data deleted

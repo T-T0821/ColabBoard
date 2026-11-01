@@ -18,6 +18,11 @@
 //! - `SLACK_WEBHOOK_PREFIXES`(既定 `https://hooks.slack.com/`): Slack 通知を送ってよい URL の先頭(カンマ区切り)。
 //! - `PLUGIN_DIR`: ここにある `*.wasm` をサーバーのプラグインとして読み込む(全員が使える)。
 //! - `USER_PLUGINS`(既定 `1`): `0` で各自がプラグインを入れるのを禁止する。
+//! - `PLUGIN_NETWORK`(既定 `1`): `0` でプラグインの外部への通信を全部止める。
+//! - `PLUGIN_NETWORK_HOSTS`: プラグインが接続してよい先の上限(`api.github.com,*.example.com` のようにカンマ区切り)。
+//!   設定しなければ、プラグインが宣言し実行する人が許可した公開の HTTPS の先ならどこでも。
+//! - `PLUGIN_NETWORK_INSECURE`(既定 `0`): `1` で http:// と内部のアドレスへの接続も許す(開発用。本番では使わない)。
+//! - `PLUGIN_STORAGE`(既定 `1`): `0` でプラグインの保存領域を使えなくする。
 //! - `GITHUB_TOKEN` / `GITHUB_API_URL`: 課題カードで GitHub を引くとき(トークンなしでも公開リポジトリは読める)。
 //! - `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN`: 課題カードで Jira を引くとき。
 //! - `ICE_SERVERS`: 音声通話で使う STUN / TURN サーバー(`RTCIceServer` の JSON 配列)。
