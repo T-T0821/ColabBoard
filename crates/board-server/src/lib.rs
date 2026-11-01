@@ -5,6 +5,7 @@
 //! - `/api/boards/{id}/media`: 動画メモの保存と配信([`media`])。
 //! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
+//! - `/api/errors`・`/api/admin/...`: エラー監視([`errors`])と定期バックアップ・復元([`backup`])。
 //! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
@@ -19,10 +20,12 @@ pub mod ai_ink;
 pub mod api;
 pub mod audit;
 pub mod auth;
+pub mod backup;
 pub mod boards;
 pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
+pub mod errors;
 pub mod guard;
 pub mod issues;
 pub mod media;
@@ -96,6 +99,10 @@ pub struct Config {
     pub password_login: bool,
     /// 回数制限・利用上限・セキュリティヘッダー。
     pub limits: guard::Limits,
+    /// エラー監視(集めたエラーの置き場)。
+    pub monitor: Arc<errors::Monitor>,
+    /// 定期バックアップ。`None` なら無効。
+    pub backups: Option<Arc<backup::Backups>>,
 }
 
 impl Config {
@@ -142,6 +149,8 @@ impl Default for Config {
             oidc: None,
             password_login: true,
             limits: guard::Limits::default(),
+            monitor: Arc::new(errors::Monitor::new()),
+            backups: None,
         }
     }
 }
@@ -201,6 +210,8 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
                 .merge(rest::token_routes())
                 .merge(teams::routes())
                 .merge(audit::routes())
+                .merge(errors::routes())
+                .merge(backup::routes())
                 .merge(oidc::routes()),
         )
         .layer(axum::middleware::from_fn_with_state(

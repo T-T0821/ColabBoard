@@ -135,6 +135,11 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         .ok()
         .and_then(|q| web_sys::UrlSearchParams::new_with_str(&q).ok());
     let next = safe_next(params.as_ref().and_then(|p| p.get("next")));
+    // 通知(Slack など)のリンクから運用の画面を開く。
+    let ops_tab = params
+        .as_ref()
+        .and_then(|p| p.get("ops"))
+        .and_then(|t| crate::ops::Tab::parse(&t));
     // SSO から戻ってきたときの失敗の理由。
     let sso_error = params.as_ref().and_then(|p| p.get("sso_error"));
     let sso = if me.is_none() {
@@ -172,6 +177,11 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
     install(&home)?;
     if home.borrow().me.is_some() {
         reload(home.clone()).await;
+        if let Some(tab) = ops_tab
+            && home.borrow().me.as_ref().is_some_and(|m| m.admin)
+        {
+            crate::ops::open(tab);
+        }
     } else {
         home.borrow().render();
     }
@@ -403,7 +413,7 @@ impl Home {
             },
             team_panel = self.render_team_panel(me),
             admin = if me.admin {
-                r#"<button type="button" class="quiet" data-action="audit" data-id="">全体の操作ログ</button>"#
+                r#"<button type="button" class="quiet" data-action="ops" data-id="errors">運用</button><button type="button" class="quiet" data-action="audit" data-id="">全体の操作ログ</button>"#
             } else {
                 ""
             },
@@ -977,6 +987,12 @@ fn install(home: &Shared) -> Result<(), String> {
                     more: false,
                 });
                 wasm_bindgen_futures::spawn_local(load_audit(h.clone(), false));
+            }
+            "ops" => {
+                crate::ops::open(
+                    crate::ops::Tab::parse(id.as_deref().unwrap_or(""))
+                        .unwrap_or(crate::ops::Tab::Errors),
+                );
             }
             "audit-more" => {
                 wasm_bindgen_futures::spawn_local(load_audit(h.clone(), true));

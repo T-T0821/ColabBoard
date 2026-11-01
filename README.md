@@ -260,6 +260,9 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `OIDC_ALLOWED_DOMAINS` | なし | SSO でログインできるメールのドメイン(カンマ区切り。確認済みのメールだけ) |
 | `PASSWORD_LOGIN` | `1` | `0` でパスワードのログインとアカウント作成を止める(SSO だけにする) |
 | `STORAGE_LOCATIONS` | なし | チームが選べるデータの保存場所(下の「組織で使う」を参照) |
+| `LOG_FORMAT` | `text` | `gcp` で Cloud Logging の構造化ログ(ERROR は Error Reporting に載る)、`json` で一般的な JSON |
+| `SENTRY_DSN` / `ERROR_SLACK_WEBHOOK` | なし | エラーを Sentry へ送る / 新しい種類のエラーを Slack に知らせる(下の「運用」を参照) |
+| `BACKUP_LOCATION` / `BACKUP_INTERVAL_HOURS` / `BACKUP_KEEP` | `DATA_DIR/backups` / `24` / `14` | 定期バックアップの置き場所(`file://` か `s3://`。GCS も可)・間隔・残す数 |
 | `ICE_SERVERS` | Google の公開 STUN | 音声通話の STUN / TURN サーバー(`RTCIceServer` の JSON 配列)。会社のネットワーク越しなど直接つながらない相手と話すなら TURN を足す。例: `[{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]` |
 
 ### アカウントと権限
@@ -286,6 +289,16 @@ STORAGE_TOKYO_ACCESS_KEY_ID=…  STORAGE_TOKYO_SECRET_ACCESS_KEY=…   # なけ�
 ```
 
 `s3://` は S3 互換ストレージ(AWS S3・Cloudflare R2・MinIO・Backblaze B2・Wasabi など、署名は AWS Signature V4)、`file://` はサーバーから見えるディレクトリ。`endpoint` を省くと AWS、`style=virtual` で仮想ホスト形式の URL にする。
+
+### 運用(エラー監視・バックアップ)
+
+サーバー管理者(`ADMIN_LOGINS`)はボード一覧の「運用」から使う。
+
+- **エラー監視**: サーバーのログの ERROR・パニックと、利用者のブラウザで起きたエラー(JavaScript のエラー・wasm のパニック)を集め、同じものはまとめて回数と最新の詳細(スタック・ページ・ブラウザ・ボード)を見られる。直したら「解決済み」にし、再発すると未解決に戻る。`SENTRY_DSN` で Sentry へ、`ERROR_SLACK_WEBHOOK` で新しいエラーを Slack へ。Google Cloud では `LOG_FORMAT=gcp` で Error Reporting に載る
+- **定期バックアップ**: 全データを 1 ファイルにまとめて、24 時間ごとに `BACKUP_LOCATION`(別ディスク・S3 互換・Google Cloud Storage)へ残す。運用の画面から今すぐ取る・ダウンロードもできる
+- **復元**: バックアップを選んでボードを 1 つ戻せる(削除したボードはコメント・履歴ごと作り直し、今あるボードは中身を戻して戻す前を履歴に残す)。全体はサーバーを止めて `board-server restore <ID> --yes`
+
+詳しくは [docs/self-hosting.md](docs/self-hosting.md#エラー監視)。
 
 ### 外部からの操作(REST API)
 

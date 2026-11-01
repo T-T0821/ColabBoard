@@ -46,7 +46,12 @@
 //! | `GET` | `/api/audit?team=&before=&limit=&action=` | 操作ログ([`AuditEvent`] の配列、新しい順。`team` 指定はチームの管理者、なしはサーバー管理者) |
 //! | `GET` | `/api/audit/export?team=&format=csv\|jsonl` | 操作ログの書き出し(CSV か JSON Lines) |
 //!
+//!
+//! エラー監視とバックアップ(サーバー管理者向け)は [`ops`] を参照。
+//!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
+
+pub mod ops;
 
 use std::collections::BTreeMap;
 
@@ -401,6 +406,8 @@ impl AuditEvent {
             "board.link" => "共有リンクの変更",
             "board.team" => "ボードのチーム変更",
             "board.restore" => "バージョンの復元",
+            "backup.create" => "バックアップ作成",
+            "backup.restore" => "バックアップから復元",
             "team.create" => "チーム作成",
             "team.rename" => "チーム名の変更",
             "team.delete" => "チーム削除",

@@ -22,6 +22,7 @@
 //! | `team_boards` | (チーム ID, ボード ID) | 加わった時刻(JSON) |
 //! | `sso_identities` | `{issuer}\n{sub}` | 結びついたログイン名(JSON) |
 //! | `audit` | (`*` か `team:{id}`, 記録 ID) | [`AuditEvent`](board_core::api::AuditEvent)(JSON) |
+//! | `errors` | エラーのまとまりの ID | [`ErrorGroup`](board_core::api::ops::ErrorGroup)(JSON) |
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -64,6 +65,7 @@ pub(crate) const TEAM_BOARDS: TableDefinition<(&str, &str), &[u8]> =
 pub(crate) const SSO_IDENTITIES: TableDefinition<&str, &[u8]> =
     TableDefinition::new("sso_identities");
 pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit");
+pub(crate) const ERRORS: TableDefinition<&str, &[u8]> = TableDefinition::new("errors");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
 pub fn next_id() -> u64 {
@@ -141,12 +143,18 @@ impl Store {
         txn.open_table(TEAM_BOARDS)?;
         txn.open_table(AUDIT)?;
         txn.open_table(SSO_IDENTITIES)?;
+        txn.open_table(ERRORS)?;
         txn.commit()?;
         Ok(Self {
             db,
             persistent,
             locations: RwLock::new(HashMap::new()),
         })
+    }
+
+    /// redb そのもの(バックアップで全テーブルを読み書きする)。
+    pub(crate) fn database(&self) -> &Database {
+        &self.db
     }
 
     /// ディスクに保存しているか。
