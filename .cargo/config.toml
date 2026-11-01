@@ -1,0 +1,5 @@
+# ブラウザ向け(wasm32)のビルド設定。
+# - getrandom: ブラウザの crypto.getRandomValues を使う(ブラウザ内 AI の candle が乱数に使う)
+# - simd128: ブラウザ内 AI(行列計算)を速くする。主要ブラウザはすべて対応している
+[target.wasm32-unknown-unknown]
+rustflags = ["--cfg", 'getrandom_backend="wasm_js"', "-C", "target-feature=+simd128"]
