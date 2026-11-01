@@ -10,7 +10,7 @@
 use std::collections::BTreeMap;
 
 use board_core::api::{
-    BoardInfo, BoardLabels, LinkShare, PublicShare, Role, SetLabels, Sharing, TeamRole,
+    BoardInfo, BoardLabels, E2eInfo, LinkShare, PublicShare, Role, SetLabels, Sharing, TeamRole,
     clean_folder, clean_tags,
 };
 use serde::{Deserialize, Serialize};
@@ -50,6 +50,19 @@ pub struct BoardMeta {
     /// チームのメンバーに与える権限(省略時は編集可)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_access: Option<Role>,
+    /// エンドツーエンド暗号化ボードなら、鍵の指紋。中身はサーバーでは読めない。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2e: Option<E2eInfo>,
+    /// 管理者が利用停止にした(通報への対応)。誰も開けなくなる。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suspended: Option<Suspension>,
+}
+
+/// 利用停止の記録。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Suspension {
+    pub by: String,
+    pub at: u64,
 }
 
 impl BoardMeta {
@@ -74,6 +87,7 @@ impl BoardMeta {
             key,
             team: self.team.clone(),
             labels: BoardLabels::default(),
+            e2e: self.e2e.clone(),
         }
     }
 
@@ -215,6 +229,7 @@ pub fn create(
     owner: &str,
     title: &str,
     team: Option<&str>,
+    e2e: Option<String>,
 ) -> Result<BoardMeta, StoreError> {
     let now = now_ms();
     loop {
@@ -232,6 +247,8 @@ pub fn create(
             deleted: false,
             team: team.map(str::to_string),
             team_access: None,
+            e2e: e2e.clone().map(|key_id| E2eInfo { key_id, rotated: 0 }),
+            suspended: None,
         };
         // ID がぶつかるのはまずないが、ぶつかったら作り直す。既存の(情報のない)ルームとも避ける。
         if store.load(&meta.id)?.is_some() {
@@ -403,6 +420,7 @@ pub fn list_for(
                     key: None,
                     team: None,
                     labels: ub.labels(),
+                    e2e: None,
                 }
             }
         };
@@ -501,6 +519,8 @@ mod tests {
             deleted: false,
             team: None,
             team_access: None,
+            e2e: None,
+            suspended: None,
         }
     }
 
@@ -615,9 +635,9 @@ mod tests {
     #[test]
     fn listing() {
         let store = Store::memory();
-        let a = create(&store, "alice", "  企画  ", None).unwrap();
+        let a = create(&store, "alice", "  企画  ", None, None).unwrap();
         assert_eq!(a.title, "企画");
-        let b = create(&store, "alice", "", None).unwrap();
+        let b = create(&store, "alice", "", None, None).unwrap();
         assert_eq!(b.title, "無題のボード");
         let list = list_for(&store, "alice", true).unwrap();
         assert_eq!(list.len(), 2);

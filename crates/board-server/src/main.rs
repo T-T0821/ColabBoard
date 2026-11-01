@@ -7,6 +7,7 @@
 //!   `embed` 機能付きでビルドしたバイナリは、指定がなく既定の場所にもなければ埋め込み版を配る。
 //! - `MAX_MESSAGE_MB`(既定 128): WebSocket で受け取る 1 通の上限。とても大きなボードを使うなら増やす。
 //! - `ANONYMOUS_BOARDS`(既定 `1`): `0` でログインなしのボード作成を禁止する。
+//! - `E2E_BOARDS`(既定 `1`): `0` でエンドツーエンド暗号化ボードを作れなくする(サーバー管理者は画面からも変えられ、そちらが優先)。
 //! - `COOKIE_SECURE`(既定 `0`): `1` でログイン Cookie に `Secure` を付ける(HTTPS 用)。
 //! - `TRUST_PROXY`(既定 `0`): `1` でリバースプロキシの `X-Forwarded-For` から利用者の IP を取る。
 //! - `ALLOWED_ORIGINS`: ログイン付きの WebSocket を受け付けるほかのオリジン(カンマ区切り)。
@@ -135,6 +136,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         static_dir,
         max_message_bytes,
         anonymous_boards: flag("ANONYMOUS_BOARDS", true),
+        e2e_boards: flag("E2E_BOARDS", true),
         secure_cookies: flag("COOKIE_SECURE", false),
         ice_servers: board_server::ice_servers_from_env(std::env::var("ICE_SERVERS").ok()),
         ai: board_server::ai::AiConfig::from_env().map(|c| {

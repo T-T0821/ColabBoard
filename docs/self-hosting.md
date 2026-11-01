@@ -224,6 +224,7 @@ volumes:
 | `CSP` / `HSTS` | `1` / `COOKIE_SECURE` と同じ | `0` でそのヘッダーを付けない |
 | 回数制限・上限 | [公開前の守り](#公開前の守り) | `LOGIN_FAILURES_PER_ACCOUNT` `MAX_USERS` `MAX_BOARDS_PER_USER` など |
 | `ANONYMOUS_BOARDS` | `1` | `0` でログインなしのボード(URL を知っていれば誰でも編集できるもの)を禁止 |
+| `E2E_BOARDS` | `1` | `0` でエンドツーエンド暗号化ボード(サーバーの管理者にも中身が見えないもの)を新しく作れなくする。サーバー管理者は画面からも切り替えられる。チームのボードはチームの管理者が許可したときだけ作れる([e2e.md](e2e.md)) |
 | `MAX_MESSAGE_MB` | `128` | WebSocket で受け取る 1 通の上限。初回同期でボード全体を送るので、数十万要素のボードを使うなら増やす(10 万要素で約 28 MB) |
 | `ANTHROPIC_API_KEY` | なし | 設定すると AI 機能が使える |
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | AI 機能で使うモデル |

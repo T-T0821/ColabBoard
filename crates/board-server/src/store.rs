@@ -22,6 +22,11 @@
 //! | `team_boards` | (チーム ID, ボード ID) | 加わった時刻(JSON) |
 //! | `sso_identities` | `{issuer}\n{sub}` | 結びついたログイン名(JSON) |
 //! | `audit` | (`*` か `team:{id}`, 記録 ID) | [`AuditEvent`](board_core::api::AuditEvent)(JSON) |
+//! | `reports` | (`*` か `team:{id}`, 通報 ID) | [`Report`](board_core::api::Report)(JSON) |
+//! | `settings` | 設定名 | サーバー管理者が画面から変えた設定(JSON) |
+//!
+//! エンドツーエンド暗号化ボードの `rooms` の値は、yrs の更新ではなく暗号文のログ
+//! ([`crate::sealed`]。先頭が `GBE1`)。サーバーは中身を読めない。
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -64,6 +69,8 @@ pub(crate) const TEAM_BOARDS: TableDefinition<(&str, &str), &[u8]> =
 pub(crate) const SSO_IDENTITIES: TableDefinition<&str, &[u8]> =
     TableDefinition::new("sso_identities");
 pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit");
+pub(crate) const REPORTS: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("reports");
+pub(crate) const SETTINGS: TableDefinition<&str, &[u8]> = TableDefinition::new("settings");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
 pub fn next_id() -> u64 {
@@ -140,6 +147,8 @@ impl Store {
         txn.open_table(USER_TEAMS)?;
         txn.open_table(TEAM_BOARDS)?;
         txn.open_table(AUDIT)?;
+        txn.open_table(REPORTS)?;
+        txn.open_table(SETTINGS)?;
         txn.open_table(SSO_IDENTITIES)?;
         txn.commit()?;
         Ok(Self {

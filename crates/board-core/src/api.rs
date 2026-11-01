@@ -152,6 +152,123 @@ pub struct BoardInfo {
     /// 自分だけの整理(お気に入り・タグ・フォルダ・最後に開いた時刻)。
     #[serde(flatten, default)]
     pub labels: BoardLabels,
+    /// エンドツーエンド暗号化ボードなら、その鍵の指紋。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2e: Option<E2eInfo>,
+}
+
+/// エンドツーエンド暗号化ボードの情報。鍵そのものはサーバーに置かない。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct E2eInfo {
+    /// 鍵の指紋(`board_e2e::BoardKey::key_id`)。手元の鍵が合っているかの確認に使う。
+    pub key_id: String,
+    /// 最後に鍵を作り直した時刻(UNIX ミリ秒。作ったときは 0)。
+    #[serde(default)]
+    pub rotated: u64,
+}
+
+/// 鍵を作り直す(オーナーだけ)。`snapshot` は新しい鍵で暗号化したボード全体(base64)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RotateE2e {
+    pub key_id: String,
+    pub snapshot: String,
+}
+
+/// このサーバーで暗号化ボードを作れるか。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct E2ePolicy {
+    /// サーバー全体で使えるか(`E2E_BOARDS=0` で止められる)。
+    pub enabled: bool,
+    /// チームのボードとして作れるチーム(チームの管理者が許可したもの)。
+    #[serde(default)]
+    pub teams: Vec<String>,
+}
+
+/// チームで暗号化ボードを許可するか(チームの管理者・オーナー)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetTeamE2e {
+    pub allowed: bool,
+}
+
+/// 通報の理由。
+pub const REPORT_REASONS: &[(&str, &str)] = &[
+    ("illegal", "違法な内容"),
+    ("leak", "情報の持ち出し・漏えい"),
+    ("harassment", "嫌がらせ・差別"),
+    ("spam", "スパム・詐欺"),
+    ("other", "その他"),
+];
+
+/// 通報の理由の表示名(知らないものはそのまま)。
+pub fn report_reason_label(id: &str) -> &str {
+    REPORT_REASONS
+        .iter()
+        .find(|(k, _)| *k == id)
+        .map_or(id, |(_, v)| v)
+}
+
+/// ボードを通報する。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct NewReport {
+    /// [`REPORT_REASONS`] のどれか。
+    pub reason: String,
+    #[serde(default)]
+    pub comment: String,
+    /// 通報した人が自分の判断で添えた、ボードの文字(暗号化ボードではサーバーが中身を読めないため)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<String>,
+}
+
+/// 通報の対応状況。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReportStatus {
+    #[default]
+    Open,
+    /// 対応した(利用停止など)。
+    Resolved,
+    /// 問題なしとした。
+    Dismissed,
+}
+
+/// 届いた通報。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Report {
+    pub id: u64,
+    pub at: u64,
+    pub board: String,
+    pub board_title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    /// 通報した人のログイン名(共有リンクから匿名で開いた人は `None`)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reporter: Option<String>,
+    pub reason: String,
+    #[serde(default)]
+    pub comment: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<String>,
+    /// 暗号化ボードへの通報か。
+    #[serde(default)]
+    pub e2e: bool,
+    #[serde(default)]
+    pub status: ReportStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handled_by: Option<String>,
+    #[serde(default)]
+    pub handled_at: u64,
+    /// 今そのボードが利用停止中か(一覧を返すときに埋める)。
+    #[serde(default)]
+    pub suspended: bool,
+}
+
+/// 通報に対応する(サーバー管理者か、チームのボードならチームの管理者)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HandleReport {
+    pub status: ReportStatus,
+    /// ボードを利用停止にする(`Some(false)` で解除)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suspend: Option<bool>,
 }
 
 /// ボードに自分で付ける整理の印。ほかの人には見えない。
@@ -273,6 +390,9 @@ pub struct NewBoard {
     /// チームのボードとして作るなら、そのチームの ID(メンバーである必要がある)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
+    /// エンドツーエンド暗号化ボードとして作るなら、ブラウザで作った鍵の指紋。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2e: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -410,6 +530,9 @@ pub struct Team {
     /// チームのボードの中身を置く場所の ID([`StorageLocation`])。`None` はこのサーバー。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
+    /// チームのボードを暗号化ボードとして作れるか(チームの管理者が決める。既定は不可)。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub e2e: bool,
 }
 
 /// サーバーの管理者が用意したデータの保存場所。
@@ -528,6 +651,14 @@ impl AuditEvent {
             "team.storage" => "保存場所の変更",
             "token.create" => "API トークン作成",
             "token.revoke" => "API トークン失効",
+            "board.e2e.create" => "暗号化ボード作成",
+            "board.e2e.open" => "暗号化ボードに参加",
+            "board.e2e.rotate" => "暗号化ボードの鍵の作り直し",
+            "board.report" => "ボードの通報",
+            "board.suspend" => "ボードの利用停止",
+            "board.unsuspend" => "ボードの利用停止を解除",
+            "report.handle" => "通報への対応",
+            "server.settings" => "サーバーの設定変更",
             other => other,
         }
     }

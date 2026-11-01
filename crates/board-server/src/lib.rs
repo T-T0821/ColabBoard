@@ -21,6 +21,7 @@ pub mod audit;
 pub mod auth;
 pub mod boards;
 pub mod comments;
+pub mod e2e;
 #[cfg(feature = "embed")]
 mod embedded;
 pub mod guard;
@@ -32,6 +33,7 @@ pub mod plugins;
 pub mod public;
 pub mod rest;
 pub mod room;
+pub mod sealed;
 pub mod search;
 pub mod slack;
 pub mod storage;
@@ -97,6 +99,8 @@ pub struct Config {
     pub password_login: bool,
     /// 回数制限・利用上限・セキュリティヘッダー。
     pub limits: guard::Limits,
+    /// エンドツーエンド暗号化ボードを作れるか(既定値。サーバー管理者が画面から変えるとそちらが優先)。
+    pub e2e_boards: bool,
 }
 
 impl Config {
@@ -143,6 +147,7 @@ impl Default for Config {
             oidc: None,
             password_login: true,
             limits: guard::Limits::default(),
+            e2e_boards: true,
         }
     }
 }
@@ -156,6 +161,8 @@ pub struct AppState {
     /// OGP 画像の文字に使うフォント(Web クライアントと同じもの)。
     pub font: Option<ab_glyph::FontArc>,
     pub guard: Arc<guard::Guard>,
+    /// 暗号化ボードへの参加の記録を間引く。
+    pub e2e_opens: e2e::OpenLog,
 }
 
 impl AppState {
@@ -174,6 +181,7 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         og: public::OgCache::default(),
         font,
         guard,
+        e2e_opens: e2e::OpenLog::default(),
     });
     let app = Router::new()
         .route("/ws/{room}", get(ws_handler))
@@ -203,7 +211,8 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
                 .merge(teams::routes())
                 .merge(audit::routes())
                 .merge(oidc::routes())
-                .merge(search::routes()),
+                .merge(search::routes())
+                .merge(e2e::routes()),
         )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
@@ -319,7 +328,19 @@ async fn ws_handler(
         user.as_ref().map(|u| u.login.as_str()),
         q.key.as_deref(),
     ) {
-        Ok((_, role)) => role,
+        Ok((meta, role)) => {
+            // 暗号化ボードは、誰がいつ参加したかだけを操作ログに残す(中身は残せない)。
+            if let Some(meta) = meta.as_ref().filter(|m| m.e2e.is_some()) {
+                e2e::log_open(
+                    &state,
+                    &headers,
+                    meta,
+                    user.as_ref().map(|u| u.login.as_str()),
+                    role,
+                );
+            }
+            role
+        }
         Err(e) => return e.into_response(),
     };
     let limits = &state.config.limits;
@@ -365,11 +386,15 @@ async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String, role: Role
     let mut rx = room.tx.subscribe();
     let (mut sink, mut stream) = socket.split();
 
-    let hello = Message::Sync {
-        you: me,
-        state: room.snapshot(),
-    };
-    if sink.send(binary(hello.encode())).await.is_err() {
+    // 暗号化ボードはログ全体(暗号文)を、そうでなければボード全体を送る。
+    let hello = room.sealed_sync(me).unwrap_or_else(|| {
+        Message::Sync {
+            you: me,
+            state: room.snapshot(),
+        }
+        .encode()
+    });
+    if sink.send(binary(hello)).await.is_err() {
         return;
     }
     for p in room.presences() {
@@ -393,8 +418,21 @@ async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String, role: Role
                     _ => continue,
                 };
                 match Message::decode(&bytes) {
-                    Ok(Message::Update(_)) if !role.can_edit() => {
+                    Ok(Message::Update(_) | Message::Sealed { .. } | Message::Compact { .. })
+                        if !role.can_edit() =>
+                    {
                         tracing::debug!(peer = me, "編集権限のない更新を捨てました");
+                    }
+                    // 暗号化ボード: 中身は読まずに、ログに足して配るだけ。
+                    Ok(Message::Sealed { blob, .. }) => {
+                        if let Err(e) = room.append_sealed(me, blob) {
+                            tracing::warn!(peer = me, "暗号文を受け付けません: {e}");
+                        }
+                    }
+                    Ok(Message::Compact { base, upto, blob }) => {
+                        if let Err(e) = room.compact_sealed(base, upto, blob) {
+                            tracing::warn!(peer = me, "ログをまとめられません: {e}");
+                        }
                     }
                     Ok(Message::Update(u)) => match room.apply(&u) {
                         Ok(()) => room.broadcast(me, Arc::from(bytes.as_ref())),
@@ -443,7 +481,9 @@ async fn session(socket: WebSocket, hub: Arc<Hub>, room_name: String, role: Role
                 // 配信が追いつかなかった。全体を送り直せば yrs 側で整合する。
                 Err(RecvError::Lagged(n)) => {
                     tracing::warn!(peer = me, skipped = n, "配信が遅れたので全体を送り直します");
-                    let full = Message::Update(room.snapshot()).encode();
+                    let full = room
+                        .sealed_sync(me)
+                        .unwrap_or_else(|| Message::Update(room.snapshot()).encode());
                     if sink.send(binary(full)).await.is_err() {
                         break;
                     }

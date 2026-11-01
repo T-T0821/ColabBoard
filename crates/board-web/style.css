@@ -975,6 +975,55 @@ body[data-role="commenter"] .diagram-panel,
 body[data-role="viewer"] .format-bar,
 body[data-role="commenter"] .format-bar { display: none !important; }
 
+/* ---- エンドツーエンド暗号化ボード ---- */
+.e2e-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--success-soft);
+  color: var(--success-text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.e2e-badge[hidden] { display: none; }
+.e2e-panel .fingerprint { font-size: 15px; letter-spacing: 0.06em; font-weight: 600; }
+.e2e-panel details summary { cursor: pointer; color: var(--danger-text); font-weight: 600; }
+.e2e-panel details[open] summary { margin-bottom: 8px; }
+.e2e-panel textarea { width: 100%; resize: vertical; font: inherit; }
+.form-ok { margin: 0; color: var(--success-text); }
+.home-card.e2e-key code { font-size: 14px; letter-spacing: 0.05em; }
+.home-card.e2e-key input { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.badge.e2e-lock { background: var(--success-soft); color: var(--success-text); margin-left: 4px; }
+.badge.report-open { background: var(--danger-soft); color: var(--danger-text); }
+.home-card form.create label.e2e-option { flex-direction: row; justify-content: flex-start; }
+.home-card form.create .e2e-option input { flex: none; width: 16px; height: 16px; margin: 0; padding: 0; }
+.e2e-option { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); flex-basis: 100%; cursor: pointer; }
+.reports { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.reports .report { border: 1px solid var(--border); border-radius: var(--r-md, 10px); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
+.reports .report p { margin: 0; }
+.reports .report-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.reports .evidence { white-space: pre-wrap; max-height: 200px; overflow: auto; background: var(--surface-2); padding: 8px; border-radius: 6px; font-size: 12px; margin: 6px 0 0; }
+.reports .actions { gap: 6px; flex-wrap: wrap; }
+.e2e-server { padding: 8px 10px; background: var(--surface-2); border-radius: 8px; }
+/* サーバーが中身を読む機能は出さない(サーバー側でも断る) */
+body.e2e-board #comments-toggle,
+body.e2e-board #comment-pins,
+body.e2e-board #history-toggle,
+body.e2e-board #plugins-toggle,
+body.e2e-board #insert-video,
+body.e2e-board .collab-row:has(#ai-summarize),
+body.e2e-board #ai-ask-form,
+body.e2e-board #ai-answer,
+body.e2e-board #ai-status,
+body.e2e-board label[for="ai-prompt"],
+body.e2e-board #ai-prompt,
+body.e2e-board .diagram-row:has(#ai-generate),
+body.e2e-board #ai-diagram-status,
+body.e2e-board #ai-diagram-status + hr { display: none !important; }
+
 /* ---- 共有パネル ---- */
 .share-panel {
   top: 60px;
@@ -1110,7 +1159,7 @@ body.home-mode > :not(#home):not(#error) { display: none !important; }
 .home-head { display: flex; align-items: center; gap: 12px; }
 .home-head h1 { flex: 1; margin: 0; }
 .me { white-space: nowrap; font-weight: 500; }
-.home-card form.create { flex-direction: row; margin: 24px 0 16px; }
+.home-card form.create { flex-direction: row; flex-wrap: wrap; margin: 24px 0 16px; }
 .home-card form.create input { flex: 1; min-width: 0; }
 .boards { list-style: none; margin: 8px -8px 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .board-row {

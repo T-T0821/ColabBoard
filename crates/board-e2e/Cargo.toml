@@ -1,0 +1,15 @@
+[package]
+name = "board-e2e"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "グラボード のエンドツーエンド暗号化(ボードの鍵・暗号化・復号)。サーバーは使わない"
+
+[dependencies]
+# 乱数はこのクレートでは作らない(ブラウザは crypto.getRandomValues、テストは getrandom から渡す)。
+chacha20poly1305 = { version = "0.10", default-features = false, features = ["alloc"] }
+sha2 = "0.10"
+base64 = "0.22"
+
+[dev-dependencies]
+getrandom = "0.3"

@@ -984,3 +984,81 @@ SSO 自動参加	SSO auto-join
 一致するボードはありません	No matching boards
 お気に入りはまだありません。ボードの ☆ を押すとここに集まります。	No favorites yet. Press ☆ on a board to collect it here.
 フォルダの名前を入れてください	Enter a folder name
+# エンドツーエンド暗号化ボード
+暗号化	Encrypted
+🔒 暗号化	🔒 Encrypted
+エンドツーエンド暗号化	End-to-end encryption
+エンドツーエンド暗号化: サーバーの管理者にも中身は見えません	End-to-end encrypted: even server admins can't see the content
+エンドツーエンド暗号化ボード	End-to-end encrypted board
+エンドツーエンド暗号化(サーバーにも中身が見えない)	End-to-end encryption (even the server can't see the content)
+中身をこのブラウザで暗号化してから送ります。サーバーの管理者にも読めません。AI・コメント・履歴など、サーバーが中身を読む機能は使えなくなります	Content is encrypted in this browser before it is sent. Server admins can't read it. Features that need the server to read content (AI, comments, history…) are unavailable
+このボードの中身は、このブラウザで暗号化してからサーバーに送っています。サーバーの管理者にも読めません。鍵はリンクの # 以降と、開いた端末にだけあります。	This board's content is encrypted in this browser before it reaches the server. Server admins can't read it. The key lives only after the # in the link and on devices that opened it.
+鍵の指紋	Key fingerprint
+鍵の指紋:	Key fingerprint:
+一緒に使う人の画面と同じ表示なら、同じ鍵です。	If it matches what your collaborators see, you share the same key.
+鍵付きリンク	Link with key
+鍵だけではボードは開けません(招待か共有リンクの権限も必要です)。鍵をなくすと、誰も中身を読めなくなります。	The key alone can't open the board (an invitation or share-link permission is also needed). If the key is lost, nobody can read the content.
+鍵を作り直す	Rotate key
+メンバーを外したときや、鍵付きリンクが広まりすぎたときに。今の内容を新しい鍵で暗号化し直し、古い鍵では以後の内容を読めなくなります。ほかの人には新しい鍵付きリンクを渡し直してください。	Use this after removing a member or if the link spread too far. The current content is re-encrypted with a new key and the old key can no longer read anything after this. Send the new link to your collaborators.
+この種類のボードで使えない機能	Unavailable on this kind of board
+AI・コメント・バージョン履歴・Web 公開・動画メモ・課題カードは、サーバーが中身を読む必要があるため使えません。ボードのタイトルとカーソルの位置は暗号化されません。	AI, comments, version history, web publishing, video memos and issue cards need the server to read content, so they're unavailable. The board title and cursor positions are not encrypted.
+このボードを通報する	Report this board
+理由	Reason
+くわしく(任意)	Details (optional)
+何が問題か	What's wrong
+ボードの文字を添えて、管理者が内容を確かめられるようにする(添えなければ、暗号化されたボードの中身は管理者にも見えません)	Attach the board's text so admins can check it (otherwise admins can't see the encrypted content)
+通報する	Report
+違法な内容	Illegal content
+情報の持ち出し・漏えい	Data exfiltration or leak
+嫌がらせ・差別	Harassment or discrimination
+スパム・詐欺	Spam or fraud
+その他	Other
+鍵を作り直しています…	Rotating the key…
+鍵を作り直しました。上の新しい鍵付きリンクを、一緒に使う人に渡し直してください。	Key rotated. Send the new link above to your collaborators.
+通報しました。管理者が確認します。通報したことは、ほかの参加者には知らされません。	Report sent. An admin will review it. Other participants are not notified.
+このボードを開く	Open this board
+鍵付きリンク、または鍵	Link with key, or the key
+https://…#k=… または 43 文字の鍵	https://…#k=… or the 43-character key
+このボードの中身は暗号化されていて、サーバーの管理者にも読めません。開くには、共有された鍵付きリンク(# 以降に鍵が入っています)が必要です。	This board is encrypted and even server admins can't read it. To open it you need the shared link with the key (the key is after the #).
+手元の鍵ではこのボードを開けません。鍵が作り直されたか、別のボードの鍵かもしれません。	The key on this device can't open this board. It may have been rotated, or it belongs to another board.
+オーナーがこのボードの鍵を作り直しました。新しい鍵付きリンクをオーナーから受け取ってください。	The owner rotated this board's key. Ask the owner for the new link with the key.
+(共有した人の画面の表示と同じなら、正しい鍵です)	(If it matches what the sharer sees, it's the right key)
+鍵が違います。このボードの鍵付きリンクか確かめてください。	Wrong key. Make sure it's the link for this board.
+鍵の形式が違います。リンクをそのまま貼り付けてください。	The key format is wrong. Paste the whole link.
+このボードは利用停止されています	This board has been suspended
+通報を受けて、管理者がこのボードを開けないようにしました。心当たりがない場合は、サーバーやチームの管理者に問い合わせてください。	An admin blocked this board after a report. If you think this is a mistake, contact your server or team admin.
+暗号化ボードは Web に公開できません(公開ページはサーバーが中身を描くため)。	Encrypted boards can't be published to the web (the public page is rendered by the server).
+🔒 暗号化ボードです。上のリンクの # 以降に復号の鍵が入っています(サーバーには送られません)。招待したメンバーにも、このリンクか鍵のパネルの鍵付きリンクを渡してください。メンバーを外したら、鍵のパネルから鍵を作り直してください。	🔒 Encrypted board. The decryption key is after the # in the link above (it is never sent to the server). Give invited members this link or the link from the key panel. After removing a member, rotate the key from the key panel.
+通報	Reports
+全体の通報	All reports
+未対応	Open
+対応済み	Resolved
+問題なし	No issue
+利用停止にする	Suspend
+利用停止を解除	Lift suspension
+利用停止中	Suspended
+対応済みにする	Mark resolved
+添えられたボードの文字	Attached board text
+暗号化ボードで、文字は添えられていません(サーバーでは中身を確かめられません)。	Encrypted board with no text attached (the server can't check the content).
+通報はありません。	No reports.
+共有リンクから開いた人	Someone who opened the share link
+エンドツーエンド暗号化ボード(サーバー全体):	End-to-end encrypted boards (whole server):
+有効	On
+無効	Off
+オフにする	Turn off
+オンにする	Turn on
+暗号化ボードの中身はサーバーでは読めません。通報した人が添えた文字だけが確認の手がかりです。利用停止にすると、そのボードは誰も開けなくなり、つないでいる人も切断されます(内容は消えません)。	The server can't read encrypted boards. Text attached by the reporter is the only evidence. Suspending blocks everyone from the board and disconnects current users (content is kept).
+🔒 暗号化ボード	🔒 Encrypted boards
+許可(メンバーがこのチームで作れます。中身は管理者にも見えません)	Allowed (members can create them in this team; admins can't see the content)
+許可していません	Not allowed
+許可する	Allow
+禁止する	Disallow
+🔒 このチームでは暗号化ボードを作れます。	🔒 This team can create encrypted boards.
+暗号化ボード作成	Encrypted board created
+暗号化ボードに参加	Joined encrypted board
+暗号化ボードの鍵の作り直し	Encrypted board key rotated
+ボードの通報	Board reported
+ボードの利用停止	Board suspended
+ボードの利用停止を解除	Board suspension lifted
+通報への対応	Report handled
+サーバーの設定変更	Server settings changed

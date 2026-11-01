@@ -336,7 +336,7 @@ mod tests {
         let alice = user(&store, "alice");
         let bob = user(&store, "bob");
         let carol = user(&store, "carol");
-        let meta = boards::create(&store, "alice", "企画", None).unwrap();
+        let meta = boards::create(&store, "alice", "企画", None, None).unwrap();
         let id = meta.id.clone();
         // bob はメンバー、carol は開けない。
         let mut m = boards::get(&store, &id).unwrap().unwrap();

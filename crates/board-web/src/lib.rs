@@ -8,6 +8,8 @@ mod app;
 #[cfg(target_arch = "wasm32")]
 mod developer;
 #[cfg(target_arch = "wasm32")]
+mod e2e;
+#[cfg(target_arch = "wasm32")]
 mod home;
 
 #[cfg(target_arch = "wasm32")]
