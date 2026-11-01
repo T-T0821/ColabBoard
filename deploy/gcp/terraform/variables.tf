@@ -87,6 +87,23 @@ variable "secret_env_names" {
   }
 }
 
+variable "allowed_source_ranges" {
+  description = "グラボード(https)に入れるアクセス元の CIDR。既定は制限なし。例: [\"203.0.113.0/24\", \"198.51.100.10/32\"]"
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+
+  validation {
+    condition     = length(var.allowed_source_ranges) > 0 && alltrue([for r in var.allowed_source_ranges : can(cidrhost(r, 0)) && !strcontains(r, ":")])
+    error_message = "allowed_source_ranges は 1 つ以上の IPv4 の CIDR(例: 203.0.113.10/32)にしてください。"
+  }
+}
+
+variable "allow_uptime_check_ips" {
+  description = "allowed_source_ranges で制限するとき、外形監視(Uptime check)の送信元 IP も通す"
+  type        = bool
+  default     = true
+}
+
 variable "ssh_source_ranges" {
   description = "SSH(22 番)を許す送信元。既定は IAP 経由だけ(gcloud compute ssh --tunnel-through-iap)"
   type        = list(string)

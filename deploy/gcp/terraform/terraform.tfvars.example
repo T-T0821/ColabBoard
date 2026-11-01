@@ -10,6 +10,9 @@ project_id = "my-gcp-project"
 # zone         = "asia-northeast1-b"
 # machine_type = "e2-medium"
 
+# アクセス元を絞るとき(既定は制限なし)。社内の固定 IP や VPN の出口などを CIDR で並べる。
+# allowed_source_ranges = ["203.0.113.0/24", "198.51.100.10/32"]
+
 # サーバーの環境変数(docs/self-hosting.md の一覧)。COOKIE_SECURE / TRUST_PROXY / PUBLIC_URL は自動で入る。
 env = {
   RUST_LOG         = "info"

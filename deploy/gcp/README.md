@@ -22,7 +22,7 @@ Cloud Monitoring の外形監視(/healthz)と、任意でメール通知
 | Compute Engine VM 1 台(既定 `e2-medium`、COS) | グラボードと Caddy の 2 コンテナを systemd で動かす。OS は自動更新 |
 | 永続ディスク(既定 20 GB `pd-balanced`) | `boards.redb` と Caddy の証明書。VM を作り直しても残る(`prevent_destroy`) |
 | スナップショットのスケジュール | 毎日 03:00 JST、既定 14 日保存 |
-| 固定の外部 IP・VPC・ファイアウォール | 80 / 443 だけ公開。SSH は IAP 経由だけ。8080 番は外に開けない |
+| 固定の外部 IP・VPC・ファイアウォール | 80 / 443 だけ公開(443 はアクセス元の IP で絞れる)。SSH は IAP 経由だけ。8080 番は外に開けない |
 | Artifact Registry | イメージの置き場(古いものは自動で掃除) |
 | Cloud Build 用のサービスアカウントとソース置き場 | `deploy.sh build` がイメージを作る |
 | Secret Manager | API キーなどの入れ物。値は Terraform の外で入れる(状態ファイルに残さない) |
@@ -163,6 +163,23 @@ deploy/gcp/deploy.sh reboot
 ファイル単位で取り出したいときは、VM に入って `/mnt/disks/data/graboard/boards.redb` をコピーします
 (`sudo systemctl stop graboard` してからコピーし、`start` で戻す)。
 
+### アクセス元の IP を制限する
+
+社内やVPN からだけ使わせたいときは、`terraform.tfvars` に許可する CIDR を並べて `terraform apply` します(VM の再起動は要りません)。
+
+```hcl
+allowed_source_ranges = ["203.0.113.0/24", "198.51.100.10/32"]
+```
+
+- 制限は VPC ファイアウォールでかけるので、ほかの IP からは https(443 番)に接続すらできません。WebSocket も同じです
+- **80 番は制限しても全体に開いたまま** です。Let's Encrypt が証明書の発行・更新のためにどこからでも 80 番に来るからです。
+  80 番では https への転送と証明書のチャレンジにしか応えないので、ボードの中身には届きません
+- 外形監視が落ちないよう、Google の Uptime check の送信元 IP も自動で許可します(`allow_uptime_check_ips = false` で止める)
+- 制限を外すときは `allowed_source_ranges` の行を消して `terraform apply` します(既定は `["0.0.0.0/0"]` で制限なし)
+- 自分の今の IP は `curl -4 https://ifconfig.me` などで調べられます。IPv6 だけの回線からは入れません(VM は IPv4 だけ)
+
+アプリの中でもっと細かく絞る(ログインできる人を決める)なら、`ANONYMOUS_BOARDS=0` や `MAX_USERS`、SSO の `OIDC_ALLOWED_DOMAINS` と組み合わせてください。
+
 ### 状態ファイルの置き場所
 
 既定では `terraform.tfstate` が手元に作られます。複数人や CI で扱うなら GCS に置いてください。
@@ -194,6 +211,7 @@ gcloud storage buckets update gs://my-gcp-project-tfstate --versioning
 | --- | --- | --- |
 | `project_id` | (必須) | GCP プロジェクト ID |
 | `region` / `zone` | `asia-northeast1` / `asia-northeast1-b` | 置く場所 |
+| `allowed_source_ranges` | `["0.0.0.0/0"]` | https に入れるアクセス元の CIDR(既定は制限なし) |
 | `domain` | `""` | 公開するドメイン。空なら `<IP>.sslip.io` |
 | `acme_email` | `""` | Let's Encrypt の通知先 |
 | `machine_type` | `e2-medium` | VM の大きさ |
@@ -211,5 +229,6 @@ gcloud storage buckets update gs://my-gcp-project-tfstate --versioning
 - **https で開けない**: `deploy.sh logs` で Caddy のログを見る。独自ドメインなら A レコードが `ip_address` を向いているか、80 番に届くか
   (Let's Encrypt の HTTP-01 チャレンジに使う)を確かめる
 - **502 になる**: グラボードがまだ起動していない。初回は `deploy.sh build` が終わるまでイメージがない
+- **IP を制限したら入れない**: 今の IP が `allowed_source_ranges` に入っているか(`curl -4 https://ifconfig.me`)。モバイル回線や自宅の IP は変わることがある
 - **AI 機能が使えない**: `deploy.sh logs` に `secret ANTHROPIC_API_KEY: loaded` が出ているか。値を入れたあとは `deploy.sh restart`
 - **Cloud Build が権限エラーになる**: `terraform apply` を最後まで通したか。組織のポリシーで外部 IP やサービスアカウントの作成が禁止されていないか
