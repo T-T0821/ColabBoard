@@ -50,6 +50,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         )
         .route("/boards/{id}/slack/test", post(slack::send_test))
         .route(
+            "/boards/{id}/meeting-link",
+            get(crate::meeting_link::get_meeting).put(crate::meeting_link::set_meeting),
+        )
+        .route(
             "/boards/{id}/comments",
             get(list_comments).post(post_comment),
         )
@@ -465,6 +469,7 @@ async fn delete_board(
     meta.link = None;
     meta.embed = None;
     meta.slack = None;
+    meta.meeting_link = None;
     if let Some(team) = meta.team.take() {
         boards::detach(state.store(), &team, &id)?;
     }

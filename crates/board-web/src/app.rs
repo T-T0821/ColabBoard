@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
-use board_core::protocol::{Message, Presence, TOPIC_COMMENTS, TOPIC_VERSIONS};
+use board_core::protocol::{Message, Presence, TOPIC_COMMENTS, TOPIC_MEETING_LINK, TOPIC_VERSIONS};
 use board_core::{
     Board, Camera, Editor, Element as BoardElement, ElementId, Modifiers, Navigator, Tool, Vec2,
 };
@@ -29,6 +29,7 @@ mod imports;
 mod ink_ui;
 mod issues;
 mod media;
+mod meeting_link_ui;
 mod meeting_ui;
 mod mindmap_ui;
 mod offline;
@@ -739,6 +740,9 @@ impl App {
                 NetEvent::Message(Message::Reaction(r)) => self.on_reaction(r),
                 NetEvent::Message(Message::Refresh(TOPIC_COMMENTS)) => self.fetch_comments(),
                 NetEvent::Message(Message::Refresh(TOPIC_VERSIONS)) => self.versions_changed(),
+                NetEvent::Message(Message::Refresh(TOPIC_MEETING_LINK)) => {
+                    meeting_link_ui::reload()
+                }
                 NetEvent::Message(Message::Refresh(_)) => {}
                 // 通話のメッセージは voice が先に受け取っている。
                 NetEvent::Message(Message::Voice(_) | Message::Signal(_)) => {}
@@ -1797,6 +1801,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     plugins_ui::install(app, doc)?;
     call_ui::install(app, doc)?;
     meeting_ui::install(app, doc)?;
+    meeting_link_ui::install(app, doc)?;
     video_memo::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
