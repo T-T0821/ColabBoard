@@ -1988,3 +1988,24 @@ body[data-role="commenter"] .mind-panel { display: none !important; }
   .home-card .board-row button.star { opacity: 1; }
   .home-card form.label-editor { margin-left: 0; flex-basis: 100%; }
 }
+
+/* ---- 直接接続(P2P) ---- */
+#p2p-toggle[data-live="true"] { color: var(--accent, var(--success-text)); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, var(--success)) 40%, transparent); }
+#hud-net[data-status="direct"]::before { background: var(--accent, #4f6bed); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #4f6bed) 20%, transparent); }
+.p2p-panel { width: min(360px, calc(100vw - 24px)); }
+.p2p-panel h3 { margin: 4px 0 2px; font-size: 13px; }
+.p2p-panel .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.p2p-panel .grow { flex: 1; min-width: 0; }
+.p2p-step { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px solid var(--line, rgba(127,127,127,0.2)); }
+.p2p-code { width: 100%; box-sizing: border-box; font: 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; resize: vertical; }
+.p2p-qr { align-self: center; background: #fff; padding: 6px; border-radius: 8px; line-height: 0; }
+.p2p-qr svg { width: 200px; height: 200px; }
+.p2p-status { font-size: 13px; }
+.p2p-status[data-kind="error"] { color: var(--danger); }
+.p2p-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.p2p-link[data-state="Closed"] { opacity: 0.6; }
+.p2p-report { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.p2p-report select { margin-left: 6px; }
+.home-card form.inline .check { flex: 1; flex-direction: row; font-size: 13px; color: var(--text, inherit); }
+.home-card form.inline .check input[type="checkbox"] { flex: none; width: 16px; height: 16px; }
+.team-panel p.small { margin: -4px 0 0; }

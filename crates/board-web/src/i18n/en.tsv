@@ -984,3 +984,71 @@ SSO 自動参加	SSO auto-join
 一致するボードはありません	No matching boards
 お気に入りはまだありません。ボードの ☆ を押すとここに集まります。	No favorites yet. Press ☆ on a board to collect it here.
 フォルダの名前を入れてください	Enter a folder name
+# 直接接続(P2P)
+直接つなぐ	Connect directly
+直接つなぐ(P2P)	Connect directly (P2P)
+直接つなぐ · {n}台	Direct · {n}
+サーバーを通さず、同じネットワークの端末と直接つないで編集する	Edit together by connecting straight to devices on the same network, without the server
+サーバーを通さず、同じ Wi-Fi・LAN の端末や同じパソコンのタブと直接つないで一緒に編集します。サーバーが止まっていても使えます。ボードの中身はサーバーに送りません(使った記録だけが操作ログに残ります)。	Edit together by connecting directly to devices on the same Wi-Fi or LAN, or other tabs on this computer, without going through the server. Works even when the server is down. Board content is never sent to the server (only a usage record is kept in the audit log).
+招待する	Invite
+招待された	Got an invite
+招待コードを作る	Create invite code
+招待コードを作っています…	Creating invite code…
+1. このリンクを相手に渡します(相手のスマホのカメラで QR コードを読んでも開けます)。	1. Give this link to the other person (they can also open it by scanning the QR code with their phone camera).
+2. 相手の画面に出た応答コードを貼って、つなぎます。	2. Paste the reply code shown on their screen to connect.
+リンクをコピー	Copy link
+招待をやめる	Cancel invite
+応答コード(GB1. で始まる文字)	Reply code (starts with GB1.)
+応答コード	Reply code
+招待リンク	Invite link
+つなぐ	Connect
+受け取った招待リンクかコードを貼る	Paste the invite link or code you received
+招待リンクかコード	Invite link or code
+参加する	Join
+応答コードを作っています…	Creating reply code…
+この応答コードを、招待した人に渡してください(チャットで送るか、相手の画面の欄に貼ってもらいます)。	Give this reply code to the person who invited you (send it in chat, or have them paste it into their screen).
+応答コードをコピー	Copy reply code
+やめる	Cancel
+直接つないだ端末	Connected devices
+名前のない端末	Unnamed device
+切断	Disconnect
+通報	Report
+理由	Reason
+補足(任意)。ボードの中身は送られません	Details (optional). Board content is not sent
+補足	Details
+通報して切断	Report and disconnect
+通報は管理者の操作ログに残ります。	Reports are kept in the admin's audit log.
+招待した相手は、このボードをあなたと同じように見て編集できます。知らない人にはリンクやコードを渡さないでください。つながるのは同じネットワークの端末どうしです。	Anyone you invite can view and edit this board just like you. Don't give the link or code to people you don't know. Only devices on the same network can connect.
+応答コードを待っています	Waiting for reply code
+つないでいます…	Connecting…
+つながっています	Connected
+つながっています(相手はサーバーにも接続中)	Connected (they're also on the server)
+切れました	Disconnected
+相手とつながりました	Connected
+コピーしました	Copied
+招待を受け取りました	Invite received
+通報して切断しました。管理者が操作ログで確認します	Reported and disconnected. An admin will review it in the audit log
+切断しました。通報はサーバーにつながったときに送ります	Disconnected. The report will be sent when you're back online
+このボードでは直接接続を使えません	Direct connection isn't available for this board
+このサーバーでは直接接続(P2P)が止められています	Direct connection (P2P) is turned off on this server
+嫌がらせ・迷惑な行為	Harassment or abuse
+違法・有害な内容	Illegal or harmful content
+情報の持ち出し・なりすまし	Data leak or impersonation
+宣伝・スパム	Advertising or spam
+その他	Other
+グラボードの接続コードではありません	This isn't a Graboard connection code
+コードが途中で切れているか、壊れています	The code is cut off or damaged
+これは応答コードです。「招待する」の欄に貼ってください	This is a reply code. Paste it under "Invite"
+これは招待コードです。応答コードを貼ってください	This is an invite code. Paste the reply code instead
+この応答コードに合う招待が見つかりません(使い済みか、別の招待への応答です)	No invite matches this reply code (it was already used or is for another invite)
+この端末のネットワークが見つかりません(Wi-Fi か LAN につないでください)	No network found on this device (connect to Wi-Fi or a LAN)
+直接つなげるのは {n} 台までです	You can connect directly to up to {n} devices
+チームのボードで直接接続(P2P)を許可	Allow direct connection (P2P) on team boards
+直接接続ではボードの中身がサーバーを通りません。使った記録(誰がいつ)と通報は操作ログに残ります。	With direct connection, board content doesn't pass through the server. Usage records (who and when) and reports are kept in the audit log.
+このチームでは直接接続(P2P)が止められています	Direct connection (P2P) is turned off for this team
+直接接続(P2P)の設定変更	Direct connection (P2P) setting changed
+直接接続の招待	Direct connection invite
+直接接続で参加	Joined via direct connection
+直接接続でつながった	Connected directly
+直接接続の切断	Direct connection ended
+直接接続の相手を通報	Direct connection peer reported

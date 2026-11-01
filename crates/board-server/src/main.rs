@@ -162,6 +162,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }),
         password_login: flag("PASSWORD_LOGIN", true),
         limits: board_server::guard::Limits::from_env(flag("COOKIE_SECURE", false)),
+        p2p: flag("P2P_ENABLED", true),
     };
     if !config.password_login && config.oidc.is_none() {
         tracing::warn!(

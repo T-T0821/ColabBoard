@@ -206,6 +206,7 @@ volumes:
 
 - [ ] HTTPS のリバースプロキシを置き、`COOKIE_SECURE=1` と `TRUST_PROXY=1` を設定した
 - [ ] サーバーの 8080 番は外から直接つながらない
+- [ ] 直接接続(P2P)を使わせないなら `P2P_ENABLED=0`(チームごとならチームの設定で止める)
 - [ ] 知らない人に使わせないなら `ANONYMOUS_BOARDS=0`(URL を知っていれば誰でも編集できるボードを作らせない)と `MAX_USERS` を設定した
 - [ ] `DATA_DIR` を定期的にバックアップしている(下の「バックアップと更新」)
 - [ ] AI 機能を使うなら、`ANTHROPIC_API_KEY` をサーバーの環境変数だけに置いた(ブラウザには渡らない)
@@ -224,6 +225,7 @@ volumes:
 | `CSP` / `HSTS` | `1` / `COOKIE_SECURE` と同じ | `0` でそのヘッダーを付けない |
 | 回数制限・上限 | [公開前の守り](#公開前の守り) | `LOGIN_FAILURES_PER_ACCOUNT` `MAX_USERS` `MAX_BOARDS_PER_USER` など |
 | `ANONYMOUS_BOARDS` | `1` | `0` でログインなしのボード(URL を知っていれば誰でも編集できるもの)を禁止 |
+| `P2P_ENABLED` | `1` | `0` でサーバーを通さない直接接続(P2P)を止める。直接接続では中身がサーバーを通らないので、操作ログに残るのは使った記録と通報だけ |
 | `MAX_MESSAGE_MB` | `128` | WebSocket で受け取る 1 通の上限。初回同期でボード全体を送るので、数十万要素のボードを使うなら増やす(10 万要素で約 28 MB) |
 | `ANTHROPIC_API_KEY` | なし | 設定すると AI 機能が使える |
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | AI 機能で使うモデル |

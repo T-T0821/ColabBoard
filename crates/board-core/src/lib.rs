@@ -27,6 +27,7 @@ pub mod mindmap;
 pub mod miro;
 pub mod navigation;
 pub mod ops;
+pub mod p2p;
 pub mod plugin;
 pub mod privacy;
 pub mod protocol;
