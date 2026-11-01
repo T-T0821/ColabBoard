@@ -34,8 +34,10 @@ fn read_wav(bytes: &[u8]) -> Result<(Vec<f32>, u32), String> {
                 .chunks_exact(2 * channels as usize)
                 .map(|frame| {
                     frame
-                        .chunks_exact(2)
-                        .map(|s| i16::from_le_bytes([s[0], s[1]]) as f32 / 32768.0)
+                        .as_chunks::<2>()
+                        .0
+                        .iter()
+                        .map(|s| i16::from_le_bytes(*s) as f32 / 32768.0)
                         .sum::<f32>()
                         / channels as f32
                 })

@@ -205,7 +205,7 @@ fn hershey(jhf: &str) -> BTreeMap<char, Glyph> {
         let cx = (left + right) / 2.0;
         let mut strokes: Glyph = Vec::new();
         let mut cur: Vec<Pt> = Vec::new();
-        for pair in body[2..].chunks_exact(2) {
+        for pair in body[2..].as_chunks::<2>().0 {
             if pair == b" R" {
                 if cur.len() > 1 {
                     strokes.push(std::mem::take(&mut cur));
