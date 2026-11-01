@@ -4,6 +4,7 @@
 //! - `GET /p/{board}/{slug}`: Web に公開したボードのページと OGP 画像([`public`])。
 //! - `/api/boards/{id}/media`: 動画メモの保存と配信([`media`])。
 //! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
+//! - `/api/billing/...`: 料金プランと Stripe での支払い([`billing`])。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
 //! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
@@ -19,6 +20,7 @@ pub mod ai_ink;
 pub mod api;
 pub mod audit;
 pub mod auth;
+pub mod billing;
 pub mod boards;
 pub mod comments;
 #[cfg(feature = "embed")]
@@ -96,6 +98,8 @@ pub struct Config {
     pub password_login: bool,
     /// 回数制限・利用上限・セキュリティヘッダー。
     pub limits: guard::Limits,
+    /// 料金プランと支払い(Stripe)。既定は使わない。
+    pub billing: billing::BillingConfig,
 }
 
 impl Config {
@@ -142,6 +146,7 @@ impl Default for Config {
             oidc: None,
             password_login: true,
             limits: guard::Limits::default(),
+            billing: billing::BillingConfig::default(),
         }
     }
 }
@@ -155,6 +160,8 @@ pub struct AppState {
     /// OGP 画像の文字に使うフォント(Web クライアントと同じもの)。
     pub font: Option<ab_glyph::FontArc>,
     pub guard: Arc<guard::Guard>,
+    /// テスト決済の申し込み(`BILLING=mock` のとき)。
+    pub billing_mock: billing::MockSessions,
 }
 
 impl AppState {
@@ -173,6 +180,7 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         og: public::OgCache::default(),
         font,
         guard,
+        billing_mock: billing::MockSessions::default(),
     });
     let app = Router::new()
         .route("/ws/{room}", get(ws_handler))
@@ -201,7 +209,8 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
                 .merge(rest::token_routes())
                 .merge(teams::routes())
                 .merge(audit::routes())
-                .merge(oidc::routes()),
+                .merge(oidc::routes())
+                .merge(billing::routes()),
         )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),
