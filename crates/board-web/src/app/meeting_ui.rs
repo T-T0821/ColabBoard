@@ -267,7 +267,7 @@ impl Ui {
 </section>
 <section>
   <strong>会議の参加者に知らせる</strong>
-  <textarea class="embed-code" readonly rows="4">{invite}</textarea>
+  <textarea class="embed-code" readonly rows="5">{invite}</textarea>
   <div class="row"><button type="button" data-action="meeting-copy">招待文をコピー</button></div>
   <p class="muted small">Zoom・Meet・Teams の会議のチャットに貼ると、参加者がそこからボードを開けます。Teams ではチャネルやチャットの「+」から「Web サイト」タブにボードの URL を追加できます。参加者がボードを開けるよう、共有の設定も確かめてください。</p>
 </section>
@@ -392,24 +392,37 @@ fn download_ics() -> Result<(), String> {
         let room = c.room.clone();
         drop(c);
         let host = web_sys::window()
-            .and_then(|w| w.location().host().ok())
+            .and_then(|w| w.location().hostname().ok())
             .unwrap_or_else(|| "colabboard".into());
         let title = u.board_title();
         (
             meeting::ics(&u.meeting, &room, &title, &u.board_link(), &host, now_ms()),
-            format!(
-                "{}.ics",
-                if title.is_empty() {
-                    "meeting".into()
-                } else {
-                    title
-                }
-            ),
+            format!("{}.ics", file_stem(&title)),
         )
     })
     .ok_or("会議の情報がありません")?;
     let text = text.ok_or("開始の時刻を入れると保存できます")?;
     super::export::download(&name, "text/calendar;charset=utf-8", text.as_bytes())
+}
+
+/// ファイル名に使えない文字を除いた名前。
+fn file_stem(title: &str) -> String {
+    let s: String = title
+        .chars()
+        .map(|c| {
+            if r#"/\:*?"<>|"#.contains(c) || c.is_control() {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    let s = s.trim();
+    if s.is_empty() {
+        "meeting".into()
+    } else {
+        s.to_string()
+    }
 }
 
 /// パネルを開く・閉じる。
