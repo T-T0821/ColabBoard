@@ -208,6 +208,7 @@ iOS Safari・Android Chrome で動く(WebGPU がなければ WebGL2 で描く)�
 ## セルフホスト
 
 詳しい手順(Docker / systemd / リバースプロキシ / バックアップ)は [docs/self-hosting.md](docs/self-hosting.md)。
+Google Cloud に置くなら、Terraform 一式が [deploy/gcp](deploy/gcp/README.md) にある(HTTPS・バックアップ・死活監視込み)。
 
 ```sh
 docker compose up -d          # → http://localhost:8080(データは colabboard-data ボリューム)

@@ -1,0 +1,25 @@
+# cp terraform.tfvars.example terraform.tfvars して書き換える。
+
+project_id = "my-gcp-project"
+
+# 独自ドメインを使うとき(A レコードを出力の ip_address に向ける)。空なら <ip>.sslip.io。
+# domain     = "board.example.com"
+# acme_email = "admin@example.com"
+
+# region       = "asia-northeast1"
+# zone         = "asia-northeast1-b"
+# machine_type = "e2-medium"
+
+# サーバーの環境変数(docs/self-hosting.md の一覧)。COOKIE_SECURE / TRUST_PROXY / PUBLIC_URL は自動で入る。
+env = {
+  RUST_LOG         = "info"
+  ANONYMOUS_BOARDS = "0" # 知らない人に使わせないなら
+  # MAX_USERS      = "50"
+  # ADMIN_LOGINS   = "alice"
+}
+
+# 秘密の値は Secret Manager に(値は gcloud secrets versions add で入れる)。
+secret_env_names = ["ANTHROPIC_API_KEY"]
+# secret_env_names = ["ANTHROPIC_API_KEY", "OIDC_CLIENT_SECRET"]
+
+# alert_email = "admin@example.com"
