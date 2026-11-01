@@ -7,6 +7,8 @@
   <link data-trunk rel="rust" data-wasm-opt="s" />
   <!-- PDF の取り込み(hayro)は別の wasm。PDF が貼られたときに Web Worker で初めて読み込む -->
   <link data-trunk rel="rust" href="../board-pdf/Cargo.toml" data-type="worker" data-loader-shim data-wasm-opt="s" />
+  <!-- ブラウザ内 AI(Whisper、candle)も別の wasm。音声認識を使い始めたときに Web Worker で読み込む -->
+  <link data-trunk rel="rust" href="../board-ai/Cargo.toml" data-type="worker" data-loader-shim data-wasm-opt="3" />
   <link data-trunk rel="css" href="style.css" />
   <link data-trunk rel="copy-dir" href="assets/fonts" />
   <link data-trunk rel="copy-dir" href="assets/cloud-icons" />
@@ -49,6 +51,7 @@
     <button id="comments-toggle" title="コメント" aria-pressed="false">コメント</button>
     <button id="history-toggle" title="バージョン履歴" aria-pressed="false" hidden>履歴</button>
     <button id="plugins-toggle" title="プラグイン(選択中の要素に実行)" aria-pressed="false" hidden>プラグイン</button>
+    <button id="local-ai-toggle" title="音声や手書きを、この端末の中だけで文字にする(サーバーに送らない)" aria-pressed="false" aria-controls="local-ai-panel">ブラウザ内 AI</button>
     <button id="notif-button" class="icon" title="通知" aria-label="通知"></button>
     <button id="theme-toggle" class="icon" title="ダークモードにする" aria-label="ダークモード" aria-pressed="false">
       <svg class="moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 019.5 4a8 8 0 1010.5 10.5z"/></svg>
@@ -63,6 +66,7 @@
   <section id="notif-menu" class="panel notif-menu" aria-label="通知" hidden></section>
   <section id="history-panel" class="panel history-panel" aria-label="バージョン履歴" hidden></section>
   <section id="plugins-panel" class="panel history-panel plugins-panel" aria-label="プラグイン" hidden></section>
+  <section id="local-ai-panel" class="panel history-panel local-ai-panel" aria-label="ブラウザ内 AI" hidden></section>
   <div id="preview-banner" class="panel preview-banner" role="status" hidden></div>
 
   <a id="embed-open" class="panel embed-open" target="_blank" rel="noopener" hidden>グラボードで開く ↗</a>

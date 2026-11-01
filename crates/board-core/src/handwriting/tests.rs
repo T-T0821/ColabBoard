@@ -88,7 +88,9 @@ fn accuracy(expected: &str, got: &str) -> f32 {
         d[0] = i;
         for j in 1..=b.len() {
             let tmp = d[j];
-            d[j] = (d[j] + 1).min(d[j - 1] + 1).min(prev + usize::from(a[i - 1] != b[j - 1]));
+            d[j] = (d[j] + 1)
+                .min(d[j - 1] + 1)
+                .min(prev + usize::from(a[i - 1] != b[j - 1]));
             prev = tmp;
         }
     }
@@ -168,7 +170,10 @@ fn scribble_is_rejected() {
     let pts: Vec<Vec2> = (0..200)
         .map(|i| {
             let t = i as f32 * 0.37;
-            Vec2::new(100.0 + t * 3.0 + 30.0 * t.sin(), 200.0 + 30.0 * (t * 1.7).cos() + rng.range(4.0))
+            Vec2::new(
+                100.0 + t * 3.0 + 30.0 * t.sin(),
+                200.0 + 30.0 * (t * 1.7).cos() + rng.range(4.0),
+            )
         })
         .collect();
     let stroke = Stroke {
@@ -288,13 +293,12 @@ fn evaluate() {
     }
 }
 
-
 #[test]
 fn ink_reads_text_next_to_shapes() {
     // 大きな四角の横に「OK」と書く。四角は図形、「OK」は文字になる(「O」を丸にしない)。
     let mut rng = Rng(21);
     let mut strokes: Vec<Stroke> = Vec::new();
-    let mut push = |points: Vec<Vec2>, strokes: &mut Vec<Stroke>| {
+    let push = |points: Vec<Vec2>, strokes: &mut Vec<Stroke>| {
         let id = ElementId(500 + strokes.len() as u64);
         strokes.push(Stroke {
             id,
@@ -305,22 +309,69 @@ fn ink_reads_text_next_to_shapes() {
             meta: Default::default(),
         });
     };
-    let rect: Vec<Vec2> = [(0.0, 0.0), (300.0, 0.0), (300.0, 200.0), (0.0, 200.0), (0.0, 0.0)]
-        .windows(2)
-        .flat_map(|w| {
-            (0..20).map(move |k| {
-                let t = k as f32 / 20.0;
-                Vec2::new(w[0].0 + (w[1].0 - w[0].0) * t, 400.0 + w[0].1 + (w[1].1 - w[0].1) * t)
-            })
+    let rect: Vec<Vec2> = [
+        (0.0, 0.0),
+        (300.0, 0.0),
+        (300.0, 200.0),
+        (0.0, 200.0),
+        (0.0, 0.0),
+    ]
+    .windows(2)
+    .flat_map(|w| {
+        (0..20).map(move |k| {
+            let t = k as f32 / 20.0;
+            Vec2::new(
+                w[0].0 + (w[1].0 - w[0].0) * t,
+                400.0 + w[0].1 + (w[1].1 - w[0].1) * t,
+            )
         })
-        .collect();
+    })
+    .collect();
     push(rect, &mut strokes);
     for s in handwrite("OK", &mut rng, 0.5) {
         push(s, &mut strokes);
     }
     let refs: Vec<&Stroke> = strokes.iter().collect();
     let items = recognize_ink(&refs, Recognizer::builtin());
-    let texts: Vec<&InkKind> = items.iter().map(|i| &i.kind).filter(|k| matches!(k, InkKind::Text(_))).collect();
+    let texts: Vec<&InkKind> = items
+        .iter()
+        .map(|i| &i.kind)
+        .filter(|k| matches!(k, InkKind::Text(_)))
+        .collect();
     assert_eq!(texts, [&InkKind::Text("OK".into())], "{items:?}");
-    assert!(items.iter().any(|i| matches!(i.kind, InkKind::Shape(_)) && i.strokes == [ElementId(500)]));
+    assert!(
+        items
+            .iter()
+            .any(|i| matches!(i.kind, InkKind::Shape(_)) && i.strokes == [ElementId(500)])
+    );
+}
+
+#[test]
+fn far_apart_words_are_separate_items() {
+    let mut rng = Rng(8);
+    let mut strokes = handwrite("会議", &mut rng, 0.4);
+    strokes.extend(
+        handwrite("OK", &mut rng, 0.4)
+            .into_iter()
+            .map(|s| s.into_iter().map(|p| p + Vec2::new(300.0, 0.0)).collect()),
+    );
+    let strokes: Vec<Stroke> = strokes
+        .into_iter()
+        .enumerate()
+        .map(|(i, points)| Stroke {
+            id: ElementId(i as u64 + 1),
+            points,
+            color: crate::color::Rgba8::hex(0),
+            width: 3.0,
+            highlighter: false,
+            meta: Default::default(),
+        })
+        .collect();
+    let refs: Vec<&Stroke> = strokes.iter().collect();
+    let mut texts: Vec<String> = recognize(&refs, Recognizer::builtin())
+        .into_iter()
+        .map(|t| t.text)
+        .collect();
+    texts.sort();
+    assert_eq!(texts, ["OK", "会議"]);
 }

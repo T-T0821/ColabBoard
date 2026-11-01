@@ -52,9 +52,14 @@ fn main() -> Result<(), String> {
     let [_, dir, wav, rest @ ..] = args.as_slice() else {
         return Err("使い方: transcribe <モデルのフォルダ> <音声.wav> [言語]".into());
     };
-    let read = |name: &str| std::fs::read(format!("{dir}/{name}")).map_err(|e| format!("{name}: {e}"));
+    let read =
+        |name: &str| std::fs::read(format!("{dir}/{name}")).map_err(|e| format!("{name}: {e}"));
     let t = Instant::now();
-    let mut model = Whisper::load(&read("config.json")?, &read("tokenizer.json")?, read("model.safetensors")?)?;
+    let mut model = Whisper::load(
+        &read("config.json")?,
+        &read("tokenizer.json")?,
+        read("model.safetensors")?,
+    )?;
     eprintln!("読み込み: {:?}", t.elapsed());
     let (pcm, rate) = read_wav(&std::fs::read(wav).map_err(|e| e.to_string())?)?;
     let pcm = mel::resample(&pcm, rate as f32);

@@ -34,10 +34,10 @@ fn parse_path(d: &str) -> Vec<Vec<Pt>> {
             if !cur.is_empty() {
                 tokens.push(std::mem::take(&mut cur));
             }
-        } else if c == '-' && !cur.is_empty() && !cur.ends_with('e') {
-            tokens.push(std::mem::take(&mut cur));
-            cur.push(c);
-        } else if c == '.' && cur.contains('.') {
+        } else if (c == '-' && !cur.is_empty() && !cur.ends_with('e'))
+            || (c == '.' && cur.contains('.'))
+        {
+            // 区切りが省かれた数("20-2.12"、"1.5.5")。
             tokens.push(std::mem::take(&mut cur));
             cur.push(c);
         } else {
@@ -144,7 +144,10 @@ fn parse_path(d: &str) -> Vec<Vec<Pt>> {
                 };
                 let p3 = (ox + num(&mut i), oy + num(&mut i));
                 let p1 = (x + 2.0 / 3.0 * (q.0 - x), y + 2.0 / 3.0 * (q.1 - y));
-                let p2 = (p3.0 + 2.0 / 3.0 * (q.0 - p3.0), p3.1 + 2.0 / 3.0 * (q.1 - p3.1));
+                let p2 = (
+                    p3.0 + 2.0 / 3.0 * (q.0 - p3.0),
+                    p3.1 + 2.0 / 3.0 * (q.1 - p3.1),
+                );
                 cubic(&mut path, (x, y), p1, p2, p3);
                 last_ctrl = Some(q);
                 (x, y) = p3;
@@ -315,7 +318,11 @@ fn main() -> Result<(), String> {
     let mut out_file = PathBuf::from("crates/board-core/src/handwriting/glyphs.bin");
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
-        let mut val = || args.next().map(PathBuf::from).ok_or(format!("{a} の値がありません"));
+        let mut val = || {
+            args.next()
+                .map(PathBuf::from)
+                .ok_or(format!("{a} の値がありません"))
+        };
         match a.as_str() {
             "--kanjivg" => kanjivg_dir = Some(val()?),
             "--hershey" => hershey_file = Some(val()?),

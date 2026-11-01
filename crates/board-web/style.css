@@ -1748,6 +1748,7 @@ body.embed-mode .comments-panel,
 body.embed-mode #comment-pins,
 body.embed-mode .notif-menu,
 body.embed-mode .history-panel { display: none !important; }
+body.embed-mode #local-ai-toggle { display: none !important; }
 /* ---- 言語の切り替え ---- */
 .lang-toggle { min-width: 32px; padding: 0 8px; font-size: 12px; font-weight: 600; }
 .lang-fab {
@@ -1803,6 +1804,26 @@ body.embed-mode .history-panel { display: none !important; }
 .plugin-commands { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .plugin-status { font-size: 13px; }
 .plugin-logs pre { margin: 4px 0 0; font-size: 11.5px; white-space: pre-wrap; max-height: 120px; overflow: auto; }
+
+/* ---- ブラウザ内 AI ---- */
+.local-ai-panel { width: min(360px, calc(100vw - 24px)); }
+.local-ai-panel > * { flex-shrink: 0; }
+.local-ai-panel h3 { margin: 6px 0 0; font-size: 13px; color: var(--muted); font-weight: 600; }
+.local-ai-panel .lai-lead { font-size: 13px; color: var(--text); }
+.local-ai-panel .lai-note { font-size: 12px; color: var(--muted); line-height: 1.5; }
+.local-ai-panel .lai-check { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.local-ai-panel .lai-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.local-ai-panel .lai-row .label { min-width: 3em; }
+.local-ai-panel .lai-row select, .local-ai-panel .lai-row input[type="text"] { flex: 1; min-width: 0; }
+.local-ai-panel .lai-status { font-size: 12.5px; color: var(--muted); }
+.local-ai-panel .lai-status[data-state="error"] { color: var(--danger); }
+.local-ai-panel .lai-progress { height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+.local-ai-panel .lai-progress > div { height: 100%; width: 0; background: var(--accent-grad); transition: width var(--t-med) var(--ease); }
+.local-ai-panel button[data-lai="rec"][aria-pressed="true"] { background: var(--danger); border-color: var(--danger); color: #fff; }
+.local-ai-panel .lai-said { list-style: none; margin: 0; padding: 0; max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.local-ai-panel .lai-said:empty { display: none; }
+.local-ai-panel .lai-said li { padding: 6px 8px; border-radius: var(--r-sm); background: var(--surface-2); line-height: 1.5; }
+.local-ai-panel .lai-said time { color: var(--faint); font-size: 11.5px; margin-right: 4px; font-variant-numeric: tabular-nums; }
 
 /* ---- 操作ログ ---- */
 .audit-panel { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin: 0 0 16px; display: flex; flex-direction: column; gap: 10px; }

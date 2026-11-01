@@ -28,6 +28,7 @@ mod history;
 mod imports;
 mod ink_ui;
 mod issues;
+mod local_ai_ui;
 mod media;
 mod mindmap_ui;
 mod offline;
@@ -1803,6 +1804,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     comments::install(app, doc)?;
     history::install(app)?;
     plugins_ui::install(app, doc)?;
+    local_ai_ui::install(app, doc)?;
     call_ui::install(app, doc)?;
     video_memo::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;

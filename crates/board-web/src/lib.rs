@@ -2,6 +2,7 @@
 
 pub mod bench;
 pub mod sheets;
+pub mod speech;
 
 #[cfg(target_arch = "wasm32")]
 mod app;
@@ -13,6 +14,8 @@ mod home;
 #[cfg(target_arch = "wasm32")]
 mod http;
 pub mod i18n;
+#[cfg(target_arch = "wasm32")]
+mod local_ai;
 #[cfg(target_arch = "wasm32")]
 mod net;
 #[cfg(target_arch = "wasm32")]

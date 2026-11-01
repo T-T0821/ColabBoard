@@ -7,7 +7,8 @@
 //! Worker とのやりとり(すべて `postMessage` のオブジェクト):
 //! - 起動すると `{ ready: true }` を送る
 //! - `{ type: "load", config, tokenizer, weights }`(どれも `Uint8Array`)→ `{ loaded: true }`
-//! - `{ type: "transcribe", id, pcm: Float32Array(16 kHz), language: "ja" | null }`
+//! - `{ type: "transcribe", id, pcm: Float32Array, rate: 48000, language: "ja" | null }`
+//!   (`rate` は音声のサンプリング周波数。16 kHz でなければ Worker で変換する)
 //!   → `{ id, text, language, noSpeech, ms }`
 //! - 失敗したら `{ id?, error: "…" }`
 
@@ -71,6 +72,8 @@ mod worker {
             }
             "transcribe" => {
                 let pcm = Float32Array::new(&get(data, "pcm")).to_vec();
+                let rate = get(data, "rate").as_f64().unwrap_or(16_000.0) as f32;
+                let pcm = crate::mel::resample(&pcm, rate);
                 let language = get(data, "language").as_string().filter(|l| !l.is_empty());
                 let start = now();
                 MODEL.with(|m| match m.borrow_mut().as_mut() {

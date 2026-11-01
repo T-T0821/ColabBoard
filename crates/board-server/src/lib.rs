@@ -25,6 +25,7 @@ pub mod comments;
 mod embedded;
 pub mod guard;
 pub mod issues;
+pub mod local_ai;
 pub mod media;
 pub mod og;
 pub mod oidc;
@@ -97,6 +98,8 @@ pub struct Config {
     pub password_login: bool,
     /// 回数制限・利用上限・セキュリティヘッダー。
     pub limits: guard::Limits,
+    /// ブラウザ内 AI(音声認識モデル)の取得元。
+    pub local_ai: local_ai::LocalAiConfig,
 }
 
 impl Config {
@@ -143,6 +146,7 @@ impl Default for Config {
             oidc: None,
             password_login: true,
             limits: guard::Limits::default(),
+            local_ai: local_ai::LocalAiConfig::default(),
         }
     }
 }
@@ -166,6 +170,7 @@ impl AppState {
 
 pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
     let static_dir = config.static_dir.take();
+    let models_dir = config.local_ai.models_dir.clone();
     let font = load_font(static_dir.as_deref());
     let guard = Arc::new(guard::Guard::new(config.limits.clone()));
     let state = Arc::new(AppState {
@@ -210,6 +215,11 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
             audit::client_ip,
         ))
         .with_state(state.clone());
+    // ブラウザ内 AI のモデル(大きいので必要な人だけが取りにくる)。
+    let app = match models_dir {
+        Some(dir) => app.nest_service(local_ai::MODELS_PATH, ServeDir::new(dir)),
+        None => app,
+    };
     let app = match static_dir {
         // `.br` / `.gz` があれば、ブラウザが受け取れる形式をそのまま返す(`tools/precompress`)。
         Some(dir) => {

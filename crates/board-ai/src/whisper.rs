@@ -109,7 +109,11 @@ impl Whisper {
         let t = Tensor::new(tokens, &self.device)
             .and_then(|t| t.unsqueeze(0))
             .map_err(err)?;
-        let ys = self.model.decoder.forward(&t, features, first).map_err(err)?;
+        let ys = self
+            .model
+            .decoder
+            .forward(&t, features, first)
+            .map_err(err)?;
         let (_, n, _) = ys.dims3().map_err(err)?;
         self.model
             .decoder
@@ -124,7 +128,10 @@ impl Whisper {
         let langs = self.tokenizer.languages();
         let ids: Vec<u32> = langs.iter().map(|(id, _)| *id).collect();
         let ids = Tensor::new(ids.as_slice(), &self.device).map_err(err)?;
-        let scores: Vec<f32> = logits.index_select(&ids, 0).and_then(|t| t.to_vec1()).map_err(err)?;
+        let scores: Vec<f32> = logits
+            .index_select(&ids, 0)
+            .and_then(|t| t.to_vec1())
+            .map_err(err)?;
         let best = scores
             .iter()
             .enumerate()
@@ -135,7 +142,11 @@ impl Whisper {
     }
 
     /// 16 kHz モノラルの音声(30 秒まで)を文字にする。`language` は "ja" などで、`None` なら推定する。
-    pub fn transcribe(&mut self, pcm: &[f32], language: Option<&str>) -> Result<Transcript, String> {
+    pub fn transcribe(
+        &mut self,
+        pcm: &[f32],
+        language: Option<&str>,
+    ) -> Result<Transcript, String> {
         let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len().max(1) as f32).sqrt();
         if rms < SILENCE_RMS {
             return Ok(Transcript {
@@ -166,7 +177,11 @@ impl Whisper {
             let t = Tensor::new(tokens.as_slice(), &self.device)
                 .and_then(|t| t.unsqueeze(0))
                 .map_err(err)?;
-            let ys = self.model.decoder.forward(&t, &features, step == 0).map_err(err)?;
+            let ys = self
+                .model
+                .decoder
+                .forward(&t, &features, step == 0)
+                .map_err(err)?;
             let (_, n, _) = ys.dims3().map_err(err)?;
             if step == 0 {
                 // 先頭(sot の位置)の出力で「発話なし」の確率を見る。
@@ -188,9 +203,16 @@ impl Whisper {
                 .final_linear(&ys.i((..1, n - 1..)).map_err(err)?)
                 .and_then(|l| l.i(0)?.i(0))
                 .map_err(err)?;
-            let mask = if step == 0 { &self.suppress_first } else { &self.suppress };
+            let mask = if step == 0 {
+                &self.suppress_first
+            } else {
+                &self.suppress
+            };
             let logits = (logits + mask).map_err(err)?;
-            let next = logits.argmax(D::Minus1).and_then(|t| t.to_scalar::<u32>()).map_err(err)?;
+            let next = logits
+                .argmax(D::Minus1)
+                .and_then(|t| t.to_scalar::<u32>())
+                .map_err(err)?;
             let logprob: f32 = log_softmax(&logits, D::Minus1)
                 .and_then(|l| l.i(next as usize)?.to_scalar())
                 .map_err(err)?;
@@ -244,7 +266,10 @@ pub fn is_stock_phrase(text: &str) -> bool {
     !t.is_empty()
         && PHRASES.iter().any(|p| {
             let p = p.trim_end_matches('.');
-            t == p || (p.chars().count() >= 4 && t.contains(p) && t.chars().count() < p.chars().count() + 8)
+            t == p
+                || (p.chars().count() >= 4
+                    && t.contains(p)
+                    && t.chars().count() < p.chars().count() + 8)
         })
 }
 
@@ -277,7 +302,9 @@ mod tests {
         assert!(is_stock_phrase("Thank you for watching!"));
         assert!(is_stock_phrase("you"));
         assert!(!is_stock_phrase("youtube の話をしましょう"));
-        assert!(!is_stock_phrase("次は字幕の色を決めて、来週までに田中さんが案を出します"));
+        assert!(!is_stock_phrase(
+            "次は字幕の色を決めて、来週までに田中さんが案を出します"
+        ));
     }
 
     #[test]

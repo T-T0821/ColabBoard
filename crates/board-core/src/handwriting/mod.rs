@@ -268,7 +268,10 @@ impl Line {
     }
 
     pub fn strokes(&self) -> Vec<usize> {
-        self.chars.iter().flat_map(|c| c.strokes.iter().copied()).collect()
+        self.chars
+            .iter()
+            .flat_map(|c| c.strokes.iter().copied())
+            .collect()
     }
 }
 
@@ -391,7 +394,10 @@ impl Recognizer {
             if best.len() == k && d >= best[k - 1].1 {
                 continue;
             }
-            if let Some(j) = best.iter().position(|(b, _)| self.protos[*b].text == p.text) {
+            if let Some(j) = best
+                .iter()
+                .position(|(b, _)| self.protos[*b].text == p.text)
+            {
                 if d < best[j].1 {
                     best.remove(j);
                 } else {
@@ -453,7 +459,11 @@ impl Recognizer {
                 };
                 let width = right - left;
                 let wide = (width / line_h - 1.1).max(0.0);
-                let k = if expect.is_some() { self.protos.len() } else { 5 };
+                let k = if expect.is_some() {
+                    self.protos.len()
+                } else {
+                    5
+                };
                 let mut c = self.candidates(&f, k.min(self.protos.len()));
                 if wide > 0.0 {
                     // 行の高さより幅の広い字はまれ(2 文字をまとめてしまうのを防ぐ)。
@@ -627,9 +637,10 @@ impl Recognizer {
             if neighbors.is_empty() || neighbors.contains(&scripts[k]) {
                 continue;
             }
-            if let Some(alt) = alts.iter().find(|(p, d)| {
-                *d - chosen.1 < 0.04 && neighbors.contains(&self.protos[*p].script)
-            }) {
+            if let Some(alt) = alts
+                .iter()
+                .find(|(p, d)| *d - chosen.1 < 0.04 && neighbors.contains(&self.protos[*p].script))
+            {
                 out[k].text = self.protos[alt.0].text.clone();
                 out[k].distance = alt.1;
             }
@@ -790,7 +801,11 @@ fn small_kana(chars: &mut [Char], strokes: &[&[Vec2]], line_h: f32) {
         })
         .collect();
     // 行の中心(各文字の中心の中央値)。小書きの仮名は小さく、下に寄っている。
-    let mut mids: Vec<f32> = boxes.iter().flatten().map(|(a, b)| (a.y + b.y) / 2.0).collect();
+    let mut mids: Vec<f32> = boxes
+        .iter()
+        .flatten()
+        .map(|(a, b)| (a.y + b.y) / 2.0)
+        .collect();
     mids.sort_by(f32::total_cmp);
     let Some(&line_mid) = mids.get(mids.len() / 2) else {
         return;
@@ -909,6 +924,28 @@ pub fn lines(strokes: &[&[Vec2]]) -> Vec<Vec<usize>> {
     rows.into_iter().map(|r| r.2).collect()
 }
 
+/// 1 行の中で大きく離れているところ(別々に書いた言葉)で分ける。
+fn split_by_gaps(row: Vec<usize>, pts: &[&[Vec2]]) -> Vec<Vec<usize>> {
+    let refs: Vec<&[Vec2]> = row.iter().map(|&i| pts[i]).collect();
+    let ps = parts(&refs);
+    if ps.len() < 2 {
+        return vec![row];
+    }
+    let line_h = line_height(&refs, &ps);
+    let mut out: Vec<Vec<usize>> = vec![Vec::new()];
+    let mut right = f32::MIN;
+    for p in &ps {
+        if right > f32::MIN && p.left - right > 1.5 * line_h {
+            out.push(Vec::new());
+        }
+        right = right.max(p.right);
+        if let Some(last) = out.last_mut() {
+            last.extend(p.strokes.iter().map(|&k| row[k]));
+        }
+    }
+    out
+}
+
 /// 認識した手書きの文字(1 行ぶん)。
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextItem {
@@ -921,7 +958,10 @@ pub struct TextItem {
 pub fn recognize(strokes: &[&Stroke], rec: &Recognizer) -> Vec<TextItem> {
     let pts: Vec<&[Vec2]> = strokes.iter().map(|s| s.points.as_slice()).collect();
     let mut out = Vec::new();
-    for row in lines(&pts) {
+    for row in lines(&pts)
+        .into_iter()
+        .flat_map(|row| split_by_gaps(row, &pts))
+    {
         let refs: Vec<&[Vec2]> = row.iter().map(|&i| pts[i]).collect();
         let Some(line) = rec.read_line(&refs) else {
             continue;
@@ -932,7 +972,11 @@ pub fn recognize(strokes: &[&Stroke], rec: &Recognizer) -> Vec<TextItem> {
         }
         out.push(TextItem {
             text,
-            strokes: line.strokes().into_iter().map(|k| strokes[row[k]].id).collect(),
+            strokes: line
+                .strokes()
+                .into_iter()
+                .map(|k| strokes[row[k]].id)
+                .collect(),
             distance: line.distance,
         });
     }
@@ -946,7 +990,10 @@ pub fn recognize(strokes: &[&Stroke], rec: &Recognizer) -> Vec<TextItem> {
 /// 文字として読めなかったときは図形のままにする。
 pub fn recognize_ink(strokes: &[&Stroke], rec: &Recognizer) -> Vec<InkItem> {
     let shapes = ink::recognize(strokes);
-    let used: HashSet<ElementId> = shapes.iter().flat_map(|i| i.strokes.iter().copied()).collect();
+    let used: HashSet<ElementId> = shapes
+        .iter()
+        .flat_map(|i| i.strokes.iter().copied())
+        .collect();
     let leftover: Vec<&Stroke> = strokes
         .iter()
         .copied()
@@ -966,7 +1013,10 @@ pub fn recognize_ink(strokes: &[&Stroke], rec: &Recognizer) -> Vec<InkItem> {
         .filter_map(|row| {
             let refs: Vec<&[Vec2]> = row.iter().map(|&i| pts[i]).collect();
             let (min, max) = bounds(&refs)?;
-            Some((Rect::from_points(min, max), line_height(&refs, &parts(&refs))))
+            Some((
+                Rect::from_points(min, max),
+                line_height(&refs, &parts(&refs)),
+            ))
         })
         .collect();
     let (mut keep, mut maybe): (Vec<InkItem>, Vec<InkItem>) = (Vec::new(), Vec::new());
@@ -1007,13 +1057,21 @@ pub fn recognize_ink(strokes: &[&Stroke], rec: &Recognizer) -> Vec<InkItem> {
             .iter()
             .flat_map(|it| it.strokes.iter().filter_map(|id| by_id.get(id).copied())),
     );
-    let only_shapes: HashSet<ElementId> = maybe.iter().flat_map(|i| i.strokes.iter().copied()).collect();
+    let only_shapes: HashSet<ElementId> = maybe
+        .iter()
+        .flat_map(|i| i.strokes.iter().copied())
+        .collect();
     let texts: Vec<TextItem> = recognize(&pool, rec)
         .into_iter()
         // 図形だけでできた行は、2 文字以上のときだけ文字にする(丸 1 つを「O」にしない)。
-        .filter(|t| t.text.chars().count() >= 2 || !t.strokes.iter().all(|id| only_shapes.contains(id)))
+        .filter(|t| {
+            t.text.chars().count() >= 2 || !t.strokes.iter().all(|id| only_shapes.contains(id))
+        })
         .collect();
-    let taken: HashSet<ElementId> = texts.iter().flat_map(|t| t.strokes.iter().copied()).collect();
+    let taken: HashSet<ElementId> = texts
+        .iter()
+        .flat_map(|t| t.strokes.iter().copied())
+        .collect();
     // 文字に使われなかった図形は図形のまま。
     keep.extend(
         maybe
