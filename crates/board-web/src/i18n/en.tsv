@@ -964,3 +964,23 @@ SSO 自動参加	SSO auto-join
 グラボードのサーバーのディスク	Graboard server disk
 サーバーのディレクトリ	Server directory
 保存場所の変更	Data location changed
+タグ・フォルダ	Tags & folder
+タグとフォルダを変える	Edit tags and folder
+お気に入りにする	Add to favorites
+お気に入りから外す	Remove from favorites
+★ お気に入り	★ Favorites
+タグ	Tags
+フォルダ	Folder
+例: 企画, 営業, Q3(カンマ区切り)	e.g. planning, sales, Q3 (comma-separated)
+最近見たボード	Recently viewed
+フォルダの名前を変える	Rename folder
+名前を変える	Rename
+フォルダをなくす	Remove folder
+ボードは消えず、フォルダの外に出ます	The boards stay; they just leave the folder
+すべてのボードを検索(名前・タグ・付箋の文字)	Search all boards (titles, tags, text on the board)
+ボードを検索	Search boards
+この場所を開く	Open at this spot
+ほかに {n} か所	{n} more
+一致するボードはありません	No matching boards
+お気に入りはまだありません。ボードの ☆ を押すとここに集まります。	No favorites yet. Press ☆ on a board to collect it here.
+フォルダの名前を入れてください	Enter a folder name
