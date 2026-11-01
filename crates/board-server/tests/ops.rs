@@ -293,7 +293,7 @@ async fn deleted_board_comes_back_from_backup() {
     let (_, list) = e.call("GET", "/api/boards", Some(&alice), None).await;
     assert_eq!(list[0]["id"], id.as_str());
 
-    // 今あるボードなら中身だけを戻し、戻す前をバージョンに残す。
+    // 今あるボードなら中身だけを戻す。
     let (s, r) = e
         .call(
             "POST",
@@ -304,7 +304,8 @@ async fn deleted_board_comes_back_from_backup() {
         .await;
     assert_eq!(s, StatusCode::OK, "{r}");
     assert_eq!(r["recreated"], false);
-    assert!(r["previous"]["id"].is_u64());
+    // 一度も開いていないボードには中身がないので、戻す前のバージョンもない(中身ありはユニットテストで確かめる)。
+    assert!(r["previous"].is_null());
 
     let (s, _) = e
         .call(

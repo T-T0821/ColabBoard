@@ -1053,7 +1053,7 @@ body.home-mode {
     var(--bg);
   background-attachment: fixed;
 }
-body.home-mode > :not(#home):not(#error) { display: none !important; }
+body.home-mode > :not(#home):not(#error):not(#ops) { display: none !important; }
 #home {
   min-height: 100%;
   padding: 64px 16px;

@@ -642,7 +642,10 @@ pub fn restore_board(
             if hub.get(id).is_some() {
                 hub.delete(id)?;
             }
-            store.save(id, &state)?;
+            // 一度も開かれていないボードには中身がない(開いたときに新しく作られる)。
+            if !state.is_empty() {
+                store.save(id, &state)?;
+            }
             Ok(RestoreResult {
                 board: id.to_string(),
                 recreated: true,
