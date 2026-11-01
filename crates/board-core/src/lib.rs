@@ -12,6 +12,7 @@ pub mod board;
 pub mod camera;
 pub mod color;
 pub mod connector;
+pub mod convert;
 mod crdt;
 pub mod diagram;
 pub mod drawio;
@@ -33,6 +34,8 @@ pub mod protocol;
 pub mod search;
 pub mod session;
 pub mod shape;
+#[cfg(feature = "spreadsheet")]
+pub mod sheets;
 pub mod slides;
 pub mod snap;
 pub mod spatial;

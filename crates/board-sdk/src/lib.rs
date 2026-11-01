@@ -183,6 +183,42 @@ impl Client {
             .ok_or_else(|| Error::Config("空の応答".into()))
     }
 
+    /// バイト列を受け取る GET / バイト列を送る POST(書き出し・取り込み用)。
+    async fn send_bytes(
+        &self,
+        method: Method,
+        path: &str,
+        query: &[(&str, String)],
+        body: Option<Vec<u8>>,
+    ) -> Result<Vec<u8>> {
+        let mut req = self
+            .http
+            .request(method, format!("{}/api/v1{path}", self.base))
+            .query(query);
+        if let Some(t) = &self.token {
+            req = req.bearer_auth(t);
+        }
+        if let Some(b) = body {
+            req = req
+                .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+                .body(b);
+        }
+        let res = req.send().await?;
+        let status = res.status();
+        if !status.is_success() {
+            let text = res.text().await.unwrap_or_default();
+            let message = serde_json::from_str::<serde_json::Value>(&text)
+                .ok()
+                .and_then(|v| v["error"].as_str().map(str::to_string))
+                .unwrap_or(text);
+            return Err(Error::Api {
+                status: status.as_u16(),
+                message,
+            });
+        }
+        Ok(res.bytes().await?.to_vec())
+    }
+
     /// 自分(トークンで呼んだときはトークンの情報も)。
     pub async fn me(&self) -> Result<Whoami> {
         self.get("/me", &[]).await
@@ -254,6 +290,38 @@ impl Board {
 
     fn query(&self) -> Vec<(&'static str, String)> {
         self.key.iter().map(|k| ("key", k.clone())).collect()
+    }
+
+    /// サーバーで書き出したファイル(PNG・PDF・`.graboard`・JSON・マークダウン)。
+    ///
+    /// `options` は `scale`・`padding`・`background`・`frame`・`pages`(`frames` で 1 フレーム 1 ページ)。
+    pub async fn export(&self, format: &str, options: &[(&str, String)]) -> Result<Vec<u8>> {
+        let mut q = self.query();
+        q.push(("format", format.to_string()));
+        q.extend(options.iter().cloned());
+        self.client
+            .send_bytes(Method::GET, &self.path("/export"), &q, None)
+            .await
+    }
+
+    /// ファイルを読み込んで、既存の要素の右に並べる(編集者以上)。`format` を省くと中身から推測。
+    /// 作った要素の ID を返す。
+    pub async fn import(&self, format: Option<&str>, bytes: Vec<u8>) -> Result<Vec<String>> {
+        let mut q = self.query();
+        if let Some(f) = format {
+            q.push(("format", f.to_string()));
+        }
+        let out = self
+            .client
+            .send_bytes(Method::POST, &self.path("/import"), &q, Some(bytes))
+            .await?;
+        #[derive(serde::Deserialize)]
+        struct Imported {
+            created: Vec<String>,
+        }
+        let r: Imported = serde_json::from_slice(&out)
+            .map_err(|e| Error::Config(format!("応答を読めません: {e}")))?;
+        Ok(r.created)
     }
 
     /// ボードの情報と自分の権限。
