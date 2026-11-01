@@ -237,7 +237,12 @@ pub fn pdf_open(bytes: &[u8]) -> u32 {
 pub async fn pdf_info(doc: u32) -> Result<(Vec<(f32, f32)>, usize), String> {
     let reply = run(message("pdf-info", &[]), None, doc, true).await?;
     let flat = js_sys::Float32Array::new(&get(&reply, "sizes")).to_vec();
-    let sizes = flat.chunks_exact(2).map(|c| (c[0], c[1])).collect();
+    let sizes = flat
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|&[w, h]| (w, h))
+        .collect();
     Ok((sizes, get(&reply, "total").as_f64().unwrap_or(0.0) as usize))
 }
 
