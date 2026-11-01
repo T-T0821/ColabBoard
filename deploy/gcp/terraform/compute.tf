@@ -121,7 +121,7 @@ resource "google_compute_instance" "graboard" {
       env           = local.server_env
       project_id    = var.project_id
       secret_prefix = var.name
-      secret_names  = var.secret_env_names
+      secret_names  = local.secret_env_names
     })
     google-logging-enabled    = "true"
     google-monitoring-enabled = "true"

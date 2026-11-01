@@ -49,3 +49,13 @@ output "secret_ids" {
   description = "値を入れる Secret Manager の名前"
   value       = { for k, s in google_secret_manager_secret.env : k => s.secret_id }
 }
+
+output "backup_bucket" {
+  description = "サーバーの定期バックアップを置くバケット(gcs_backup = true のとき)"
+  value       = var.gcs_backup ? google_storage_bucket.backup[0].name : null
+}
+
+output "backup_service_account" {
+  description = "HMAC キーを作るサービスアカウント(gcs_backup = true のとき)"
+  value       = var.gcs_backup ? google_service_account.backup[0].email : null
+}

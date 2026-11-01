@@ -69,7 +69,7 @@ variable "image_tag" {
 }
 
 variable "env" {
-  description = "サーバーに渡す環境変数(秘密でないもの)。COOKIE_SECURE / TRUST_PROXY / PUBLIC_URL / DATA_DIR は自動で入る"
+  description = "サーバーに渡す環境変数(秘密でないもの)。COOKIE_SECURE / TRUST_PROXY / PUBLIC_URL / DATA_DIR は自動で入る。LOG_FORMAT は既定で gcp"
   type        = map(string)
   default = {
     RUST_LOG = "info"
@@ -109,4 +109,10 @@ variable "caddy_image" {
   description = "前段の HTTPS リバースプロキシ(Caddy)のイメージ"
   type        = string
   default     = "caddy:2.10"
+}
+
+variable "gcs_backup" {
+  description = "サーバーの定期バックアップ(BACKUP_LOCATION)を GCS のバケットに置く。有効にしたら HMAC キーを Secret Manager に入れる(README の「GCS へのバックアップ」)"
+  type        = bool
+  default     = false
 }

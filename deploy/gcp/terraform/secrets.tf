@@ -4,7 +4,7 @@
 #
 # VM は起動のたびに最新の版を読み、環境変数としてコンテナに渡す(値の入っていないものは渡さない)。
 resource "google_secret_manager_secret" "env" {
-  for_each = toset(var.secret_env_names)
+  for_each = toset(local.secret_env_names)
 
   secret_id = "${var.name}-${each.value}"
   replication {

@@ -27,7 +27,9 @@ Cloud Monitoring の外形監視(/healthz)と、任意でメール通知
 | Cloud Build 用のサービスアカウントとソース置き場 | `deploy.sh build` がイメージを作る |
 | Secret Manager | API キーなどの入れ物。値は Terraform の外で入れる(状態ファイルに残さない) |
 | Uptime check(+ 任意でメール通知) | `https://…/healthz` を 1 分ごとに確かめる |
+| バックアップ用の GCS バケット(任意、`gcs_backup = true`) | サーバー自身の定期バックアップの置き場所 |
 
+ログは `LOG_FORMAT=gcp` で Cloud Logging の構造化ログになり、サーバーのエラーは Error Reporting に自動で載ります。
 公開時に必要な `COOKIE_SECURE=1`・`TRUST_PROXY=1`・`PUBLIC_URL` は自動で設定します([docs/self-hosting.md](../../docs/self-hosting.md#https-とリバースプロキシ))。
 
 ### なぜ Cloud Run ではなく VM か
@@ -124,7 +126,34 @@ URL は `terraform -chdir=deploy/gcp/terraform output url` です。
 `deploy.sh restart` は VM 上のグラボードだけを再起動し、`reboot` は VM を止めて起動します(起動時の設定を読み直す)。
 どちらも SIGTERM で止めるので、未保存の変更は書き出されます。
 
-### バックアップから戻す
+### バックアップは 2 種類
+
+| 種類 | 戻せる単位 | 置き場所 |
+| --- | --- | --- |
+| ディスクのスナップショット(毎日 03:00 JST、14 日) | ディスクごと(全ボード・アカウント・証明書) | GCP のスナップショット |
+| サーバーの定期バックアップ(24 時間ごと、`BACKUP_KEEP` 世代) | ボード単位(運用画面から) | 既定は同じディスクの `DATA_DIR/backups`。`gcs_backup = true` で GCS |
+
+ボードを 1 枚だけ消してしまったときはサーバーのバックアップから、VM やディスクごと失ったときはスナップショットから戻します。
+詳しくは [docs/self-hosting.md の「バックアップと復元」](../../docs/self-hosting.md#バックアップと復元)。
+
+### GCS へのバックアップ
+
+サーバーは S3 互換 API で書くので、GCS の HMAC キーを使います(秘密が状態ファイルに残らないよう、キーは Terraform の外で作ります)。
+
+```sh
+# terraform.tfvars に gcs_backup = true を書いて
+terraform -chdir=deploy/gcp/terraform apply
+
+sa=$(terraform -chdir=deploy/gcp/terraform output -raw backup_service_account)
+gcloud storage hmac create "$sa"      # accessId と secret が表示される(secret はこのときだけ)
+printf '%s' 'GOOG1…' | gcloud secrets versions add graboard-BACKUP_ACCESS_KEY_ID --data-file=-
+printf '%s' '…'      | gcloud secrets versions add graboard-BACKUP_SECRET_ACCESS_KEY --data-file=-
+deploy/gcp/deploy.sh reboot
+```
+
+`BACKUP_LOCATION` は `s3://<project>-graboard-backup/graboard?endpoint=https://storage.googleapis.com&region=auto` に自動で設定されます。
+
+### スナップショットから戻す
 
 1. コンソールの「Compute Engine → スナップショット」か `gcloud compute snapshots list` で戻したい時点を選ぶ
 2. スナップショットから新しいディスクを作る: `gcloud compute disks create graboard-data-restored --source-snapshot=<名前> --zone asia-northeast1-b`
@@ -170,9 +199,10 @@ gcloud storage buckets update gs://my-gcp-project-tfstate --versioning
 | `machine_type` | `e2-medium` | VM の大きさ |
 | `data_disk_size_gb` | `20` | データディスクの大きさ(後から増やせる) |
 | `snapshot_retention_days` | `14` | スナップショットを残す日数。`0` で取らない |
-| `env` | `{ RUST_LOG = "info" }` | サーバーの環境変数([一覧](../../docs/self-hosting.md#環境変数)) |
+| `env` | `{ RUST_LOG = "info" }` | サーバーの環境変数([一覧](../../docs/self-hosting.md#環境変数))。`LOG_FORMAT` は既定で `gcp` |
 | `secret_env_names` | `["ANTHROPIC_API_KEY"]` | Secret Manager から渡す環境変数 |
 | `image_tag` | `latest` | 起動するイメージのタグ |
+| `gcs_backup` | `false` | サーバーの定期バックアップを GCS に置く |
 | `alert_email` | `""` | `/healthz` が 5 分以上失敗したら通知するメールアドレス |
 | `deletion_protection` | `true` | VM の削除保護 |
 

@@ -22,4 +22,7 @@ env = {
 secret_env_names = ["ANTHROPIC_API_KEY"]
 # secret_env_names = ["ANTHROPIC_API_KEY", "OIDC_CLIENT_SECRET"]
 
+# サーバーの定期バックアップを GCS にも置く(README の「GCS へのバックアップ」で HMAC キーを入れる)。
+# gcs_backup = true
+
 # alert_email = "admin@example.com"

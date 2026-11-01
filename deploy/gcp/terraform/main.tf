@@ -8,6 +8,16 @@
 # (redb は 1 プロセスが 1 ファイルを持つ組み込み DB で、ローカルのブロックデバイスが要る)。
 
 locals {
+  backup_env = var.gcs_backup ? {
+    BACKUP_LOCATION = "s3://${var.project_id}-${var.name}-backup/${var.name}?endpoint=https://storage.googleapis.com&region=auto"
+  } : {}
+
+  # Secret Manager から渡すもの。GCS へのバックアップを使うなら HMAC キーも足す。
+  secret_env_names = distinct(concat(
+    var.secret_env_names,
+    var.gcs_backup ? ["BACKUP_ACCESS_KEY_ID", "BACKUP_SECRET_ACCESS_KEY"] : [],
+  ))
+
   apis = [
     "compute.googleapis.com",
     "artifactregistry.googleapis.com",
@@ -26,8 +36,9 @@ locals {
   domain     = var.domain != "" ? var.domain : "${replace(google_compute_address.graboard.address, ".", "-")}.sslip.io"
   public_url = "https://${local.domain}/"
 
+  # LOG_FORMAT=gcp: ログを Cloud Logging の構造化ログにし、エラーを Error Reporting に載せる(var.env で上書きできる)。
   # 公開時に必須の設定は固定で入れる(docs/self-hosting.md の「HTTPS とリバースプロキシ」)。
-  server_env = merge(var.env, {
+  server_env = merge({ LOG_FORMAT = "gcp" }, local.backup_env, var.env, {
     COOKIE_SECURE = "1"
     TRUST_PROXY   = "1"
     PUBLIC_URL    = local.public_url
