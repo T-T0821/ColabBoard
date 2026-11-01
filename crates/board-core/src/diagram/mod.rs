@@ -5,16 +5,21 @@
 //! 生成 AI の出力も、サンプルも、この JSON 形式でやりとりする。
 
 pub mod catalog;
+pub mod extract;
 mod layout;
 pub mod mermaid;
+pub mod notation;
 pub mod plantuml;
+#[cfg(test)]
+mod roundtrip;
 pub mod samples;
+pub mod sequence;
 
 use glam::Vec2;
 use serde::{Deserialize, Serialize};
 
 use crate::color::Rgba8;
-use crate::connector::{Connector, Endpoint, PathStyle};
+use crate::connector::{Cap, Connector, Endpoint, PathStyle};
 use crate::element::{Element, ElementId};
 use crate::geom::Rect;
 use crate::shape::{Shape, ShapeKind};
@@ -22,6 +27,26 @@ use crate::shape::{Shape, ShapeKind};
 pub use catalog::{Category, GROUP_KINDS, GroupKind, NODE_KINDS, NodeKind, NodeStyle};
 pub use layout::Layout;
 pub(crate) use layout::ranks;
+pub use sequence::{Message, Participant, SequenceSpec};
+
+/// テキスト形式(Mermaid / PlantUML)とやりとりする図。
+#[derive(Clone, Debug, PartialEq)]
+pub enum Diagram {
+    /// フローチャート・構成図・クラス図・ER 図など、ノードと矢印でできた図(自動レイアウト)。
+    Flow(DiagramSpec),
+    /// シーケンス図(ライフラインとメッセージ)。
+    Sequence(SequenceSpec),
+}
+
+impl Diagram {
+    /// 図を要素にする。全体の中心が `center` に来る。
+    pub fn build(&self, center: Vec2, alloc: &mut dyn FnMut() -> ElementId) -> Vec<Element> {
+        match self {
+            Diagram::Flow(spec) => build(spec, center, alloc),
+            Diagram::Sequence(spec) => sequence::build(spec, center, alloc),
+        }
+    }
+}
 
 /// 図全体の定義。
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -67,6 +92,10 @@ pub struct NodeSpec {
     pub label: String,
     /// 属するグループの ID。空ならいちばん外側。
     pub group: Option<String>,
+    /// クラス(`class` `interface`)・エンティティ(`entity`)の区画。名前は `label`。
+    /// クラスは「属性」「操作」、エンティティは「列の一覧」を 1 区画ずつ。
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<String>,
 }
 
 /// 矢印。
@@ -76,6 +105,90 @@ pub struct EdgeSpec {
     pub from: String,
     pub to: String,
     pub label: String,
+    /// 線の見た目(端の記号と破線)。`None` ならふつうの矢印。
+    #[serde(skip)]
+    pub line: Option<EdgeLine>,
+}
+
+/// 線の端の記号と破線。UML の継承・集約や ER 図のカーディナリティを表す。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EdgeLine {
+    pub start: Cap,
+    pub end: Cap,
+    pub dashed: bool,
+}
+
+impl EdgeLine {
+    /// ふつうの矢印(始点なし・終点に矢じり・実線)。
+    pub const ARROW: EdgeLine = EdgeLine {
+        start: Cap::None,
+        end: Cap::Arrow,
+        dashed: false,
+    };
+
+    /// ふつうの矢印なら `None`(既定のまま)にする。
+    pub fn normalized(self) -> Option<EdgeLine> {
+        (self != Self::ARROW).then_some(self)
+    }
+}
+
+/// UML の部品として組み立てるノードの種類(クラス・インターフェース・エンティティ・アクター)。
+pub const UML_KINDS: &[&str] = &["class", "interface", "entity", "actor"];
+
+/// UML の部品のノードなら、要素と線をつなぐ要素の ID を作る(左上が `pos`)。
+fn uml_part(
+    n: &NodeSpec,
+    pos: Vec2,
+    alloc: &mut dyn FnMut() -> ElementId,
+) -> Option<(Vec<Element>, ElementId)> {
+    let sections: Vec<&str> = n.sections.iter().map(String::as_str).collect();
+    let (mut els, id) = match n.kind.as_str() {
+        "class" => {
+            let secs = if sections.is_empty() {
+                vec![""; 2]
+            } else {
+                sections
+            };
+            crate::uml::class_box(alloc, pos, &n.label, &secs)
+        }
+        "interface" => {
+            let title = format!("{}\n{}", crate::uml::INTERFACE_MARK, n.label);
+            let secs = if sections.is_empty() {
+                vec![""]
+            } else {
+                sections
+            };
+            crate::uml::class_box(alloc, pos, &title, &secs)
+        }
+        "entity" => crate::uml::entity_box(alloc, pos, &n.label, &sections.join("\n")),
+        "actor" => crate::uml::actor(alloc, pos, &n.label),
+        _ => return None,
+    };
+    // 左上をそろえる(アクターは名前が左にはみ出す)。
+    if let Some(b) = els.iter().map(Element::bounds).reduce(|a, b| a.union(&b)) {
+        let d = pos - b.min;
+        els.iter_mut().for_each(|e| e.translate(d));
+    }
+    Some((els, id))
+}
+
+/// レイアウトに使うノードの図形(UML の部品は外形の大きさだけ合わせた四角形)。
+pub(crate) fn layout_shape(n: &NodeSpec) -> Shape {
+    let mut s = node_shape(
+        ElementId(0),
+        catalog::node_kind(&n.kind),
+        &n.label,
+        Vec2::ZERO,
+    );
+    let mut k = 0;
+    if let Some((els, _)) = uml_part(n, Vec2::ZERO, &mut || {
+        k += 1;
+        ElementId(k)
+    }) && let Some(b) = els.iter().map(Element::bounds).reduce(|a, b| a.union(&b))
+    {
+        s.size = b.size();
+    }
+    s
 }
 
 impl DiagramSpec {
@@ -229,9 +342,17 @@ pub fn build(
 
     let mut ids = Vec::with_capacity(layout.nodes.len());
     for n in &layout.nodes {
+        let pos = n.shape.pos + offset;
+        if let Some(spec_node) = spec.nodes.iter().rev().find(|s| s.id == n.id)
+            && let Some((els, id)) = uml_part(spec_node, pos, alloc)
+        {
+            ids.push(id);
+            out.extend(els);
+            continue;
+        }
         let mut s = n.shape.clone();
         s.id = alloc();
-        s.pos += offset;
+        s.pos = pos;
         ids.push(s.id);
         out.push(s.into());
     }
@@ -245,6 +366,11 @@ pub fn build(
         c.color = EDGE_COLOR;
         c.width = EDGE_WIDTH;
         c.style = PathStyle::Elbow;
+        if let Some(line) = e.line {
+            c.start_cap = line.start;
+            c.end_cap = line.end;
+            c.dashed = line.dashed;
+        }
         c.text = e.label.trim().to_string();
         let rect_of = |id: ElementId| {
             out.iter()

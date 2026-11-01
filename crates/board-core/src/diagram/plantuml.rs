@@ -1,6 +1,7 @@
-//! PlantUML の取り込み。
+//! PlantUML の取り込みと書き出し。
 //!
-//! 文を読んで [`DiagramSpec`] にし、レイアウトは図の自動配置に任せる。
+//! 文を読んで [`Diagram`] にし、レイアウトは図の自動配置に任せる。
+//! 書き出し([`write`])は同じ書き方で出すので、取り込み → 書き出し → 取り込みで図が変わらない。
 //!
 //! - アクティビティ図(新しい書き方): `start` `stop` `end` `:処理;`
 //!   `if (条件) then (はい)` 〜 `elseif` 〜 `else (いいえ)` 〜 `endif`、
@@ -8,13 +9,22 @@
 //! - そのほかの図(コンポーネント・ユースケース・配置・シーケンスなど):
 //!   `A -> B : ラベル` の矢印(`-->` `..>` `-left->` `<-` なども)、
 //!   `actor` `database` `component` `node` `rectangle` `usecase` などの宣言(`"名前" as ID`)、
-//!   `[部品]` `(ユースケース)` `:アクター:` の書き方、`package` `node` `rectangle` などの `{ }` → 枠
+//!   `[部品]` `(ユースケース)` `:アクター:` の書き方、`package` `node` `rectangle` などの `{ }` → 枠、
+//!   `note "文字" as ID` → メモ、`hexagon` → 判断
+//! - クラス図・ER 図: `class` `interface` `abstract` `enum` `entity` の `{ }` の中身(`--` で区画を分ける)
+//!   → UML のクラス・エンティティ。関係 `<|--` `..|>` `*--` `o--` `||--o{` などの端の記号も写す
+//! - シーケンス図: `participant` などの宣言と `A -> B : 文字` だけの図(`-->` は戻り)
 //!
 //! `skinparam` `title` 以外の見た目の指定は読み飛ばす。
 
 use std::collections::HashMap;
 
-use super::{DiagramSpec, Direction, EdgeSpec, GroupSpec, NodeSpec};
+use super::notation::{self, relation_line, split_relation};
+use super::{
+    Diagram, DiagramSpec, Direction, EdgeLine, EdgeSpec, GroupSpec, NodeSpec, NodeStyle,
+    SequenceSpec, catalog,
+};
+use crate::connector::Cap;
 
 /// PlantUML らしい文字列か。
 pub fn looks_like_plantuml(text: &str) -> bool {
@@ -26,11 +36,12 @@ pub fn looks_like_plantuml(text: &str) -> bool {
 
 /// 宣言のキーワードと、ノードの種類。
 const DECLS: &[(&str, &str)] = &[
-    ("actor", "terminal"),
+    ("actor", "actor"),
+    ("hexagon", "decision"),
     ("participant", "process"),
     ("boundary", "process"),
     ("control", "process"),
-    ("entity", "data"),
+    ("entity", "entity"),
     ("database", "data"),
     ("collections", "data"),
     ("queue", "data"),
@@ -38,11 +49,13 @@ const DECLS: &[(&str, &str)] = &[
     ("file", "data"),
     ("artifact", "data"),
     ("component", "process"),
-    ("interface", "process"),
+    ("interface", "interface"),
     ("usecase", "terminal"),
     ("agent", "process"),
     ("card", "process"),
-    ("class", "process"),
+    ("class", "class"),
+    ("abstract", "class"),
+    ("enum", "class"),
     ("object", "process"),
     ("cloud", "process"),
     ("node", "process"),
@@ -132,16 +145,22 @@ impl Builder {
                 kind: kind.into(),
                 label: label.into(),
                 group: self.groups.last().cloned(),
+                ..Default::default()
             });
         }
         id
     }
 
     fn edge(&mut self, from: &str, to: &str, label: &str) {
+        self.edge_with(from, to, label, None);
+    }
+
+    fn edge_with(&mut self, from: &str, to: &str, label: &str, line: Option<EdgeLine>) {
         self.spec.edges.push(EdgeSpec {
             from: from.into(),
             to: to.into(),
             label: label.trim().into(),
+            line,
         });
     }
 
@@ -390,40 +409,48 @@ impl Builder {
                 _ => (line, ""),
             },
         };
-        // 矢印は `-` `.` `=` と `<` `>` `*` `o` `|` などの並び(`-left->` のような向き指定も)。
-        let Some((start, end)) = find_arrow(body) else {
+        let Some((a, arrow, b)) = split_arrow(body) else {
             return false;
         };
-        let arrow = &body[start..end];
-        let (a, b) = (body[..start].trim(), body[end..].trim());
-        // 多重度の `"1"` などを落とす。
-        let strip_mult = |s: &str, tail: bool| -> String {
-            let s = s.trim();
-            if tail {
-                match s.rfind(" \"") {
-                    Some(i) if s.ends_with('"') => s[..i].trim().to_string(),
-                    _ => s.to_string(),
-                }
-            } else {
-                match s.strip_prefix('"').and_then(|t| t.split_once("\" ")) {
-                    Some((_, rest)) => rest.trim().to_string(),
-                    None => s.to_string(),
-                }
-            }
-        };
-        let (a, b) = (strip_mult(a, true), strip_mult(b, false));
         let (Some(x), Some(y)) = (self.operand(&a), self.operand(&b)) else {
             return false;
         };
-        let reversed = arrow.starts_with('<') && !arrow.ends_with('>');
+        let (line, reversed) = relation_line(&arrow);
         let label = label.replace("\\n", "\n");
         if reversed {
-            self.edge(&y, &x, &label);
+            self.edge_with(&y, &x, &label, line.normalized());
         } else {
-            self.edge(&x, &y, &label);
+            self.edge_with(&x, &y, &label, line.normalized());
         }
         true
     }
+}
+
+/// 関係の文を「左」「矢印」「右」に分ける。多重度の `"1"` は落とす。
+fn split_arrow(body: &str) -> Option<(String, String, String)> {
+    if let Some(parts) = split_relation(body) {
+        return Some(parts);
+    }
+    // 矢印は `-` `.` `=` と `<` `>` `*` `o` `|` などの並び(`-left->` のような向き指定も)。
+    let (start, end) = find_arrow(body)?;
+    let arrow = &body[start..end];
+    let (a, b) = (body[..start].trim(), body[end..].trim());
+    // 多重度の `"1"` などを落とす。
+    let strip_mult = |s: &str, tail: bool| -> String {
+        let s = s.trim();
+        if tail {
+            match s.rfind(" \"") {
+                Some(i) if s.ends_with('"') => s[..i].trim().to_string(),
+                _ => s.to_string(),
+            }
+        } else {
+            match s.strip_prefix('"').and_then(|t| t.split_once("\" ")) {
+                Some((_, rest)) => rest.trim().to_string(),
+                None => s.to_string(),
+            }
+        }
+    };
+    Some((strip_mult(a, true), arrow.to_string(), strip_mult(b, false)))
 }
 
 /// 矢印の位置(開始と終了)。空白で区切られているか、`[` `)` などに接している。
@@ -495,11 +522,260 @@ fn find_arrow(s: &str) -> Option<(usize, usize)> {
     None
 }
 
-/// PlantUML を図の定義にする。読めなければ理由を返す。
+/// クラス・エンティティの中身を読んでいる途中。
+struct ClassBody {
+    id: String,
+    kind: &'static str,
+    lines: Vec<String>,
+}
+
+/// 中身(`{ }`)を持てるクラス図・ER 図の宣言のキーワードと種類。
+const CLASS_WORDS: &[(&str, &str)] = &[
+    ("class", "class"),
+    ("abstract", "class"),
+    ("enum", "class"),
+    ("annotation", "class"),
+    ("interface", "interface"),
+    ("entity", "entity"),
+];
+
+/// 区画の区切りの行(`--` `..` `==` `__`、`-- 見出し --` も)か。
+fn is_separator(line: &str) -> bool {
+    ["--", "..", "==", "__"]
+        .iter()
+        .any(|s| line.starts_with(s) && line.ends_with(s))
+}
+
+impl Builder {
+    /// `class "名前" as ID {` なら中身を読み始める。
+    fn open_class(&mut self, line: &str) -> Option<ClassBody> {
+        if !line.ends_with('{') {
+            return None;
+        }
+        let mut words = line.split_whitespace();
+        let mut word = words.next()?;
+        if word == "abstract" && line.split_whitespace().nth(1) == Some("class") {
+            word = "class";
+        }
+        let (_, kind) = CLASS_WORDS.iter().find(|(k, _)| *k == word)?;
+        let rest = line.trim_end_matches('{').trim();
+        let rest = rest.strip_prefix("abstract").map(str::trim).unwrap_or(rest);
+        let rest = rest.strip_prefix(word)?.trim();
+        // 色やステレオタイプ(`#red` `<<x>>`)を落とす。
+        let rest = rest.split(" #").next().unwrap_or(rest);
+        let rest = rest.split(" <<").next().unwrap_or(rest).trim();
+        let (label, id) = match rest.split_once(" as ") {
+            Some((a, b)) => (unquote(a), unquote(b)),
+            None => (unquote(rest), unquote(rest)),
+        };
+        if id.is_empty() {
+            return None;
+        }
+        if label != id {
+            self.alias.insert(label.clone(), id.clone());
+        }
+        let id = self.node(&id, kind, &label);
+        Some(ClassBody {
+            id,
+            kind,
+            lines: Vec::new(),
+        })
+    }
+
+    /// 読んだ中身を区画にする。
+    fn close_class(&mut self, body: ClassBody) {
+        let Some(&i) = self.index.get(&body.id) else {
+            return;
+        };
+        let lines: Vec<&str> = body.lines.iter().map(String::as_str).collect();
+        let sections = if body.kind == "entity" {
+            let cols: Vec<String> = lines
+                .iter()
+                .filter(|l| !is_separator(l))
+                .map(|l| {
+                    let (key, name, ty) = notation::parse_column(l);
+                    notation::format_column(&key, &name, &ty)
+                })
+                .collect();
+            vec![cols.join("\n")]
+        } else if lines.iter().any(|l| is_separator(l)) {
+            lines
+                .split(|l| is_separator(l))
+                .map(|part| part.join("\n"))
+                .collect()
+        } else {
+            let (ops, attrs): (Vec<&str>, Vec<&str>) = lines.iter().partition(|l| l.contains('('));
+            if body.kind == "interface" && attrs.is_empty() {
+                vec![ops.join("\n")]
+            } else {
+                vec![attrs.join("\n"), ops.join("\n")]
+            }
+        };
+        let n = &mut self.spec.nodes[i];
+        n.kind = body.kind.into();
+        n.sections = sections;
+    }
+
+    /// `note "文字" as ID`(ほかとつなげるメモ)。
+    fn floating_note(&mut self, line: &str) -> bool {
+        let Some(rest) = line.strip_prefix("note ") else {
+            return false;
+        };
+        let rest = rest.trim();
+        let Some((text, id)) = rest.split_once(" as ") else {
+            return false;
+        };
+        if !text.starts_with('"') {
+            return false;
+        }
+        let id = unquote(id);
+        self.node(&id, "note", &unquote(text));
+        true
+    }
+}
+
+/// 宣言だけでシーケンス図とみなせるキーワード。
+const PARTICIPANTS: &[&str] = &[
+    "participant",
+    "actor",
+    "boundary",
+    "control",
+    "entity",
+    "database",
+    "collections",
+    "queue",
+];
+
+/// シーケンス図だけで使う語。
+const SEQUENCE_WORDS: &[&str] = &[
+    "participant",
+    "boundary",
+    "control",
+    "collections",
+    "activate",
+    "deactivate",
+    "autonumber",
+    "return",
+    "alt",
+    "loop",
+    "opt",
+    "par",
+    "critical",
+    "ref",
+    "...",
+];
+
+/// シーケンス図か。宣言と矢印だけで、矢印がメッセージの形(`->` `-->`)のもの。
+fn is_sequence(lines: &[&str]) -> bool {
+    let mut arrows = 0;
+    for line in lines {
+        let lower = line.to_ascii_lowercase();
+        let word = lower.split_whitespace().next().unwrap_or("");
+        if SEQUENCE_WORDS.contains(&word) || line.starts_with("==") {
+            return true;
+        }
+        if line.ends_with('{')
+            || word.ends_with("direction")
+            || (lower.starts_with("left to right") || lower.starts_with("top to bottom"))
+        {
+            return false;
+        }
+        if PARTICIPANTS.contains(&word) {
+            continue;
+        }
+        let body = line.split_once(':').map_or(*line, |(a, _)| a);
+        if let Some((a, arrow, b)) = split_arrow(body) {
+            let operand_ok = |s: &str| !s.starts_with(['[', '(', ':']);
+            let message = arrow
+                .chars()
+                .all(|c| matches!(c, '-' | '<' | '>' | 'x' | 'o' | '/' | '\\'))
+                && arrow.contains('-');
+            if !(message && operand_ok(&a) && operand_ok(&b)) {
+                return false;
+            }
+            arrows += 1;
+        }
+    }
+    arrows > 0
+}
+
+fn parse_sequence(lines: &[&str]) -> Result<SequenceSpec, String> {
+    let mut spec = SequenceSpec::default();
+    let mut alias: HashMap<String, String> = HashMap::new();
+    let mut in_note = false;
+    for line in lines {
+        let lower = line.to_ascii_lowercase();
+        if in_note {
+            in_note = !(lower.starts_with("end note") || lower == "endnote");
+            continue;
+        }
+        if lower.starts_with("note ") || lower.starts_with("hnote") || lower.starts_with("rnote") {
+            in_note = !line.contains(':');
+            continue;
+        }
+        if lower.starts_with("title ") {
+            spec.title = line[6..].trim().to_string();
+            continue;
+        }
+        let word = lower.split_whitespace().next().unwrap_or("");
+        if PARTICIPANTS.contains(&word) {
+            let rest = line[word.len()..].trim();
+            let rest = rest.split(" #").next().unwrap_or(rest);
+            let rest = rest.split(" <<").next().unwrap_or(rest);
+            let rest = rest.split(" order ").next().unwrap_or(rest).trim();
+            let (label, id) = match rest.split_once(" as ") {
+                Some((a, b)) if a.trim().starts_with('"') => (unquote(a), unquote(b)),
+                Some((a, b)) => (unquote(b), unquote(a)),
+                None => (unquote(rest), unquote(rest)),
+            };
+            if label != id {
+                alias.insert(label.clone(), id.clone());
+            }
+            spec.participant(&id, Some(&label));
+            continue;
+        }
+        let (body, text) = match line.split_once(':') {
+            Some((a, b)) => (a, b.trim()),
+            None => (*line, ""),
+        };
+        let Some((a, arrow, b)) = split_arrow(body) else {
+            continue;
+        };
+        let id = |s: &str| {
+            let s = unquote(s.trim_end_matches(['+', '-', '*', '!']).trim());
+            alias.get(&s).cloned().unwrap_or(s)
+        };
+        let (a, b) = (id(&a), id(&b));
+        if a.is_empty() || b.is_empty() {
+            continue;
+        }
+        let reply = arrow.contains("--");
+        let reversed = arrow.starts_with('<') && !arrow.ends_with('>');
+        let text = text.replace("\\n", "\n");
+        if reversed {
+            spec.message(&b, &a, &text, reply);
+        } else {
+            spec.message(&a, &b, &text, reply);
+        }
+    }
+    if spec.participants.is_empty() {
+        return Err("PlantUML のシーケンス図に参加者がありません".into());
+    }
+    Ok(spec)
+}
+
+/// PlantUML のノードと矢印の図を図の定義にする。シーケンス図は [`parse_diagram`] で読む。
 pub fn parse(text: &str) -> Result<DiagramSpec, String> {
+    match parse_diagram(text)? {
+        Diagram::Flow(spec) => Ok(spec),
+        Diagram::Sequence(_) => Err("シーケンス図はノードと矢印の図として読めません".into()),
+    }
+}
+
+/// PlantUML を図にする。読めなければ理由を返す。
+pub fn parse_diagram(text: &str) -> Result<Diagram, String> {
     let mut b = Builder::default();
     let mut in_note = false;
-    let mut activity = false;
     let mut lines = Vec::new();
     for raw in text.lines() {
         let line = raw.trim();
@@ -512,23 +788,36 @@ pub fn parse(text: &str) -> Result<DiagramSpec, String> {
         lines.push(line);
     }
     // `start` か `:処理;` があればアクティビティ図とみなす。
-    if lines
+    let activity = lines
         .iter()
-        .any(|l| *l == "start" || (l.starts_with(':') && l.ends_with(';')))
-    {
-        activity = true;
+        .any(|l| *l == "start" || (l.starts_with(':') && l.ends_with(';')));
+    if !activity && is_sequence(&lines) {
+        return parse_sequence(&lines).map(Diagram::Sequence);
     }
     b.spec.direction = if activity {
         Direction::Down
     } else {
         Direction::Right
     };
+    let mut body: Option<ClassBody> = None;
     for line in lines {
+        if let Some(cb) = body.as_mut() {
+            if line == "}" {
+                let cb = body.take().unwrap();
+                b.close_class(cb);
+            } else {
+                cb.lines.push(line.to_string());
+            }
+            continue;
+        }
         let lower = line.to_ascii_lowercase();
         if in_note {
             if lower.starts_with("end note") || lower == "endnote" {
                 in_note = false;
             }
+            continue;
+        }
+        if b.floating_note(line) {
             continue;
         }
         if lower.starts_with("note ") || lower.starts_with("hnote") || lower.starts_with("rnote") {
@@ -580,11 +869,16 @@ pub fn parse(text: &str) -> Result<DiagramSpec, String> {
                 | "fork"
                 | "end"
                 | "endlegend"
+                | "allowmixing"
         ) && !(activity && matches!(word, "end"))
         {
             continue;
         }
         if activity && b.activity_line(line) {
+            continue;
+        }
+        if let Some(cb) = b.open_class(line) {
+            body = Some(cb);
             continue;
         }
         if b.relation(line) {
@@ -603,7 +897,188 @@ pub fn parse(text: &str) -> Result<DiagramSpec, String> {
     if b.spec.nodes.is_empty() {
         return Err("PlantUML の図にノードがありません".into());
     }
-    Ok(b.spec)
+    Ok(Diagram::Flow(b.spec))
+}
+
+// ---- 書き出し ----
+
+/// `"..."` で囲んだ名前(改行は `\n`、引用符は `'`)。
+fn quote(s: &str) -> String {
+    format!("\"{}\"", inline(s))
+}
+
+fn inline(s: &str) -> String {
+    s.trim()
+        .replace("\r\n", "\n")
+        .replace('"', "'")
+        .replace('\n', "\\n")
+}
+
+/// ノードの種類 → 宣言のキーワード。
+fn keyword(kind: &str) -> &'static str {
+    match kind {
+        "class" => "class",
+        "interface" => "interface",
+        "entity" => "entity",
+        "actor" => "actor",
+        _ => match catalog::node_kind(kind).style {
+            NodeStyle::Decision => "hexagon",
+            NodeStyle::Terminal => "usecase",
+            NodeStyle::Data => "database",
+            NodeStyle::Note => "note",
+            NodeStyle::Process | NodeStyle::Service => "rectangle",
+        },
+    }
+}
+
+/// 始点だけに矢じりのある線は、向きを入れ替えて終点の矢じりにする。
+fn canonical(e: &EdgeSpec) -> (&str, &str, EdgeLine) {
+    let l = e.line.unwrap_or(EdgeLine::ARROW);
+    if l.end == Cap::None && matches!(l.start, Cap::Arrow | Cap::Triangle | Cap::TriangleFilled) {
+        (
+            &e.to,
+            &e.from,
+            EdgeLine {
+                start: Cap::None,
+                end: l.start,
+                dashed: l.dashed,
+            },
+        )
+    } else {
+        (&e.from, &e.to, l)
+    }
+}
+
+/// 図を PlantUML にする。
+pub fn write(d: &Diagram) -> String {
+    let mut out = String::from("@startuml\n");
+    match d {
+        Diagram::Flow(spec) => write_flow(spec, &mut out),
+        Diagram::Sequence(spec) => {
+            if !spec.title.is_empty() {
+                out.push_str(&format!("title {}\n", inline(&spec.title)));
+            }
+            for p in &spec.participants {
+                if p.label == p.id {
+                    out.push_str(&format!("participant {}\n", p.id));
+                } else {
+                    out.push_str(&format!("participant {} as {}\n", quote(&p.label), p.id));
+                }
+            }
+            for m in &spec.messages {
+                let arrow = if m.reply { "-->" } else { "->" };
+                if m.label.is_empty() {
+                    out.push_str(&format!("{} {arrow} {}\n", m.from, m.to));
+                } else {
+                    out.push_str(&format!(
+                        "{} {arrow} {} : {}\n",
+                        m.from,
+                        m.to,
+                        inline(&m.label)
+                    ));
+                }
+            }
+        }
+    }
+    out.push_str("@enduml\n");
+    out
+}
+
+fn write_flow(spec: &DiagramSpec, out: &mut String) {
+    if !spec.title.is_empty() {
+        out.push_str(&format!("title {}\n", inline(&spec.title)));
+    }
+    let uml = spec
+        .nodes
+        .iter()
+        .any(|n| matches!(n.kind.as_str(), "class" | "interface" | "entity"));
+    let other = spec
+        .nodes
+        .iter()
+        .any(|n| !matches!(n.kind.as_str(), "class" | "interface" | "entity"));
+    if uml && other {
+        out.push_str("allowmixing\n");
+    }
+    out.push_str(match spec.direction {
+        Direction::Right => "left to right direction\n",
+        Direction::Down => "top to bottom direction\n",
+    });
+    fn node(n: &NodeSpec, indent: usize, out: &mut String) {
+        let pad = "  ".repeat(indent);
+        let kw = keyword(&n.kind);
+        let text = match kw {
+            "class" | "interface" | "entity" | "actor" => n.label.clone(),
+            _ => super::node_text(catalog::node_kind(&n.kind), &n.label),
+        };
+        let decl = if text == n.id && kw != "note" {
+            format!("{pad}{kw} {}", n.id)
+        } else {
+            format!("{pad}{kw} {} as {}", quote(&text), n.id)
+        };
+        let sections: Vec<Vec<&str>> = n
+            .sections
+            .iter()
+            .map(|s| notation::lines_of(s).collect())
+            .collect();
+        match kw {
+            "class" | "interface" | "entity" if sections.iter().any(|s| !s.is_empty()) => {
+                out.push_str(&format!("{decl} {{\n"));
+                for (k, sec) in sections.iter().enumerate() {
+                    if k > 0 && kw != "entity" {
+                        out.push_str(&format!("{pad}  --\n"));
+                    }
+                    for l in sec {
+                        out.push_str(&format!("{pad}  {l}\n"));
+                    }
+                }
+                out.push_str(&format!("{pad}}}\n"));
+            }
+            _ => out.push_str(&format!("{decl}\n")),
+        }
+    }
+    fn group(spec: &DiagramSpec, g: &GroupSpec, indent: usize, out: &mut String) {
+        let pad = "  ".repeat(indent);
+        out.push_str(&format!(
+            "{pad}rectangle {} as {} {{\n",
+            quote(&g.label),
+            g.id
+        ));
+        for c in spec
+            .groups
+            .iter()
+            .filter(|c| c.parent.as_ref() == Some(&g.id))
+        {
+            group(spec, c, indent + 1, out);
+        }
+        for n in spec
+            .nodes
+            .iter()
+            .filter(|n| n.group.as_ref() == Some(&g.id))
+        {
+            node(n, indent + 1, out);
+        }
+        out.push_str(&format!("{pad}}}\n"));
+    }
+    for g in spec.groups.iter().filter(|g| g.parent.is_none()) {
+        group(spec, g, 0, out);
+    }
+    for n in spec.nodes.iter().filter(|n| n.group.is_none()) {
+        node(n, 0, out);
+    }
+    for e in &spec.edges {
+        let (from, to, l) = canonical(e);
+        let body = if l.dashed { ".." } else { "--" };
+        let arrow = format!(
+            "{}{body}{}",
+            notation::left_head(l.start, false),
+            notation::right_head(l.end, false)
+        );
+        if e.label.trim().is_empty() {
+            out.push_str(&format!("{from} {arrow} {to}\n"));
+        } else {
+            out.push_str(&format!("{from} {arrow} {to} : {}\n", inline(&e.label)));
+        }
+    }
 }
 
 #[cfg(test)]
@@ -713,13 +1188,70 @@ API -left-> [ログ]
     }
 
     #[test]
-    fn sequence_messages_become_edges() {
-        let s = parse("@startuml\nAlice -> Bob: こんにちは\nBob --> Alice: やあ\n@enduml").unwrap();
-        assert_eq!(
-            edges(&s),
-            vec![e("Alice", "Bob", "こんにちは"), e("Bob", "Alice", "やあ")]
-        );
+    fn sequence_messages_become_a_sequence_diagram() {
+        let Diagram::Sequence(s) = parse_diagram(
+            "@startuml\nparticipant \"利用者\" as U\nU -> Bob: こんにちは\nBob --> U: やあ\n@enduml",
+        )
+        .unwrap() else {
+            panic!("シーケンス図ではない");
+        };
+        assert_eq!(s.participants.len(), 2);
+        assert_eq!(s.participants[0].label, "利用者");
+        assert_eq!(s.messages.len(), 2);
+        assert!(!s.messages[0].reply && s.messages[1].reply);
+        assert_eq!(s.messages[1].from, "Bob");
         assert!(looks_like_plantuml("\n@startuml\nA->B\n@enduml"));
         assert!(parse("@startuml\n@enduml").is_err());
+    }
+
+    #[test]
+    fn class_bodies_and_relations() {
+        let s = parse(
+            "@startuml
+class \"顧客\" as C {
+  - id: int
+  --
+  + order(): 注文
+}
+interface Payment {
+  + pay(): bool
+}
+class Card
+entity users {
+  PK  id : int
+  name : text
+}
+Payment <|.. Card
+C \"1\" *-- \"many\" Order : 持つ
+users ||--o{ orders
+@enduml",
+        )
+        .unwrap();
+        let node = |id: &str| s.nodes.iter().find(|n| n.id == id).unwrap();
+        assert_eq!(node("C").kind, "class");
+        assert_eq!(node("C").label, "顧客");
+        assert_eq!(node("C").sections, ["- id: int", "+ order(): 注文"]);
+        assert_eq!(node("Payment").kind, "interface");
+        assert_eq!(node("Payment").sections, ["+ pay(): bool"]);
+        assert_eq!(node("users").kind, "entity");
+        assert_eq!(node("users").sections, ["PK  id : int\n    name : text"]);
+        let realize = &s.edges[0];
+        assert_eq!(
+            (realize.from.as_str(), realize.to.as_str()),
+            ("Card", "Payment")
+        );
+        assert_eq!(
+            realize.line,
+            Some(EdgeLine {
+                start: Cap::None,
+                end: Cap::Triangle,
+                dashed: true
+            })
+        );
+        assert_eq!(s.edges[1].line.unwrap().start, Cap::DiamondFilled);
+        assert_eq!(s.edges[1].to, "Order");
+        assert_eq!(s.edges[1].label, "持つ");
+        let er = s.edges[2].line.unwrap();
+        assert_eq!((er.start, er.end), (Cap::One, Cap::ZeroOrMany));
     }
 }

@@ -10,8 +10,7 @@ use std::collections::HashMap;
 use glam::Vec2;
 
 use super::catalog::{self, GroupKind};
-use super::{DiagramSpec, Direction, GROUP_FONT, node_shape, text_width};
-use crate::element::ElementId;
+use super::{DiagramSpec, Direction, EdgeLine, GROUP_FONT, layout_shape, text_width};
 use crate::geom::Rect;
 use crate::shape::{FRAME_TITLE_HEIGHT, Shape};
 
@@ -44,6 +43,7 @@ pub struct PlacedEdge {
     pub from: usize,
     pub to: usize,
     pub label: String,
+    pub line: Option<EdgeLine>,
 }
 
 /// レイアウト結果。グループは外側から順に並ぶ。
@@ -300,27 +300,16 @@ impl Layout {
         }
 
         // 矢印(存在するノード間のみ)。
-        let edges: Vec<(usize, usize, &str)> = spec
+        let edges: Vec<(usize, usize, &super::EdgeSpec)> = spec
             .edges
             .iter()
             .filter_map(|e| {
                 let a = *node_index.get(e.from.as_str())?;
                 let b = *node_index.get(e.to.as_str())?;
-                (a != b).then_some((a, b, e.label.as_str()))
+                (a != b).then_some((a, b, e))
             })
             .collect();
-        let node_shapes: Vec<Shape> = spec
-            .nodes
-            .iter()
-            .map(|n| {
-                node_shape(
-                    ElementId(0),
-                    catalog::node_kind(&n.kind),
-                    &n.label,
-                    Vec2::ZERO,
-                )
-            })
-            .collect();
+        let node_shapes: Vec<Shape> = spec.nodes.iter().map(layout_shape).collect();
 
         let mut ctx = Ctx {
             dir: spec.direction,
@@ -385,11 +374,12 @@ impl Layout {
             .collect();
         let edges = edges
             .iter()
-            .filter_map(|&(a, b, label)| {
+            .filter_map(|&(a, b, e)| {
                 Some(PlacedEdge {
                     from: *placed_index.get(&a)?,
                     to: *placed_index.get(&b)?,
-                    label: label.to_string(),
+                    label: e.label.clone(),
+                    line: e.line,
                 })
             })
             .collect();
@@ -471,6 +461,7 @@ mod tests {
             kind: "process".into(),
             label: id.into(),
             group: group.map(Into::into),
+            ..Default::default()
         }
     }
 
@@ -479,6 +470,7 @@ mod tests {
             from: a.into(),
             to: b.into(),
             label: String::new(),
+            ..Default::default()
         }
     }
 

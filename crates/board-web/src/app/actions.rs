@@ -418,6 +418,31 @@ fn menu_items() -> Vec<Item> {
             "",
             Action::Export(super::export::ExportFormat::Markdown),
         ),
+        A(
+            "Mermaid で書き出し(選択 / 全体)",
+            "",
+            Action::Export(super::export::ExportFormat::Mermaid { copy: false }),
+        ),
+        A(
+            "PlantUML で書き出し(選択 / 全体)",
+            "",
+            Action::Export(super::export::ExportFormat::PlantUml { copy: false }),
+        ),
+        A(
+            "draw.io で書き出し(選択 / 全体)",
+            "",
+            Action::Export(super::export::ExportFormat::Drawio),
+        ),
+        A(
+            "Mermaid をコピー",
+            "",
+            Action::Export(super::export::ExportFormat::Mermaid { copy: true }),
+        ),
+        A(
+            "PlantUML をコピー",
+            "",
+            Action::Export(super::export::ExportFormat::PlantUml { copy: true }),
+        ),
     ]
 }
 

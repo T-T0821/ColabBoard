@@ -984,3 +984,14 @@ SSO 自動参加	SSO auto-join
 一致するボードはありません	No matching boards
 お気に入りはまだありません。ボードの ☆ を押すとここに集まります。	No favorites yet. Press ☆ on a board to collect it here.
 フォルダの名前を入れてください	Enter a folder name
+Mermaid で書き出し(選択 / 全体)	Export Mermaid (selection / all)
+PlantUML で書き出し(選択 / 全体)	Export PlantUML (selection / all)
+draw.io で書き出し(選択 / 全体)	Export draw.io (selection / all)
+Mermaid をコピー	Copy as Mermaid
+PlantUML をコピー	Copy as PlantUML
+クリップボードにコピーしました	Copied to clipboard
+書き出せる図形がありません	There are no shapes to export
+Mermaid の図にクラス・エンティティがありません	The Mermaid diagram has no classes or entities
+Mermaid のシーケンス図に参加者がありません	The Mermaid sequence diagram has no participants
+PlantUML のシーケンス図に参加者がありません	The PlantUML sequence diagram has no participants
+シーケンス図はノードと矢印の図として読めません	A sequence diagram can't be read as a node-and-arrow diagram
