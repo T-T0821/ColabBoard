@@ -32,6 +32,7 @@ pub mod plugins;
 pub mod public;
 pub mod rest;
 pub mod room;
+pub mod search;
 pub mod slack;
 pub mod storage;
 pub mod store;
@@ -201,7 +202,8 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
                 .merge(rest::token_routes())
                 .merge(teams::routes())
                 .merge(audit::routes())
-                .merge(oidc::routes()),
+                .merge(oidc::routes())
+                .merge(search::routes()),
         )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

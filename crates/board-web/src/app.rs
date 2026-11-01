@@ -86,6 +86,8 @@ struct App {
     cursors_dirty: bool,
     /// 最初の表示位置を決めたか(共同編集では初回同期後に決める)。
     view_initialized: bool,
+    /// 最初に移動する要素(`&focus=` 。検索結果から開いたとき)。
+    pending_focus: Option<ElementId>,
     /// 自分のカーソルのワールド座標(canvas の外なら `None`)。
     cursor_world: Option<Vec2>,
     presence_sent: Option<Option<Vec2>>,
@@ -395,6 +397,10 @@ pub async fn run() -> Result<(), String> {
         cursors: Cursors::new(document.clone(), by_id(&document, "cursors")?),
         cursors_dirty: false,
         view_initialized: false,
+        pending_focus: params
+            .get("focus")
+            .and_then(|h| u64::from_str_radix(&h, 16).ok())
+            .map(ElementId),
         cursor_world: None,
         presence_sent: None,
         presence_sent_at: 0.0,
@@ -595,6 +601,13 @@ impl App {
     /// 最初の表示位置: 全体が入るようにしつつ、等倍より大きくはしない。
     fn initial_view(&mut self) {
         self.view_initialized = true;
+        // 検索結果から開いたなら、その要素へ。
+        if let Some(id) = self.pending_focus.take()
+            && self.board.get(id).is_some()
+        {
+            self.focus_element(id);
+            return;
+        }
         let Some(r) = self.board.bounds() else {
             return;
         };
