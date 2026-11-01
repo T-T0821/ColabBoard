@@ -386,9 +386,11 @@ impl Home {
   {sso}
   {password}
   <hr />
-  <button type="button" data-action="anonymous">ログインせずに新しいボードを作る</button>
-  <p class="muted small">ログインせずに作ったボードは、URL を知っている人なら誰でも編集できます。</p>
+  <div class="anonymous-row"><button type="button" data-action="anonymous">ログインせずに新しいボードを作る</button>{anon_hint}</div>
 </div>"#,
+            anon_hint = crate::hint::html(
+                "ログインせずに作ったボードは、URL を知っている人なら誰でも編集できます。"
+            ),
             lead = if signup {
                 "アカウントを作ると、ボードの一覧・共有の設定・コメントが使えます。"
             } else {
@@ -911,11 +913,13 @@ impl Home {
         };
         format!(
             r#"<section class="team-panel">
-  <header><h2 translate="no">{name}</h2><span class="badge" data-role="{rs}">{rl}</span><span class="muted">{n} 人</span><span class="spacer"></span>{log}{danger}</header>
+  <header><h2 translate="no">{name}</h2><span class="badge" data-role="{rs}">{rl}</span><span class="muted">{n} 人</span>{team_hint}<span class="spacer"></span>{log}{danger}</header>
   <ul class="team-members">{members}</ul>
   {add}{mv}{storage}{sso}
-  <p class="muted small">チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。</p>
 </section>"#,
+            team_hint = crate::hint::html(
+                "チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。"
+            ),
             name = escape(&team.name),
             rs = if admin { "owner" } else { "editor" },
             rl = team.role.label(),
