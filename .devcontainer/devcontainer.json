@@ -1,0 +1,37 @@
+{
+  "name": "ColabBoard",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "remoteUser": "vscode",
+  "mounts": [
+    // ビルド成果物と crates の取得結果はボリュームに置く(macOS / Windows のバインドマウントは遅いため)。
+    "source=colabboard-target,target=${containerWorkspaceFolder}/target,type=volume",
+    "source=colabboard-cargo-registry,target=/usr/local/cargo/registry,type=volume"
+  ],
+  "containerEnv": {
+    // `trunk serve` は 8081 で待ち受け、/ws と /api は 8080 の board-server へ中継する(Trunk.toml)。
+    "TRUNK_SERVE_ADDRESS": "0.0.0.0",
+    "TRUNK_SERVE_PORT": "8081",
+    "RUST_LOG": "info"
+  },
+  "forwardPorts": [8080, 8081],
+  "portsAttributes": {
+    "8080": { "label": "board-server" },
+    "8081": { "label": "trunk serve" }
+  },
+  "postCreateCommand": "sudo chown -R vscode:rustlang target /usr/local/cargo/registry && cargo fetch --locked",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "tamasfe.even-better-toml",
+        "vadimcn.vscode-lldb",
+        "wgsl-analyzer.wgsl-analyzer"
+      ],
+      "settings": {
+        "rust-analyzer.check.command": "clippy"
+      }
+    }
+  }
+}
