@@ -19,7 +19,7 @@ use web_sys::{Document, HtmlElement, HtmlInputElement, HtmlSelectElement};
 use super::ink_ui::toast;
 use super::{App, by_id, listen};
 use crate::http::escape;
-use crate::local_ai::{self, Model, Segmenter, Speech};
+use crate::local_ai::{self, Accel, AccelPref, Model, Segmenter, Speech};
 
 /// 文字起こしの 1 行。
 #[derive(Clone)]
@@ -49,6 +49,15 @@ struct Ui {
 }
 
 const LANGS: [(&str, &str); 3] = [("ja", "日本語"), ("en", "English"), ("", "自動")];
+
+/// 「計算する装置」の選択肢。
+const ACCELS: [(AccelPref, &str); 5] = [
+    (AccelPref::Auto, "自動(NPU → GPU → CPU)"),
+    (AccelPref::Only(Accel::Npu), "NPU(WebNN)"),
+    (AccelPref::Only(Accel::Gpu), "GPU(WebNN)"),
+    (AccelPref::Only(Accel::WebGpu), "GPU(WebGPU)"),
+    (AccelPref::Cpu, "CPU(wasm)"),
+];
 
 fn now_label() -> String {
     let d = js_sys::Date::new_0();
@@ -92,6 +101,18 @@ impl Ui {
                 )
             })
             .collect();
+        let pref = local_ai::accel_pref();
+        let accels: String = ACCELS
+            .iter()
+            .map(|(p, name)| {
+                format!(
+                    r#"<option value="{}"{}>{}</option>"#,
+                    p.id(),
+                    if *p == pref { " selected" } else { "" },
+                    escape(name)
+                )
+            })
+            .collect();
         let html = format!(
             r#"<header class="row"><strong class="grow">ブラウザ内 AI</strong><button class="quiet" data-lai="close" aria-label="閉じる">×</button></header>
 <p class="lai-lead">音声と手書きを、この端末の中だけで文字にします。内容はサーバーにも AI の会社にも送られません。</p>
@@ -100,6 +121,8 @@ impl Ui {
 <h3>音声の文字起こし</h3>
 <div class="lai-row"><label class="label" for="lai-model">モデル</label><select id="lai-model" data-lai="model">{models}</select></div>
 <div class="lai-row"><label class="label" for="lai-lang">言語</label><select id="lai-lang" data-lai="lang">{langs}</select></div>
+<div class="lai-row"><label class="label" for="lai-accel">計算する装置</label><select id="lai-accel" data-lai="accel">{accels}</select></div>
+<p class="lai-note" data-lai="accel-note"></p>
 <p class="lai-status" data-lai="status" role="status"></p>
 <div class="lai-progress" data-lai="progress" hidden><div></div></div>
 <div class="lai-row"><button data-lai="load">モデルを準備</button><button class="primary" data-lai="rec" aria-pressed="false">● 録音して文字起こし</button></div>
@@ -165,6 +188,10 @@ impl Ui {
             ),
             (_, Speech::Downloading(got, _)) => (format!("モデルを取得中… {}", fmt_mb(*got)), true),
             (_, Speech::Loading) => ("モデルを読み込み中…".into(), true),
+            (_, Speech::Preparing(a)) => (
+                format!("{}の準備中…(初回はしばらくかかります)", a.label()),
+                true,
+            ),
             (_, Speech::Ready(_)) if st.recording => (
                 if st.pending > 0 {
                     "録音中・文字にしています…".into()
@@ -234,6 +261,15 @@ impl Ui {
             if let Some(b) = self.q::<HtmlElement>(name) {
                 let _ = b.toggle_attribute_with_force("disabled", st.said.is_empty());
             }
+        }
+        if let Some(el) = self.q::<HtmlElement>("accel-note") {
+            let a = local_ai::accel_state();
+            el.set_text_content(Some(if a.note.is_empty() {
+                "NPU や GPU があれば、音声を読む重い部分をそこで動かします(内容は端末の外に出ません)。WebNN でどの装置を使うかは最終的にブラウザが決めます"
+            } else {
+                &a.note
+            }));
+            let _ = el.set_attribute("data-active", a.active.map_or("cpu", |x| x.id()));
         }
         if let Some(el) = self.q::<HtmlElement>("hw-count") {
             let n = local_ai::samples().len();
@@ -445,6 +481,16 @@ pub(super) fn install(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), Stri
                         {
                             local_ai::set_model(m);
                             ui2.check_cached();
+                        }
+                    }
+                    Some("accel") => {
+                        if let Some(p) = el
+                            .dyn_into::<HtmlSelectElement>()
+                            .ok()
+                            .and_then(|s| AccelPref::from_id(&s.value()))
+                        {
+                            local_ai::set_accel_pref(p);
+                            spawn_local(local_ai::reload_accel());
                         }
                     }
                     Some("lang") => {

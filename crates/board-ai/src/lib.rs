@@ -10,6 +10,11 @@
 //! - `{ type: "transcribe", id, pcm: Float32Array, rate: 48000, language: "ja" | null }`
 //!   (`rate` は音声のサンプリング周波数。16 kHz でなければ Worker で変換する)
 //!   → `{ id, text, language, noSpeech, ms }`
+//! - エンコーダを WebNN(NPU / GPU)や WebGPU で動かすとき(本体が ONNX Runtime Web で動かす):
+//!   - `{ type: "mel", id, pcm, rate }` → `{ id, mel: Float32Array | null, nMels, frames, ms }`
+//!     (`null` は静かすぎて読むまでもない音声)
+//!   - `{ type: "decode", id, features: Float32Array, language }`(`[1500, d_model]` を並べたもの)
+//!     → `{ id, text, language, noSpeech, ms }`
 //! - 失敗したら `{ id?, error: "…" }`
 
 pub mod mel;
@@ -83,6 +88,43 @@ mod worker {
                         set(&reply, "noSpeech", t.no_speech);
                         set(&reply, "ms", now() - start);
                     }),
+                    None => Err("モデルを読み込んでいません".into()),
+                })
+            }
+            "mel" => {
+                let pcm = Float32Array::new(&get(data, "pcm")).to_vec();
+                let rate = get(data, "rate").as_f64().unwrap_or(16_000.0) as f32;
+                let pcm = crate::mel::resample(&pcm, rate);
+                let start = now();
+                MODEL.with(|m| match m.borrow().as_ref() {
+                    Some(model) => {
+                        let mel = model.mel(&pcm);
+                        set(
+                            &reply,
+                            "mel",
+                            mel.map_or(JsValue::NULL, |v| Float32Array::from(v.as_slice()).into()),
+                        );
+                        set(&reply, "nMels", model.n_mels() as u32);
+                        set(&reply, "frames", crate::mel::N_FRAMES as u32);
+                        set(&reply, "ms", now() - start);
+                        Ok(())
+                    }
+                    None => Err("モデルを読み込んでいません".into()),
+                })
+            }
+            "decode" => {
+                let features = Float32Array::new(&get(data, "features")).to_vec();
+                let language = get(data, "language").as_string().filter(|l| !l.is_empty());
+                let start = now();
+                MODEL.with(|m| match m.borrow_mut().as_mut() {
+                    Some(model) => model
+                        .decode_features(features, language.as_deref())
+                        .map(|t| {
+                            set(&reply, "text", t.text);
+                            set(&reply, "language", t.language);
+                            set(&reply, "noSpeech", t.no_speech);
+                            set(&reply, "ms", now() - start);
+                        }),
                     None => Err("モデルを読み込んでいません".into()),
                 })
             }

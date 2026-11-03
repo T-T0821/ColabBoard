@@ -8,6 +8,8 @@
 
 FROM rust:1-bookworm AS build
 ARG TRUNK_VERSION=0.22.1
+# ブラウザ内 AI で NPU / GPU を使う部品(ONNX Runtime Web、約 30 MB)を入れるか。0 で入れない。
+ARG LOCAL_AI_ORT=1
 ARG TARGETARCH
 RUN rustup target add wasm32-unknown-unknown \
  && case "${TARGETARCH:-amd64}" in \
@@ -22,7 +24,8 @@ WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
-    cd crates/board-web && trunk build --release \
+    if [ "$LOCAL_AI_ORT" = 1 ] && [ ! -f crates/board-web/assets/ort/ort.min.mjs ]; then tools/fetch-ort.sh; fi \
+ && cd crates/board-web && trunk build --release \
  && cd /src && cargo build -p board-server --release --locked --features embed \
  && cp target/release/board-server /board-server \
  && mkdir /data-dir

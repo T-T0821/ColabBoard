@@ -90,7 +90,7 @@ Miro や FigJam のように、Web 上で複数人が同時に編集できるホ
 - **マインドマップ**: ツールバーのマインドマップのボタンで中心のノードを置き、Tab で子、Enter で兄弟を足していく(文字の編集中も Tab で確定して子へ)。矢印キーで隣のノードへ移動、`/` で枝の折りたたみ、Delete で枝ごと削除。並べ方は左右・右へ・放射から選べ、自動で並び直す。枝は曲線で、中心から出る枝ごとに色が分かれる。ノードを別のノードの上へドラッグするとその子に付け替わる。共同編集で同時に枝を足しても全員の配置がそろう
 - **構成図**: 左上の「構成図」から AWS(約 70 種)・Azure(約 40 種)・Google Cloud(約 35 種)のサービスと、AWS Cloud / Region / VPC / AZ / サブネット、Azure のサブスクリプション / リソース グループ / VNet、Google Cloud のプロジェクト / VPC などの枠を置ける。サンプル(AWS の Web 3 層・サーバーレス、Azure の Web アプリ、Google Cloud のコンテナ API、フローチャート)は自動レイアウトして矢印でつないだ状態で挿入される。各社の公式アイコンは下の「クラウドの公式アイコン」で取り込める
 - **手書きを図形に整形**: ペンで描いた線を選ぶと書式バーに「図形に整形」と「AI で整形」が出る。「図形に整形」は端末だけで四角・丸・三角・ひし形・五角形・六角形・星・線・矢印(矢じりを別に描いても可)を認識し、線の端を近くの図形につなぐ。「AI で整形」(サーバーに `ANTHROPIC_API_KEY` を設定したとき)は線を画像にして Claude に読ませ、雲や円柱などの図形と手書きの文字も整える(図形の中の文字はその図形の文字になる)。読めなかった線はそのまま残り、1 回の Undo で戻せる
-- **ブラウザ内 AI**(右上の「ブラウザ内 AI」): 音声と手書きを、サーバーに送らずにこの端末の中だけで文字にする(社外秘の会議でも使える)。音声は Whisper(OpenAI の音声認識モデル)を Rust の candle で wasm にして Web Worker で動かし、マイクの音を発話ごとに切り出して文字起こしする。結果は一覧に出て、付箋としてボードに置ける(話すたびに置くこともできる)。モデル(tiny 約 150 MB / base 約 290 MB)は初回だけ取得して端末に保存し、次からはオフラインでも使える。手書きは「図形に整形」が図形に加えて英数字・かな・小学校で習う漢字(約 1,250 字)も端末だけで読む(図形の中の文字はその図形の文字に)。読み間違えた字は、線を選んで正しい文字を教えると次から読める(教えた字は端末に保存)。「クラウド AI を使わない」をオンにすると、要約・図の生成などサーバーの Claude を使う機能は送る前に止まり、「AI で整形」も端末内の認識になる
+- **ブラウザ内 AI**(右上の「ブラウザ内 AI」): 音声と手書きを、サーバーに送らずにこの端末の中だけで文字にする(社外秘の会議でも使える)。音声は Whisper(OpenAI の音声認識モデル)を Rust の candle で wasm にして Web Worker で動かし、マイクの音を発話ごとに切り出して文字起こしする。結果は一覧に出て、付箋としてボードに置ける(話すたびに置くこともできる)。モデル(tiny 約 150 MB / base 約 290 MB)は初回だけ取得して端末に保存し、次からはオフラインでも使える。NPU や GPU があれば、音声を読む重い部分(エンコーダ)を WebNN(NPU 優先 → GPU)、なければ WebGPU で動かし、どれも使えなければ wasm で動かす(「計算する装置」で選べる。ONNX Runtime Web を使うので `tools/fetch-ort.sh` で取り込む。Docker イメージには自動で入る)。手書きは「図形に整形」が図形に加えて英数字・かな・小学校で習う漢字(約 1,250 字)も端末だけで読む(図形の中の文字はその図形の文字に)。読み間違えた字は、線を選んで正しい文字を教えると次から読める(教えた字は端末に保存)。「クラウド AI を使わない」をオンにすると、要約・図の生成などサーバーの Claude を使う機能は送る前に止まり、「AI で整形」も端末内の認識になる
 - **生成 AI で図を作る**(サーバーに `ANTHROPIC_API_KEY` を設定したとき): 「構成図・AI」パネルに作りたい構成や手順を書くと、Claude が AWS・Azure・Google Cloud の構成図やフローチャートを作り、自動レイアウトしてボードに置く。1 回の Undo で戻せる
 - ダミー要素 1 千〜100 万個での性能確認(右上のボタン、または `?n=100000`)。`?bench` で決まった手順のパン/ズームを自動で計測([docs/benchmarks.md](docs/benchmarks.md))
 - WebGPU が使えないブラウザでは WebGL2 に自動で切り替え(`?webgl` で強制)
@@ -245,7 +245,8 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `ANTHROPIC_API_KEY` | なし | 設定すると AI 機能(付箋の要約・グループ分け、文章からの図の生成、手書きの整形、議事録、質問応答)が使える。使えるのはボードの編集権限がある人だけ |
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | AI 機能で使う Claude のモデル |
 | `LOCAL_AI_MODEL_URL` | Hugging Face(`https://huggingface.co/openai/whisper-{model}/resolve/main/`) | ブラウザ内 AI の音声認識モデルの取得元。`{model}` は `tiny` / `base` になり、その下の `config.json`・`tokenizer.json`・`model.safetensors` を取る |
-| `LOCAL_AI_MODELS_DIR` | なし | 音声認識モデルを置いたディレクトリ。`/models/` で配る(`whisper-tiny/`・`whisper-base/` の下に上の 3 ファイル)。社外に出られない環境向けで、`LOCAL_AI_MODEL_URL` がなければ自動でここを使う |
+| `LOCAL_AI_ENCODER_URL` | Hugging Face(`https://huggingface.co/onnx-community/whisper-{model}/resolve/main/onnx/`) | NPU / GPU で動かすエンコーダ(ONNX)の取得元。その下の `encoder_model_fp16.onnx`(WebNN 用)と `encoder_model.onnx`(WebGPU 用)を取る |
+| `LOCAL_AI_MODELS_DIR` | なし | 音声認識モデルを置いたディレクトリ。`/models/` で配る(`whisper-tiny/`・`whisper-base/` の下に上の 3 ファイル。NPU / GPU も使うならエンコーダの 2 ファイルも。`python3 tools/whisper-onnx/export_encoder.py <フォルダ>` で `model.safetensors` から作れる)。社外に出られない環境向けで、`LOCAL_AI_MODEL_URL`・`LOCAL_AI_ENCODER_URL` がなければ自動でここを使う |
 | `PUBLIC_URL` | なし | 公開している URL(例 `https://board.example.com/`)。Slack 通知にボードへのリンクを付ける |
 | `GITHUB_TOKEN` | なし | 課題カードで GitHub を引くときのトークン(非公開リポジトリ用。なくても公開リポジトリは読める) |
 | `GITHUB_API_URL` | `https://api.github.com` | GitHub Enterprise などの API の場所 |
@@ -379,6 +380,8 @@ npm run record          # → docs/images/perf-100k.gif と perf-100k.mp4
 ## ライセンス
 
 MIT OR Apache-2.0
+
+ブラウザ内 AI を NPU / GPU で動かすときに使う [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) は MIT ライセンス(リポジトリには含めず、`tools/fetch-ort.sh` で取り込む)。
 
 手書き文字認識の見本 `crates/board-core/src/handwriting/glyphs.bin` は、かな・漢字が [KanjiVG](https://kanjivg.tagaini.net/)(© Ulrich Apel、CC BY-SA 3.0)、英数字・記号が Hershey フォントの筆画から作ったもの(詳しくは同じフォルダの `README.md`)。作り直しは `tools/handwriting-data`。
 

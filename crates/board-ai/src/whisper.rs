@@ -147,27 +147,60 @@ impl Whisper {
         pcm: &[f32],
         language: Option<&str>,
     ) -> Result<Transcript, String> {
-        let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len().max(1) as f32).sqrt();
-        if rms < SILENCE_RMS {
-            return Ok(Transcript {
-                text: String::new(),
-                language: language.unwrap_or_default().to_string(),
-                no_speech: true,
-            });
-        }
-        let n_mels = self.n_mels();
-        let mel = mel::log_mel(pcm, n_mels);
-        let mel = Tensor::from_vec(mel, (1, n_mels, mel::N_FRAMES), &self.device).map_err(err)?;
-        self.model.reset_kv_cache();
-        let features = self.model.encoder.forward(&mel, true).map_err(err)?;
+        let Some(mel) = self.mel(pcm) else {
+            return Ok(silent(language));
+        };
+        let features = self.encode(mel)?;
+        self.decode(&features, language)
+    }
 
+    /// エンコーダに入れる log-mel(`[n_mels, 3000]` を並べたもの)。静かすぎる音声なら `None`。
+    ///
+    /// エンコーダを別の場所(WebNN / WebGPU)で動かすときは、これを渡して結果を
+    /// [`Whisper::decode_features`] に入れる。
+    pub fn mel(&self, pcm: &[f32]) -> Option<Vec<f32>> {
+        let rms = (pcm.iter().map(|x| x * x).sum::<f32>() / pcm.len().max(1) as f32).sqrt();
+        (rms >= SILENCE_RMS).then(|| mel::log_mel(pcm, self.n_mels()))
+    }
+
+    /// エンコーダの出力の形 `(フレーム数, d_model)`。
+    pub fn features_shape(&self) -> (usize, usize) {
+        let c = &self.model.config;
+        (c.max_source_positions, c.d_model)
+    }
+
+    fn encode(&mut self, mel: Vec<f32>) -> Result<Tensor, String> {
+        let n_mels = self.n_mels();
+        let mel = Tensor::from_vec(mel, (1, n_mels, mel::N_FRAMES), &self.device).map_err(err)?;
+        self.model.encoder.forward(&mel, true).map_err(err)
+    }
+
+    /// 別の場所で計算したエンコーダの出力(`[1500, d_model]` を並べたもの)から文字にする。
+    pub fn decode_features(
+        &mut self,
+        features: Vec<f32>,
+        language: Option<&str>,
+    ) -> Result<Transcript, String> {
+        let (n, d) = self.features_shape();
+        if features.len() != n * d {
+            return Err(format!(
+                "エンコーダの出力の大きさが合いません({} 個、{n}×{d} のはず)",
+                features.len()
+            ));
+        }
+        let features = Tensor::from_vec(features, (1, n, d), &self.device).map_err(err)?;
+        self.decode(&features, language)
+    }
+
+    fn decode(&mut self, features: &Tensor, language: Option<&str>) -> Result<Transcript, String> {
+        self.model.reset_kv_cache();
         let (lang_id, lang) = match language.and_then(|l| {
             self.tokenizer
                 .special(&format!("<|{l}|>"))
                 .map(|id| (id, l.to_string()))
         }) {
             Some(x) => x,
-            None => self.detect_language(&features)?,
+            None => self.detect_language(features)?,
         };
         let prompt = [self.sot, lang_id, self.transcribe, self.no_timestamps];
         let mut tokens = prompt.to_vec();
@@ -180,7 +213,7 @@ impl Whisper {
             let ys = self
                 .model
                 .decoder
-                .forward(&t, &features, step == 0)
+                .forward(&t, features, step == 0)
                 .map_err(err)?;
             let (_, n, _) = ys.dims3().map_err(err)?;
             if step == 0 {
@@ -237,6 +270,15 @@ impl Whisper {
             text,
             language: lang,
         })
+    }
+}
+
+/// 発話なしの結果。
+pub fn silent(language: Option<&str>) -> Transcript {
+    Transcript {
+        text: String::new(),
+        language: language.unwrap_or_default().to_string(),
+        no_speech: true,
     }
 }
 

@@ -206,6 +206,7 @@ pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
         "enabled": state.config.ai.is_some(),
         // ブラウザ内 AI のモデルの取得元(指定がなければクライアントの既定)。
         "local_model_url": state.config.local_ai.client_url(),
+        "local_encoder_url": state.config.local_ai.client_encoder_url(),
     }))
 }
 

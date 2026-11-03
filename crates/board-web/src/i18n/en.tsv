@@ -1031,3 +1031,17 @@ SSO 自動参加	SSO auto-join
 図形や文字として読める線がありませんでした	No ink could be read as shapes or text
 図形や文字として読める線がありませんでした。「AI で整形」も試せます	No ink could be read as shapes or text. Try “AI cleanup” too
 {n} 個の図形と {n} 行の文字に整えました(端末内で認識)。Ctrl/⌘+Z で戻せます	Cleaned up into {n} shapes and {n} lines of text (recognized on this device). Ctrl/⌘+Z to undo
+計算する装置	Compute device
+自動(NPU → GPU → CPU)	Auto (NPU → GPU → CPU)
+NPU や GPU があれば、音声を読む重い部分をそこで動かします(内容は端末の外に出ません)。WebNN でどの装置を使うかは最終的にブラウザが決めます	If an NPU or GPU is available, the heavy part of speech recognition runs there (nothing leaves this device). With WebNN, the browser makes the final choice of device
+CPU(wasm)で動かしています	Running on the CPU (wasm)
+このブラウザでは NPU / GPU を使えないので、CPU(wasm)で動かしています	This browser can't use an NPU / GPU, so it runs on the CPU (wasm)
+WebNN(NPU 優先)で動かしています(準備 {n} 秒)	Running on WebNN (NPU preferred) (prepared in {n} s)
+WebNN(GPU 優先)で動かしています(準備 {n} 秒)	Running on WebNN (GPU preferred) (prepared in {n} s)
+GPU(WebGPU)で動かしています(準備 {n} 秒)	Running on the GPU (WebGPU) (prepared in {n} s)
+WebNN(NPU 優先)の準備中…(初回はしばらくかかります)	Preparing WebNN (NPU preferred)… (the first time takes a while)
+WebNN(GPU 優先)の準備中…(初回はしばらくかかります)	Preparing WebNN (GPU preferred)… (the first time takes a while)
+GPU(WebGPU)の準備中…(初回はしばらくかかります)	Preparing the GPU (WebGPU)… (the first time takes a while)
+NPU / GPU を使う部品(ONNX Runtime Web)がサーバーにありません	The NPU / GPU runtime (ONNX Runtime Web) isn't installed on the server
+NPU / GPU を使う部品を起動できません	Couldn't start the NPU / GPU worker
+NPU / GPU を使う部品が止まりました	The NPU / GPU worker stopped

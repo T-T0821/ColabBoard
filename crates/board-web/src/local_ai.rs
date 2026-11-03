@@ -5,6 +5,8 @@
 //!   Cache Storage に置き、次からはネットワークなしで使える。取得元はサーバーが
 //!   `GET /api/ai/status` の `local_model_url` で指定できる(社内に置いたモデルを使うため)。
 //!   音声はマイクから端末内で切り出し([`Segmenter`])、Worker に渡して文字にする。
+//!   重いエンコーダは、使えれば NPU / GPU(WebNN、なければ WebGPU)で動かす([`Accel`])。
+//!   ONNX Runtime Web とエンコーダの ONNX を使い、だめなら今までどおり wasm で動かす。
 //! - **手書き文字認識**: [`board_core::handwriting`]。本体の wasm に入っている。
 //!   利用者が教えた字の見本は localStorage に置く。
 //! - **クラウド AI を使わない**: 端末ごとの設定。オンにすると、サーバーの Claude を呼ぶ
@@ -18,7 +20,9 @@ use js_sys::{Float32Array, Function, Object, Reflect, Uint8Array};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 
-pub use crate::speech::{DEFAULT_MODEL_URL, Model, Segmenter};
+pub use crate::speech::{
+    Accel, AccelPref, DEFAULT_ENCODER_URL, DEFAULT_MODEL_URL, Model, Segmenter,
+};
 
 /// Worker の読み込み口(trunk が `crates/board-ai` から作る)。
 const WORKER_URL: &str = "board-ai_loader.js";
@@ -26,6 +30,10 @@ const WORKER_URL: &str = "board-ai_loader.js";
 const KEY_CLOUD_OFF: &str = "colabboard.localai.cloudOff";
 const KEY_MODEL: &str = "colabboard.localai.model";
 const KEY_LANG: &str = "colabboard.localai.lang";
+const KEY_ACCEL: &str = "colabboard.localai.accel";
+/// Whisper tiny / base の mel の段数と、30 秒分のフレーム数。
+const N_MELS: u32 = 80;
+const N_FRAMES: u32 = 3000;
 const KEY_SAMPLES: &str = "colabboard.handwriting.samples";
 /// 覚えておく手書きの見本の上限(古いものから捨てる)。
 pub const MAX_SAMPLES: usize = 600;
@@ -121,6 +129,50 @@ export async function lai_cached(urls) {
 export async function lai_clear() {
   try { await caches.delete(CACHE); } catch (e) {}
 }
+// ---- エンコーダを NPU / GPU で(ort-worker.js。ONNX Runtime Web の WebNN / WebGPU) ----
+let ortWorker = null, ortSeq = 0;
+const ortPending = new Map();
+function ortCall(msg, transfer) {
+  if (!ortWorker) {
+    try {
+      ortWorker = new Worker(new URL('ort-worker.js', document.baseURI), { type: 'module' });
+    } catch (e) {
+      return Promise.reject('NPU / GPU を使う部品を起動できません');
+    }
+    ortWorker.onmessage = (e) => {
+      const d = e.data || {};
+      const p = ortPending.get(d.id);
+      if (!p) return;
+      ortPending.delete(d.id);
+      if (d.error) p.reject(d.error); else p.resolve(d);
+    };
+    ortWorker.onerror = (e) => {
+      e.preventDefault();
+      for (const [, p] of ortPending) p.reject('NPU / GPU を使う部品が止まりました');
+      ortPending.clear();
+      if (ortWorker) ortWorker.terminate();
+      ortWorker = null;
+    };
+  }
+  return new Promise((resolve, reject) => {
+    const id = ++ortSeq;
+    ortPending.set(id, { resolve, reject });
+    ortWorker.postMessage({ ...msg, id }, transfer || []);
+  });
+}
+export async function lai_accel_probe() {
+  try { return (await ortCall({ type: 'probe' })).kinds || []; } catch (e) { return []; }
+}
+export async function lai_enc_load(kind, bytes, nMels, frames) {
+  // 取得したバイト列は Cache Storage にも置いてあるので、写さずに渡す。
+  return (await ortCall({ type: 'load', kind, bytes, nMels, frames }, [bytes.buffer])).ms;
+}
+export async function lai_enc_run(mel) {
+  return (await ortCall({ type: 'run', mel }, [mel.buffer])).features;
+}
+export function lai_enc_drop() {
+  if (ortWorker) ortCall({ type: 'drop' }).catch(() => {});
+}
 let mic = null;
 export async function lai_mic_start(onchunk) {
   const stream = await navigator.mediaDevices.getUserMedia({
@@ -157,6 +209,18 @@ extern "C" {
     #[wasm_bindgen(catch)]
     fn lai_mic_start(onchunk: &Function) -> Result<js_sys::Promise, JsValue>;
     fn lai_mic_stop();
+    #[wasm_bindgen(catch)]
+    fn lai_accel_probe() -> Result<js_sys::Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn lai_enc_load(
+        kind: &str,
+        bytes: &Uint8Array,
+        n_mels: u32,
+        frames: u32,
+    ) -> Result<js_sys::Promise, JsValue>;
+    #[wasm_bindgen(catch)]
+    fn lai_enc_run(mel: &Float32Array) -> Result<js_sys::Promise, JsValue>;
+    fn lai_enc_drop();
 }
 
 fn js_msg(e: JsValue) -> String {
@@ -269,6 +333,8 @@ pub enum Speech {
     Downloading(f64, f64),
     /// Worker でモデルを読み込み中。
     Loading,
+    /// NPU / GPU でエンコーダを動かす準備中。
+    Preparing(Accel),
     Ready(Model),
     Failed(String),
 }
@@ -276,6 +342,8 @@ pub enum Speech {
 thread_local! {
     static SPEECH: RefCell<Speech> = const { RefCell::new(Speech::Idle) };
     static MODEL_URL: RefCell<String> = RefCell::new(DEFAULT_MODEL_URL.to_string());
+    static ENCODER_URL: RefCell<String> = RefCell::new(DEFAULT_ENCODER_URL.to_string());
+    static ACCEL: RefCell<AccelState> = RefCell::new(AccelState::default());
     static LISTENERS: RefCell<Vec<Rc<dyn Fn()>>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -285,6 +353,10 @@ pub fn speech() -> Speech {
 
 fn set_speech(s: Speech) {
     SPEECH.with(|x| *x.borrow_mut() = s);
+    notify();
+}
+
+fn notify() {
     let ls: Vec<Rc<dyn Fn()>> = LISTENERS.with(|l| l.borrow().clone());
     for l in ls {
         l();
@@ -301,6 +373,41 @@ pub fn set_model_url(url: &str) {
     if !url.trim().is_empty() {
         MODEL_URL.with(|u| *u.borrow_mut() = url.trim().to_string());
     }
+}
+
+/// サーバーが指定したエンコーダ(ONNX)の取得元(`{model}` を含む URL)。
+pub fn set_encoder_url(url: &str) {
+    if !url.trim().is_empty() {
+        ENCODER_URL.with(|u| *u.borrow_mut() = url.trim().to_string());
+    }
+}
+
+/// エンコーダをどこで動かしているか。
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AccelState {
+    /// NPU / GPU で動かしているならその装置。`None` は CPU(wasm)。
+    pub active: Option<Accel>,
+    /// 画面に出す説明(使えなかった理由など)。
+    pub note: String,
+}
+
+pub fn accel_state() -> AccelState {
+    ACCEL.with(|a| a.borrow().clone())
+}
+
+fn set_accel(active: Option<Accel>, note: String) {
+    ACCEL.with(|a| *a.borrow_mut() = AccelState { active, note });
+    notify();
+}
+
+pub fn accel_pref() -> AccelPref {
+    get_pref(KEY_ACCEL)
+        .and_then(|p| AccelPref::from_id(&p))
+        .unwrap_or(AccelPref::Auto)
+}
+
+pub fn set_accel_pref(p: AccelPref) {
+    set_pref(KEY_ACCEL, p.id());
 }
 
 /// モデルのファイルの URL(config, tokenizer, weights)。
@@ -327,6 +434,8 @@ pub async fn is_cached(m: Model) -> bool {
 /// 保存したモデルを消し、Worker も止める。
 pub async fn forget_models() {
     lai_stop();
+    lai_enc_drop();
+    set_accel(None, String::new());
     if let Ok(p) = lai_clear() {
         let _ = JsFuture::from(p).await;
     }
@@ -393,10 +502,98 @@ async fn load_inner(m: Model) -> Result<(), String> {
     set("weights", &weights);
     // 重み(数百 MB)は写さずに Worker へ渡す。
     let transfer = js_sys::Array::of1(&weights.buffer());
-    JsFuture::from(lai_call(&msg, &transfer).map_err(js_msg)?)
-        .await
-        .map_err(js_msg)?;
+    call(&msg, &transfer).await?;
+    prepare_accel(m).await;
     Ok(())
+}
+
+async fn call(msg: &Object, transfer: &js_sys::Array) -> Result<JsValue, String> {
+    JsFuture::from(lai_call(msg, transfer).map_err(js_msg)?)
+        .await
+        .map_err(js_msg)
+}
+
+/// 使える装置を調べる(WebNN の NPU / GPU、WebGPU)。
+async fn probe_accel() -> Vec<Accel> {
+    let Ok(p) = lai_accel_probe() else {
+        return Vec::new();
+    };
+    let Ok(v) = JsFuture::from(p).await else {
+        return Vec::new();
+    };
+    js_sys::Array::from(&v)
+        .iter()
+        .filter_map(|x| x.as_string().and_then(|id| Accel::from_id(&id)))
+        .collect()
+}
+
+/// 設定に合わせて、エンコーダを NPU / GPU で動かす準備をする。だめなら CPU(wasm)のまま。
+/// 失敗しても文字起こしはできるので、エラーにはせず理由を [`accel_state`] に残す。
+async fn prepare_accel(m: Model) {
+    lai_enc_drop();
+    let pref = accel_pref();
+    if pref == AccelPref::Cpu {
+        set_accel(None, "CPU(wasm)で動かしています".into());
+        return;
+    }
+    let available = probe_accel().await;
+    let candidates = pref.candidates(&available);
+    if candidates.is_empty() {
+        let note = match pref {
+            AccelPref::Only(a) => format!(
+                "{}はこのブラウザでは使えないので、CPU(wasm)で動かしています",
+                a.label()
+            ),
+            _ => "このブラウザでは NPU / GPU を使えないので、CPU(wasm)で動かしています".into(),
+        };
+        set_accel(None, note);
+        return;
+    }
+    let mut errors = Vec::new();
+    for a in candidates {
+        let url = ENCODER_URL.with(|u| crate::speech::encoder_file(&u.borrow(), m, a));
+        let progress = Closure::<dyn FnMut(f64, f64)>::new(move |got: f64, total: f64| {
+            set_speech(Speech::Downloading(got, total.max(got)));
+        });
+        let result = async {
+            let bytes = fetch_bytes(&url, progress.as_ref().unchecked_ref()).await?;
+            set_speech(Speech::Preparing(a));
+            let p = lai_enc_load(a.id(), &bytes, N_MELS, N_FRAMES).map_err(js_msg)?;
+            JsFuture::from(p).await.map_err(js_msg)
+        }
+        .await;
+        match result {
+            Ok(ms) => {
+                let ms = ms.as_f64().unwrap_or(0.0);
+                set_accel(
+                    Some(a),
+                    format!("{}で動かしています(準備 {:.1} 秒)", a.label(), ms / 1000.0),
+                );
+                return;
+            }
+            Err(e) => errors.push(format!("{}: {e}", a.label())),
+        }
+    }
+    set_accel(
+        None,
+        format!(
+            "NPU / GPU を使えなかったので、CPU(wasm)で動かしています({})",
+            errors.join(" / ")
+        ),
+    );
+}
+
+/// 装置の設定を変えたら呼ぶ。モデルを読み込み済みなら、エンコーダを準備し直す。
+pub async fn reload_accel() {
+    let Speech::Ready(m) = speech() else {
+        return;
+    };
+    if LOADING.with(|l| l.replace(true)) {
+        return;
+    }
+    prepare_accel(m).await;
+    LOADING.with(|l| l.set(false));
+    set_speech(Speech::Ready(m));
 }
 
 /// 文字起こしの結果。
@@ -409,9 +606,32 @@ pub struct Transcript {
 }
 
 /// 音声(モノラル、`rate` Hz)を文字にする。モデルを読み込んでいなければエラー。
+///
+/// NPU / GPU を使えるときは、Worker で log-mel を作り → エンコーダを NPU / GPU で動かし →
+/// Worker でデコードする。NPU / GPU でエラーが出たら CPU(wasm)に切り替えて読み直す。
 pub async fn transcribe(pcm: &[f32], rate: f32, language: &str) -> Result<Transcript, String> {
     if !matches!(speech(), Speech::Ready(_)) {
         return Err("音声認識のモデルを読み込んでください".into());
+    }
+    let lang = if language.is_empty() {
+        JsValue::NULL
+    } else {
+        language.into()
+    };
+    if let Some(a) = accel_state().active {
+        match transcribe_accel(pcm, rate, &lang).await {
+            Ok(t) => return Ok(t),
+            Err(e) => {
+                lai_enc_drop();
+                set_accel(
+                    None,
+                    format!(
+                        "{}でエラーが出たので CPU(wasm)に切り替えました: {e}",
+                        a.label()
+                    ),
+                );
+            }
+        }
     }
     let msg = Object::new();
     let samples = Float32Array::from(pcm);
@@ -421,24 +641,47 @@ pub async fn transcribe(pcm: &[f32], rate: f32, language: &str) -> Result<Transc
     set("type", &"transcribe".into());
     set("pcm", &samples);
     set("rate", &JsValue::from_f64(rate as f64));
-    set(
-        "language",
-        &if language.is_empty() {
-            JsValue::NULL
-        } else {
-            language.into()
-        },
-    );
+    set("language", &lang);
     let transfer = js_sys::Array::of1(&samples.buffer());
-    let v = JsFuture::from(lai_call(&msg, &transfer).map_err(js_msg)?)
-        .await
-        .map_err(js_msg)?;
-    let get = |k: &str| Reflect::get(&v, &k.into()).unwrap_or(JsValue::UNDEFINED);
-    Ok(Transcript {
+    let v = call(&msg, &transfer).await?;
+    Ok(to_transcript(&v, None))
+}
+
+fn to_transcript(v: &JsValue, ms: Option<f64>) -> Transcript {
+    let get = |k: &str| Reflect::get(v, &k.into()).unwrap_or(JsValue::UNDEFINED);
+    Transcript {
         text: get("text").as_string().unwrap_or_default(),
         language: get("language").as_string().unwrap_or_default(),
-        ms: get("ms").as_f64().unwrap_or(0.0),
-    })
+        ms: ms.unwrap_or_else(|| get("ms").as_f64().unwrap_or(0.0)),
+    }
+}
+
+async fn transcribe_accel(pcm: &[f32], rate: f32, lang: &JsValue) -> Result<Transcript, String> {
+    let start = js_sys::Date::now();
+    let msg = Object::new();
+    let samples = Float32Array::from(pcm);
+    let _ = Reflect::set(&msg, &"type".into(), &"mel".into());
+    let _ = Reflect::set(&msg, &"pcm".into(), &samples);
+    let _ = Reflect::set(&msg, &"rate".into(), &JsValue::from_f64(rate as f64));
+    let v = call(&msg, &js_sys::Array::of1(&samples.buffer())).await?;
+    let mel = Reflect::get(&v, &"mel".into()).unwrap_or(JsValue::NULL);
+    if mel.is_null() || mel.is_undefined() {
+        // 静かすぎて読むまでもない。
+        return Ok(Transcript {
+            text: String::new(),
+            language: lang.as_string().unwrap_or_default(),
+            ms: js_sys::Date::now() - start,
+        });
+    }
+    let mel = Float32Array::new(&mel);
+    let p = lai_enc_run(&mel).map_err(js_msg)?;
+    let features = Float32Array::new(&JsFuture::from(p).await.map_err(js_msg)?);
+    let msg = Object::new();
+    let _ = Reflect::set(&msg, &"type".into(), &"decode".into());
+    let _ = Reflect::set(&msg, &"features".into(), &features);
+    let _ = Reflect::set(&msg, &"language".into(), lang);
+    let v = call(&msg, &js_sys::Array::of1(&features.buffer())).await?;
+    Ok(to_transcript(&v, Some(js_sys::Date::now() - start)))
 }
 
 /// マイクの音を受け取り始める。`on_chunk(サンプル, サンプリング周波数)`。

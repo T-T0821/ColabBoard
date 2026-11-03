@@ -49,6 +49,104 @@ pub fn model_files(template: &str, m: Model) -> [String; 3] {
     ]
 }
 
+/// エンコーダ(ONNX)の取得元の既定。`{model}` を tiny / base に置き換える。
+pub const DEFAULT_ENCODER_URL: &str =
+    "https://huggingface.co/onnx-community/whisper-{model}/resolve/main/onnx/";
+
+/// Whisper のエンコーダ(重い方)を動かす装置。デコーダはいつも wasm(candle)で動かす。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Accel {
+    /// WebNN で NPU を頼む(Copilot+ PC の NPU など)。実際にどれで動かすかはブラウザと OS が
+    /// 決め、ページからは分からない。NPU がなければ GPU や CPU で動くこともある。
+    Npu,
+    /// WebNN で GPU を頼む。
+    Gpu,
+    /// WebGPU。
+    WebGpu,
+}
+
+impl Accel {
+    /// 自動で試す順番(速くて電気を食わない順)。
+    pub const ORDER: [Accel; 3] = [Accel::Npu, Accel::Gpu, Accel::WebGpu];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Accel::Npu => "npu",
+            Accel::Gpu => "gpu",
+            Accel::WebGpu => "webgpu",
+        }
+    }
+
+    pub fn from_id(s: &str) -> Option<Self> {
+        Self::ORDER.into_iter().find(|a| a.id() == s)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Accel::Npu => "WebNN(NPU 優先)",
+            Accel::Gpu => "WebNN(GPU 優先)",
+            Accel::WebGpu => "GPU(WebGPU)",
+        }
+    }
+
+    /// 使うエンコーダのファイル名。NPU と WebNN の GPU は float16 の方が速く、
+    /// NPU は float16 しか扱えないものも多い。WebGPU は float32 で正確に。
+    pub fn encoder_file(self) -> &'static str {
+        match self {
+            Accel::Npu | Accel::Gpu => "encoder_model_fp16.onnx",
+            Accel::WebGpu => "encoder_model.onnx",
+        }
+    }
+}
+
+/// エンコーダをどこで動かすかの設定。
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AccelPref {
+    /// NPU → GPU(WebNN)→ WebGPU → CPU(wasm)の順に、使えるものを使う。
+    Auto,
+    /// これだけを試し、だめなら CPU(wasm)。
+    Only(Accel),
+    /// いつも CPU(wasm)。
+    Cpu,
+}
+
+impl AccelPref {
+    pub fn id(self) -> &'static str {
+        match self {
+            AccelPref::Auto => "auto",
+            AccelPref::Only(a) => a.id(),
+            AccelPref::Cpu => "cpu",
+        }
+    }
+
+    pub fn from_id(s: &str) -> Option<Self> {
+        match s {
+            "auto" => Some(AccelPref::Auto),
+            "cpu" => Some(AccelPref::Cpu),
+            _ => Accel::from_id(s).map(AccelPref::Only),
+        }
+    }
+
+    /// 試す順に並べた装置(`available` はブラウザが使えると答えたもの)。
+    pub fn candidates(self, available: &[Accel]) -> Vec<Accel> {
+        match self {
+            AccelPref::Auto => Accel::ORDER
+                .into_iter()
+                .filter(|a| available.contains(a))
+                .collect(),
+            AccelPref::Only(a) if available.contains(&a) => vec![a],
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// エンコーダのファイルの URL。`template` の `{model}` を置き換える。
+pub fn encoder_file(template: &str, m: Model, a: Accel) -> String {
+    let base = template.trim().replace("{model}", m.id());
+    let sep = if base.ends_with('/') { "" } else { "/" };
+    format!("{base}{sep}{}", a.encoder_file())
+}
+
 /// マイクの音を、発話ごとのかたまりに切り出す(音量による簡単な発話検出)。
 ///
 /// 話し始めから、[`Segmenter::SILENCE`] 秒黙るまでを 1 つにする。長く話し続けたら
@@ -149,6 +247,42 @@ impl Segmenter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn accel_candidates() {
+        let all = Accel::ORDER;
+        assert_eq!(AccelPref::Auto.candidates(&all), all.to_vec());
+        // ブラウザの答えの順に関係なく、NPU を先に試す。
+        assert_eq!(
+            AccelPref::Auto.candidates(&[Accel::WebGpu, Accel::Npu]),
+            vec![Accel::Npu, Accel::WebGpu]
+        );
+        assert_eq!(
+            AccelPref::Only(Accel::Gpu).candidates(&all),
+            vec![Accel::Gpu]
+        );
+        assert!(
+            AccelPref::Only(Accel::Npu)
+                .candidates(&[Accel::Gpu])
+                .is_empty()
+        );
+        assert!(AccelPref::Cpu.candidates(&all).is_empty());
+        for p in [
+            AccelPref::Auto,
+            AccelPref::Cpu,
+            AccelPref::Only(Accel::WebGpu),
+        ] {
+            assert_eq!(AccelPref::from_id(p.id()), Some(p));
+        }
+        assert_eq!(
+            encoder_file(DEFAULT_ENCODER_URL, Model::Base, Accel::Npu),
+            "https://huggingface.co/onnx-community/whisper-base/resolve/main/onnx/encoder_model_fp16.onnx"
+        );
+        assert_eq!(
+            encoder_file("/models/whisper-{model}", Model::Tiny, Accel::WebGpu),
+            "/models/whisper-tiny/encoder_model.onnx"
+        );
+    }
 
     fn tone(secs: f32, rate: f32, amp: f32) -> Vec<f32> {
         (0..(secs * rate) as usize)

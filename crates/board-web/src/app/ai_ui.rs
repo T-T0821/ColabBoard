@@ -209,6 +209,9 @@ pub(super) fn install(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), Stri
                 if let Some(url) = v["local_model_url"].as_str() {
                     crate::local_ai::set_model_url(url);
                 }
+                if let Some(url) = v["local_encoder_url"].as_str() {
+                    crate::local_ai::set_encoder_url(url);
+                }
                 if v["enabled"] == true {
                     ui.set_status("説明を書いて「生成」(Ctrl/⌘+Enter)", false);
                 } else {
