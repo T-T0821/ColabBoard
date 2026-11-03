@@ -5,3 +5,4 @@ dist/
 !/crates/board-web/assets/cloud-icons/README.md
 /crates/board-web/assets/ort/*
 !/crates/board-web/assets/ort/README.md
+__pycache__/
