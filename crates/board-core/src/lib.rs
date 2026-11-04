@@ -23,6 +23,7 @@ pub mod geom;
 pub mod ink;
 pub mod issue;
 pub mod markdown;
+pub mod meeting;
 pub mod mindmap;
 pub mod miro;
 pub mod navigation;

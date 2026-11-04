@@ -6,7 +6,7 @@
 //! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
 //! - `/api/billing/...`: 料金プランと Stripe での支払い([`billing`])。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])・会議の進行役([`ai_meeting`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -17,6 +17,7 @@ pub mod ai;
 pub mod ai_board;
 pub mod ai_diagram;
 pub mod ai_ink;
+pub mod ai_meeting;
 pub mod api;
 pub mod audit;
 pub mod auth;
@@ -193,6 +194,10 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/boards/{id}/ai/minutes", post(ai_board::minutes))
         .route("/api/boards/{id}/ai/ask", post(ai_board::ask))
         .route("/api/boards/{id}/ai/mindmap", post(ai_board::mindmap))
+        .route(
+            "/api/boards/{id}/ai/facilitate",
+            post(ai_meeting::facilitate),
+        )
         .route("/api/ai/status", get(ai_diagram::status))
         .route("/api/boards/{id}/issues", post(issues::lookup))
         .route("/api/rtc", get(rtc_config))
