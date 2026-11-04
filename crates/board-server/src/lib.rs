@@ -7,7 +7,7 @@
 //! - `/api/billing/...`: 料金プランと Stripe での支払い([`billing`])。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
 //! - `/api/errors`・`/api/admin/...`: エラー監視([`errors`])と定期バックアップ・復元([`backup`])。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])・会議の進行役([`ai_meeting`])、Slack 通知([`slack`])、メール・プッシュ通知([`notify`])、会議・カレンダーの紐づけ([`meeting_link`])、GitHub・Jira の課題カード([`issues`])、自作テンプレートのギャラリー([`templates`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])・会議の進行役([`ai_meeting`])、Slack 通知([`slack`])、メール・プッシュ通知([`notify`])、会議・カレンダーの紐づけ([`meeting_link`])、GitHub・Jira の課題カード([`issues`])、自作テンプレートのギャラリー([`templates`])、ボードの GitHub での管理([`github`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -29,6 +29,7 @@ pub mod comments;
 pub mod e2e;
 #[cfg(feature = "embed")]
 mod embedded;
+pub mod github;
 pub mod errors;
 pub mod guard;
 pub mod issues;
@@ -97,6 +98,8 @@ pub struct Config {
     pub plugins: plugins::PluginConfig,
     /// GitHub・Jira の課題カード。
     pub issues: issues::IssuesConfig,
+    /// ボードを GitHub のリポジトリで管理する。
+    pub github: github::GithubConfig,
     /// 音声通話の ICE サーバー(`RTCIceServer` の配列)。`GET /api/rtc` で配る。
     pub ice_servers: serde_json::Value,
     /// 会議の URL として受け付ける、Zoom・Meet・Teams 以外のドメイン(`MEETING_HOSTS`)。
@@ -167,6 +170,7 @@ impl Default for Config {
             slack: slack::SlackConfig::default(),
             plugins: plugins::PluginConfig::default(),
             issues: issues::IssuesConfig::default(),
+            github: github::GithubConfig::default(),
             ice_servers: default_ice_servers(),
             meeting_hosts: Vec::new(),
             embed_origins: "*".into(),
@@ -237,6 +241,15 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         )
         .route("/api/ai/status", get(ai_diagram::status))
         .route("/api/boards/{id}/issues", post(issues::lookup))
+        .route(
+            "/api/boards/{id}/github",
+            get(github::get_link)
+                .put(github::set_link)
+                .delete(github::unlink),
+        )
+        .route("/api/boards/{id}/github/status", get(github::status))
+        .route("/api/boards/{id}/github/sync", post(github::sync))
+        .route("/api/github/webhook", post(github::webhook))
         .route("/api/rtc", get(rtc_config))
         .route("/api/boards/{id}/p2p", get(p2p::get_policy))
         .route("/api/boards/{id}/p2p/events", post(p2p::post_events))

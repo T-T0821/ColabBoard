@@ -37,6 +37,7 @@ pub mod p2p;
 pub mod plugin;
 pub mod privacy;
 pub mod protocol;
+pub mod repo;
 pub mod search;
 pub mod session;
 pub mod shape;

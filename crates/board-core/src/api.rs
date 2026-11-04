@@ -39,6 +39,12 @@
 //! | `GET` | `/api/boards/{id}/slack` | Slack 通知の設定([`SlackSettings`]、オーナーのみ) |
 //! | `PUT` | `/api/boards/{id}/slack` | Slack 通知の設定を変える([`SetSlack`] → [`SlackSettings`]、オーナーのみ) |
 //! | `POST` | `/api/boards/{id}/slack/test` | Slack にテストのメッセージを送る(オーナーのみ) |
+//! | `GET` | `/api/boards/{id}/github?key=` | GitHub のリポジトリとのつながり([`GithubLink`] か `null`、編集者以上) |
+//! | `PUT` | `/api/boards/{id}/github` | リポジトリにつなぐ([`SetGithub`] → [`GithubLink`]、オーナーのみ) |
+//! | `DELETE` | `/api/boards/{id}/github` | つながりを外す(オーナーのみ。リポジトリのファイルはそのまま) |
+//! | `GET` | `/api/boards/{id}/github/status?key=` | ボードとリポジトリのどちらが変わったか([`GithubStatus`]、編集者以上) |
+//! | `POST` | `/api/boards/{id}/github/sync?key=` | 同期・コミット・プルリクエスト・読み込み([`GithubSyncRequest`] → [`GithubSyncResult`]、編集者以上) |
+//! | `POST` | `/api/github/webhook` | GitHub の push を受けて、自動取り込みのボードにマージする(`GITHUB_WEBHOOK_SECRET` の署名つき) |
 //! | `POST` | `/api/boards/{id}/issues?key=` | GitHub・Jira の課題の状態を引く([`IssueQuery`] → [`IssueLookup`] の配列、編集者以上) |
 //! | `GET` | `/api/boards/{id}/meeting-link?key=` | 紐づけた会議と予定([`MeetingLink`](crate::meeting_link::MeetingLink)、閲覧者以上) |
 //! | `PUT` | `/api/boards/{id}/meeting-link?key=` | 会議と予定を紐づける・外す([`SetMeetingLink`](crate::meeting_link::SetMeetingLink) → `MeetingLink`、編集者以上・要ログイン) |
@@ -1196,6 +1202,121 @@ pub struct SetSlack {
     pub webhook: Option<String>,
     #[serde(default)]
     pub events: SlackEvents,
+}
+
+/// ボードと GitHub のリポジトリのつながり。トークンは返さない。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GithubLink {
+    /// `owner/name`。
+    pub repo: String,
+    pub branch: String,
+    /// リポジトリの中のボードのファイル(例 `boards/plan.graboard.json`)。
+    pub path: String,
+    /// ボードにトークンを保存してあるか(`false` ならサーバーのトークンを使う)。
+    pub has_token: bool,
+    /// 書き込みに使えるトークンがあるか(ボードのもの・サーバーのもの)。
+    pub writable: bool,
+    /// GitHub への push を受けて自動で取り込む(サーバーに Webhook の設定が要る)。
+    pub auto_pull: bool,
+    /// ファイルを GitHub で開く URL。
+    pub url: String,
+    /// 最後に同期した時点。
+    #[serde(default)]
+    pub last: Option<GithubSyncPoint>,
+}
+
+/// 最後に同期した時点。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GithubSyncPoint {
+    /// コミットの SHA。
+    pub commit: String,
+    pub at: u64,
+    #[serde(default)]
+    pub by: Option<String>,
+    /// コミットを GitHub で開く URL。
+    pub url: String,
+}
+
+/// リポジトリにつなぐ。`token` が `None` ならそのまま、空文字なら消す。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SetGithub {
+    /// `owner/name` か `https://github.com/owner/name`。
+    pub repo: String,
+    /// 省略時はリポジトリの既定のブランチ。
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// 省略時は `boards/{ボードID}.graboard.json`。
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub token: Option<String>,
+    #[serde(default)]
+    pub auto_pull: bool,
+}
+
+/// ボードとリポジトリのどちらが、最後の同期から変わったか。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GithubStatus {
+    pub link: GithubLink,
+    /// リポジトリにファイルがあるか。
+    pub remote_exists: bool,
+    /// ボードが最後の同期から変わった(初めてなら、リポジトリのファイルと違う)。
+    pub board_changed: bool,
+    /// リポジトリのファイルが最後の同期から変わった。
+    pub repo_changed: bool,
+}
+
+/// 同期のしかた。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GithubSyncMode {
+    /// 両方の変更をマージし、ボードとリポジトリを同じにする。
+    #[default]
+    Sync,
+    /// ボードの今の状態でリポジトリのファイルを上書きする。
+    Push,
+    /// リポジトリのファイルでボードを上書きする(前の状態は版の履歴に残す)。
+    Pull,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct GithubSyncRequest {
+    #[serde(default)]
+    pub mode: GithubSyncMode,
+    /// コミットメッセージ(省略時は自動)。
+    #[serde(default)]
+    pub message: Option<String>,
+    /// ブランチに直接コミットせず、新しいブランチからプルリクエストを出す。
+    #[serde(default)]
+    pub pull_request: bool,
+}
+
+/// 要素の追加・変更・削除の数。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangeCount {
+    pub added: usize,
+    pub updated: usize,
+    pub removed: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GithubSyncResult {
+    /// ボードに加えた変更(リポジトリから取り込んだもの)。
+    pub board: ChangeCount,
+    /// リポジトリに加えた変更(コミットしたもの)。
+    pub repo: ChangeCount,
+    /// 両方で違う変更があった要素(ボード側を残した)の説明。
+    #[serde(default)]
+    pub conflicts: Vec<String>,
+    /// 作ったコミット。
+    #[serde(default)]
+    pub commit: Option<String>,
+    #[serde(default)]
+    pub commit_url: Option<String>,
+    /// 出したプルリクエスト。
+    #[serde(default)]
+    pub pull_request_url: Option<String>,
+    pub link: GithubLink,
 }
 
 /// 課題の置き場所。

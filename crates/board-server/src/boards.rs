@@ -38,6 +38,9 @@ pub struct BoardMeta {
     /// Slack 通知の送り先。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slack: Option<crate::slack::SlackHook>,
+    /// GitHub のリポジトリとのつながり。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub github: Option<crate::github::GithubHook>,
     /// 紐づけた会議(Zoom・Meet・Teams)とカレンダーの予定。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meeting_link: Option<board_core::meeting_link::MeetingLink>,
@@ -246,6 +249,7 @@ pub fn create(
             link: None,
             embed: None,
             slack: None,
+            github: None,
             meeting_link: None,
             public: None,
             deleted: false,
@@ -519,6 +523,7 @@ mod tests {
             }),
             embed: None,
             slack: None,
+            github: None,
             meeting_link: None,
             public: None,
             deleted: false,

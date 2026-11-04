@@ -16,6 +16,7 @@ quick-xml = "0.42"
 miniz_oxide = "0.8"
 base64 = "0.22"
 percent-encoding = "2"
+sha2 = "0.10"
 calamine = { version = "0.37.0", optional = true }
 encoding_rs = { version = "0.8.44", optional = true }
 

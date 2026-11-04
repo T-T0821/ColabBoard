@@ -129,6 +129,7 @@ Miro や FigJam のように、Web 上で複数人が同時に編集できるホ
 | 機能 | 内容 |
 | --- | --- |
 | **Slack 通知** | オーナーは「共有」パネルで Slack の Incoming Webhook URL を登録すると、コメント・メンション・名前を付けたバージョンの保存(と復元)をチャンネルに流せる。送る出来事は選べて、「テスト送信」で届くか確かめられる。URL は保存後は末尾しか表示しない |
+| **GitHub でボードを管理** | ボードを差分の読みやすいテキスト(`.graboard.json`。1 要素 1 行の JSON、画像は `assets/` に別ファイル)としてリポジトリに置く。オーナーが「共有」パネルでリポジトリ・ブランチ・ファイルの場所をつなぎ、編集者は「履歴」から同期・プルリクエスト作成ができる。同期は最後の同期時点・ボード・リポジトリの 3 方向マージで、GitHub 側の編集もボードに取り込む(取り込む前の状態は版の履歴に残る)。Webhook で push を自動で取り込める。詳しくは [docs/github.md](docs/github.md) |
 | **会議・カレンダー連携(Zoom・Google Meet・Teams)** | 上部の「会議」から、ボードに会議の参加 URL と予定(名前・開始・終わり・カレンダーの予定のリンク)を紐づけられる(編集者以上)。開始 15 分前からボタンが「会議に参加」に変わり、開催中は色が付く。パネルからは会議への参加、Google カレンダーへの追加(予定の説明にボードの URL が入る)、`.ics` の保存(Outlook・Apple カレンダー・Teams)、会議のチャットに貼る招待文のコピーができ、参加者はそこからボードを開ける。Teams ではチャネルやチャットの「Web サイト」タブにボードの URL を追加でき、埋め込み用の鍵を使った `&embed=1` の URL なら会議アプリの中でもログインなしで表示できる。受け付ける会議の URL は Zoom・Meet・Teams のものだけで、`MEETING_HOSTS` で Webex などを足せる。誰かが変えると開いている全員の表示が変わる |
 | **GitHub・Jira の課題カード** | 課題やプルリクエストの URL(`https://github.com/…/issues/12`、`…/pull/34`、`https://…atlassian.net/browse/PROJ-5`)を貼ると、番号・タイトル・状態・担当者を書いたカードになる(複数行まとめて貼れる)。色は状態ごと(オープン=緑、進行中=青、完了・マージ=紫、対応しないで閉じた=灰)。ボードを開いている間は 2 分ごとに状態を引き直して全員のカードを書き換える。クリックで課題を開く |
 
@@ -307,6 +308,9 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `NOTIFY_UTC_OFFSET` | `+09:00` | 通知メールに書く期限の時刻のタイムゾーン |
 | `GITHUB_TOKEN` | なし | 課題カードで GitHub を引くときのトークン(非公開リポジトリ用。なくても公開リポジトリは読める) |
 | `GITHUB_API_URL` | `https://api.github.com` | GitHub Enterprise などの API の場所 |
+| `GITHUB_SYNC_REPOS` | なし | ボードの GitHub 管理でサーバーの `GITHUB_TOKEN` を使ってよいリポジトリ(`owner/name` か `owner/*` のカンマ区切り)。それ以外はボードごとのトークンが要る |
+| `GITHUB_WEBHOOK_SECRET` | なし | `POST /api/github/webhook` の署名の鍵。設定すると GitHub への push をボードに自動で取り込める |
+| `GITHUB_WEB_URL` | `https://github.com` | ファイル・コミットを開くリンクの土台(GitHub Enterprise 用) |
 | `JIRA_BASE_URL` | なし | 課題カードで引く Jira のサイト(`https://example.atlassian.net`)。これ以外のサイトの URL は引かない |
 | `JIRA_EMAIL` / `JIRA_API_TOKEN` | なし | Jira の API トークン(3 つそろうと Jira 連携が有効になる) |
 | `JIRA_API_URL` | `JIRA_BASE_URL` | Jira の API を別の場所(プロキシなど)経由で呼ぶとき |

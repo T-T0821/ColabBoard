@@ -1236,6 +1236,48 @@ AI 機能 無制限	Unlimited AI
 一致するボードはありません	No matching boards
 お気に入りはまだありません。ボードの ☆ を押すとここに集まります。	No favorites yet. Press ☆ on a board to collect it here.
 フォルダの名前を入れてください	Enter a folder name
+GitHub で管理	Manage on GitHub
+ボードを差分の読みやすいテキスト(1 要素 1 行の JSON)としてリポジトリに置き、コミット・プルリクエストで管理します。同期は「履歴」から編集者ができます。	Keeps the board in a repository as diff-friendly text (JSON, one element per line) so you can manage it with commits and pull requests. Editors can sync from History.
+owner/name か https://github.com/owner/name	owner/name or https://github.com/owner/name
+リポジトリ	Repository
+ブランチ(省略時は既定)	Branch (default if empty)
+ブランチ	Branch
+ファイルの場所	File path
+GitHub のトークン	GitHub token
+保存済み。変えるときだけ入力	Saved. Enter only to change
+サーバーのトークンを使います(ボード専用にするなら入力)	Uses the server's token (enter one to use a board-specific token)
+トークン(github_pat_…)	Token (github_pat_…)
+GitHub への push を自動で取り込む	Pull in pushes to GitHub automatically
+トークンは fine-grained の個人アクセストークンで、このリポジトリの Contents と Pull requests を読み書きできるものにしてください(保存後は表示しません)。自動で取り込むには、リポジトリの Settings → Webhooks に	Use a fine-grained personal access token with read/write access to Contents and Pull requests for this repository (it is not shown after saving). To pull in pushes automatically, add
+(Content type は application/json、Secret はサーバー管理者に確認)を登録します。	under Settings → Webhooks of the repository (Content type: application/json; ask your server admin for the secret).
+外す	Disconnect
+リポジトリを確かめています…	Checking the repository…
+GitHub から外しました(リポジトリのファイルはそのままです)	Disconnected from GitHub (the file in the repository is kept)
+同期	Sync
+プルリクエストにする	Open a pull request
+変更を確かめる	Check for changes
+コミットメッセージ(省略可)	Commit message (optional)
+コミットメッセージ	Commit message
+上書きする	Overwrite
+リポジトリの内容をボードに読み込む	Load the repository file into the board
+ボードの内容をリポジトリに書く	Write the board to the repository
+リポジトリのファイルの内容でボードを上書きします。今の状態はバージョン履歴に残ります。	This replaces the board with the repository file. The current state is kept in version history.
+ボードの今の状態でリポジトリのファイルを上書きします。GitHub 側の変更は取り込みません。	This replaces the repository file with the current board. Changes on GitHub are not merged.
+やめる	Cancel
+まだ同期していません	Not synced yet
+最後の同期:	Last synced:
+書き込みに使うトークンがありません。ボードのオーナーが共有パネルの「GitHub で管理」で設定してください。	There is no token to write with. The board owner can set one under "Manage on GitHub" in the share panel.
+GitHub と同期しています…	Syncing with GitHub…
+GitHub の状態を確かめています…	Checking GitHub…
+リポジトリにはまだファイルがありません。同期すると作ります	The repository has no file yet. Sync to create it
+ボードとリポジトリは同じです	The board and the repository are the same
+ボードに、まだリポジトリにない変更があります	The board has changes that are not in the repository yet
+リポジトリに、まだボードにない変更があります	The repository has changes that are not on the board yet
+ボードとリポジトリの両方に変更があります。同期するとマージします	Both the board and the repository have changes. Sync to merge them
+変更はありません。ボードとリポジトリは同じです	No changes. The board and the repository are the same
+プルリクエストを開く	Open pull request
+コミットしました	Committed
+プルリクエストを出しました	Opened a pull request
 Mermaid で書き出し(選択 / 全体)	Export Mermaid (selection / all)
 PlantUML で書き出し(選択 / 全体)	Export PlantUML (selection / all)
 draw.io で書き出し(選択 / 全体)	Export draw.io (selection / all)
