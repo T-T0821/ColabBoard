@@ -299,6 +299,7 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `OIDC_ALLOWED_DOMAINS` | なし | SSO でログインできるメールのドメイン(カンマ区切り。確認済みのメールだけ) |
 | `PASSWORD_LOGIN` | `1` | `0` でパスワードのログインとアカウント作成を止める(SSO だけにする) |
 | `STORAGE_LOCATIONS` | なし | チームが選べるデータの保存場所(下の「組織で使う」を参照) |
+| `BILLING` / `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_PRO` | なし | 料金プラン(無料・プロ)と Stripe での支払い。既定は使わない。`BILLING=mock` でキーなしのテスト決済。上限の変え方と設定手順は [docs/billing.md](docs/billing.md) |
 | `ICE_SERVERS` | Google の公開 STUN | 音声通話の STUN / TURN サーバー(`RTCIceServer` の JSON 配列)。会社のネットワーク越しなど直接つながらない相手と話すなら TURN を足す。例: `[{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]` |
 
 ### アカウントと権限
@@ -329,6 +330,13 @@ STORAGE_TOKYO_ACCESS_KEY_ID=…  STORAGE_TOKYO_SECRET_ACCESS_KEY=…   # なけ�
 ```
 
 `s3://` は S3 互換ストレージ(AWS S3・Cloudflare R2・MinIO・Backblaze B2・Wasabi など、署名は AWS Signature V4)、`file://` はサーバーから見えるディレクトリ。`endpoint` を省くと AWS、`style=virtual` で仮想ホスト形式の URL にする。
+
+### 料金プラン(Stripe)
+
+- サービスとして公開するなら、無料・プロの 2 つのプランでボード数・AI 機能の回数・ボードのメンバー数・動画メモの容量に上限を付けられる(既定は使わない)。
+- 支払いは Stripe Checkout、支払い方法の変更や解約はカスタマーポータル。プランの切り替えは署名を確かめた Webhook だけで行う。
+- `BILLING=mock` にすると、Stripe のキーなしで申し込みから解約までの流れを試せる。
+- 詳しくは [docs/billing.md](docs/billing.md)。
 
 ### 外部からの操作(REST API)
 
