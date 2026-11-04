@@ -135,6 +135,8 @@ pub(crate) fn page_shell(title: &str, body: &str, head: &str) -> String {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{title}</title>
+<link rel="icon" href="/brand/logo.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/brand/apple-touch-icon.png">
 {head}<style>
 :root {{ --bg:#f6f7f9; --panel:#fff; --text:#1b1d24; --muted:#6b7080; --border:rgba(20,24,40,.09); --accent:#4c5cf5; --r:16px; color-scheme: light; }}
 @media (prefers-color-scheme: dark) {{ :root {{ --bg:#1c1d22; --panel:#24262e; --text:#e9eaf0; --muted:#9a9fb0; --border:rgba(255,255,255,.08); --accent:#7380ff; color-scheme: dark; }} }}

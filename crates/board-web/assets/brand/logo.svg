@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <title>グラボード</title>
+  <defs>
+    <linearGradient id="gb-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6a5cff"/>
+      <stop offset=".55" stop-color="#4c5cf5"/>
+      <stop offset="1" stop-color="#3a8bff"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="116" fill="url(#gb-bg)"/>
+  <!-- 付箋(右下がめくれている)と、その上で動く参加者のカーソル -->
+  <path d="M100 136a36 36 0 0136-36h240a36 36 0 0136 36v164L304 412H136a36 36 0 01-36-36z" fill="#fff"/>
+  <path d="M412 300L304 412v-76a36 36 0 0136-36z" fill="#ffd84a"/>
+  <path d="M164 162l132 52-56 18-18 56z" fill="#ff5c7a" stroke="#ff5c7a" stroke-width="14" stroke-linejoin="round"/>
+</svg>
