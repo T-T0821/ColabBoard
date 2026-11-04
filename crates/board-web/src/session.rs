@@ -334,12 +334,11 @@ impl BoardChrome {
         let public = match &sh.public {
             _ if self.is_e2e() => r#"<p class="muted small">暗号化ボードは Web に公開できません(公開ページはサーバーが中身を描くため)。</p>"#.to_string(),
             Some(p) => format!(
-                r#"<p class="muted small">URL を知っている人は誰でも、ログインせずに見られます(編集・コメントはできません)。SNS やチャットに貼るとプレビュー画像が出ます。</p>
-<div class="row"><input class="grow" readonly value="{url}" data-copy /><button data-action="copy-public">コピー</button></div>
+                r#"<div class="row"><input class="grow" readonly value="{url}" data-copy /><button data-action="copy-public">コピー</button></div>
 <div class="row"><a class="small" href="{url}" target="_blank" rel="noopener">公開ページを開く</a><span class="grow"></span><button class="link small" data-action="regenerate-public">URL を作り直す</button></div>"#,
                 url = escape(&self.public_url(&p.slug))
             ),
-            None => r#"<p class="muted small">オンにすると、ログインしていない人も見られる閲覧専用のページができます。</p>"#.to_string(),
+            None => String::new(),
         };
         let mut members = String::new();
         if let Some(owner) = &sh.owner {
@@ -373,7 +372,7 @@ impl BoardChrome {
   {e2e_note}
 </section>
 <section class="public-share">
-  <label class="row switch"><strong class="grow">Web に公開</strong><input type="checkbox" data-public {public_checked} /></label>
+  <label class="row switch"><strong class="grow">Web に公開{public_hint}</strong><input type="checkbox" data-public {public_checked} /></label>
   {public}
 </section>
 <section>
@@ -397,6 +396,9 @@ impl BoardChrome {
             link_opts = options(sh.link.as_ref().map(|l| l.role), true),
             invite_opts = options(Some(Role::Editor), false),
             public_checked = if sh.public.is_some() { "checked" } else if self.is_e2e() { "disabled" } else { "" },
+            public_hint = crate::hint::html(
+                "オンにすると、ログインしていない人も見られる閲覧専用のページができます(編集・コメントはできません)。SNS やチャットに貼るとプレビュー画像が出ます。"
+            ),
         ));
         // 暗号化ボードでは通知する出来事(コメント・バージョン)がないので出さない。
         if let Ok(Some(section)) = panel.query_selector("[data-slot=slack]")

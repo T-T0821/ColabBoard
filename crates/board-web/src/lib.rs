@@ -15,6 +15,8 @@ mod e2e;
 #[cfg(target_arch = "wasm32")]
 mod error_report;
 #[cfg(target_arch = "wasm32")]
+mod hint;
+#[cfg(target_arch = "wasm32")]
 mod home;
 #[cfg(target_arch = "wasm32")]
 mod notify_settings;
@@ -61,6 +63,7 @@ pub fn start() {
         i18n::init(&w, &d);
         theme::init(&w, &d);
         tooltip::install(&d);
+        hint::install(&d);
     }
     wasm_bindgen_futures::spawn_local(async {
         if let Err(e) = app::run().await {

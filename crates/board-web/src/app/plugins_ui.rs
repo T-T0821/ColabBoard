@@ -214,9 +214,12 @@ impl Ui {
         if !st.loaded {
             html.push_str(r#"<p class="muted small">読み込み中…</p>"#);
         } else if st.plugins.is_empty() {
-            html.push_str(
-                r#"<p class="muted small">使えるプラグインはまだありません。ボード一覧の「開発者向け」から自分のプラグイン(.wasm)を入れるか、サーバーの管理者に PLUGIN_DIR を設定してもらってください。</p>"#,
-            );
+            html.push_str(&format!(
+                r#"<p class="muted small">使えるプラグインはまだありません。{}</p>"#,
+                crate::hint::html(
+                    "ボード一覧の「開発者向け」から自分のプラグイン(.wasm)を入れるか、サーバーの管理者に PLUGIN_DIR を設定してもらってください。"
+                )
+            ));
         }
         html.push_str(r#"<ul class="plugins">"#);
         for p in &st.plugins {

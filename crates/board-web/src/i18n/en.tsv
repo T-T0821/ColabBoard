@@ -1236,6 +1236,26 @@ AI 機能 無制限	Unlimited AI
 一致するボードはありません	No matching boards
 お気に入りはまだありません。ボードの ☆ を押すとここに集まります。	No favorites yet. Press ☆ on a board to collect it here.
 フォルダの名前を入れてください	Enter a folder name
+説明	More info
+自動整列	Auto-layout
+選んだ図を並べ直します。つながった図形もまとめて動きます	Rearranges the selected diagram. Connected shapes move along with it
+マウス	Mouse
+スクロール /	Scroll /
++ドラッグ	+drag
+画面を動かす	Pan the view
++スクロール	+scroll
+拡大・縮小	Zoom in / out
++クリック	+click
+選択に追加する	Add to selection
++角をドラッグ	+drag a corner
+縦横比を保ったまま大きさを変える	Resize while keeping the aspect ratio
+ダブルクリック	Double-click
+オンにすると、ログインしていない人も見られる閲覧専用のページができます(編集・コメントはできません)。SNS やチャットに貼るとプレビュー画像が出ます。	Turn on to create a view-only page that people can open without signing in (no editing or comments). Pasting it into social media or chat shows a preview image.
+外部のスクリプトや連携から	Tokens for external scripts and integrations to work with boards through the
+の REST API でボードを操作するためのトークンです。使い方は docs/api.md にあります。	REST API. See docs/api.md for how to use them.
+ボードに機能を足す WASM プラグインです。入れたプラグインは自分だけが使えます。ボードを開き、右上の「プラグイン」から実行します。作り方は docs/plugins.md にあります。	WASM plugins add features to boards. Plugins you add are only available to you. Open a board and run them from "Plugins" at the top right. See docs/plugins.md for how to build one.
+使えるプラグインはまだありません。	No plugins yet.
+ボード一覧の「開発者向け」から自分のプラグイン(.wasm)を入れるか、サーバーの管理者に PLUGIN_DIR を設定してもらってください。	Add your own (.wasm) from "For developers" on the board list, or ask the server admin to set PLUGIN_DIR.
 GitHub で管理	Manage on GitHub
 ボードを差分の読みやすいテキスト(1 要素 1 行の JSON)としてリポジトリに置き、コミット・プルリクエストで管理します。同期は「履歴」から編集者ができます。	Keeps the board in a repository as diff-friendly text (JSON, one element per line) so you can manage it with commits and pull requests. Editors can sync from History.
 owner/name か https://github.com/owner/name	owner/name or https://github.com/owner/name

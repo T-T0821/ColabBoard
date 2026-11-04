@@ -223,16 +223,6 @@ html, body {
 #hud-zoom { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; font-size: 12px; }
 #hud-fps, #hud-count { font-variant-numeric: tabular-nums; }
 
-.help {
-  top: 60px;
-  left: 12px;
-  margin: 0;
-  padding: 5px 10px;
-  color: var(--muted);
-  font-size: 11.5px;
-  border-radius: 999px;
-}
-
 /* ---- ツールバー ---- */
 .toolbar {
   bottom: 16px;
@@ -335,7 +325,6 @@ input[type="checkbox"] { accent-color: var(--accent); width: 14px; height: 14px;
 #error[data-visible] { display: block; }
 
 @media (max-width: 1440px) {
-  .help { display: none; }
   .demo { top: 60px; }
   .collab { top: 108px; }
 }
@@ -1102,6 +1091,7 @@ body.home-mode {
     var(--bg);
   background-attachment: fixed;
 }
+body.home-mode > :not(#home):not(#error):not(#hint-bubble) { display: none !important; }
 body.home-mode > :not(#home):not(#error):not(#ops) { display: none !important; }
 #home {
   min-height: 100%;
@@ -1153,8 +1143,9 @@ body.home-mode > :not(#home):not(#error):not(#ops) { display: none !important; }
 .home-card button[type="submit"].primary:hover { filter: brightness(1.06); }
 .home-card hr { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
 .home-card .switch { margin: 8px 0 0; color: var(--muted); text-align: center; }
-.home-card.auth > button[data-action="anonymous"] { width: 100%; background: var(--panel-solid); border-color: var(--border-strong); }
-.home-card.auth > button[data-action="anonymous"]:hover { border-color: var(--accent); color: var(--accent); }
+.home-card.auth .anonymous-row { display: flex; align-items: center; gap: 6px; }
+.home-card.auth .anonymous-row > button[data-action="anonymous"] { flex: 1; background: var(--panel-solid); border-color: var(--border-strong); }
+.home-card.auth .anonymous-row > button[data-action="anonymous"]:hover { border-color: var(--accent); color: var(--accent); }
 .home-card .row { margin-top: 16px; }
 .home-head { display: flex; align-items: center; gap: 12px; }
 .home-head h1 { flex: 1; margin: 0; }
@@ -1666,6 +1657,79 @@ body[data-preview="on"] #board { box-shadow: inset 0 0 0 3px var(--warning); }
 .tool-group:has(.popover[data-open]) [data-tip]::before { display: none; }
 :root[data-theme="dark"] .toolbar [data-tip]::before { background: #f1f2f6; color: #1b1d24; }
 
+/* ---- 「?」の吹き出し(hint.rs)。長い説明文はここにしまう ---- */
+.hint { position: relative; display: inline-flex; align-items: center; vertical-align: middle; }
+.hint > .hint-btn {
+  display: inline-grid;
+  place-items: center;
+  /* パネルごとのボタンの大きさ指定(.home-card button など)に負けないよう固定する。 */
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 2px;
+  border: 1px solid var(--border-strong);
+  border-radius: 50% !important;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+  flex: none;
+}
+.hint > .hint-btn:hover, .hint[data-open] > .hint-btn { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+/* 説明文は見た目だけ隠して画面読み上げには読ませる。見えるのは body 直下の #hint-bubble。 */
+.hint-body {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+#hint-bubble {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  width: max-content;
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 8px 11px;
+  border-radius: var(--r-xs);
+  background: #1b1d24;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.55;
+  text-align: left;
+  box-shadow: var(--shadow-md);
+  visibility: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--t-fast) var(--ease);
+}
+#hint-bubble[data-open] { visibility: visible; opacity: 1; }
+#hint-bubble::before {
+  content: "";
+  position: absolute;
+  left: var(--tail-x, 50%);
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  transform: translateX(-50%) rotate(45deg);
+}
+#hint-bubble[data-side="below"]::before { top: -4px; }
+#hint-bubble[data-side="above"]::before { bottom: -4px; }
+#hint-bubble code { color: inherit; background: rgba(255, 255, 255, 0.14); padding: 0 3px; border-radius: 3px; }
+:root[data-theme="dark"] #hint-bubble { background: #f1f2f6; color: #1b1d24; }
+:root[data-theme="dark"] #hint-bubble code { background: rgba(0, 0, 0, 0.08); }
+@media (pointer: coarse) {
+  /* 指で押しやすいよう、見た目はそのままで押せる範囲を広げる。 */
+  .hint-btn { position: relative; }
+  .hint-btn::after { content: ""; position: absolute; inset: -12px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 1ms !important; transition-duration: 1ms !important; }
 }
@@ -1807,6 +1871,7 @@ kbd {
 .shortcuts dt { white-space: nowrap; }
 .shortcuts dd { margin: 0; color: var(--text); }
 .shortcuts p { margin: 0; font-size: 12px; }
+.shortcuts-sub { margin: 6px 0 0; font-size: 13px; color: var(--muted); font-weight: 600; }
 .zoom #shortcuts-button { font-size: 13px; font-weight: 600; }
 @media (max-width: 720px) {
   .shortcuts dl { grid-template-columns: 1fr; gap: 2px; }
@@ -1885,7 +1950,6 @@ body.slideshow #badges { display: none !important; }
 .embed-open[hidden] { display: none; }
 body.embed-mode .hud,
 body.embed-mode .demo,
-body.embed-mode .help,
 body.embed-mode .collab,
 body.embed-mode .diagram-toggle,
 body.embed-mode .diagram-panel,
@@ -2014,7 +2078,6 @@ table.audit a { color: var(--accent); }
 body.public-view .toolbar,
 body.public-view .demo,
 body.public-view .collab,
-body.public-view .help,
 body.public-view #diagram-toggle,
 body.public-view #share,
 body.public-view #comments-toggle,
