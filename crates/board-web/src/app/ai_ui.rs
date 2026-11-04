@@ -123,6 +123,10 @@ async fn generate(app: Rc<RefCell<App>>, ui: Ui) {
         ui.set_status("生成 AI は共同編集のボード(?room=…)で使えます", true);
         return;
     };
+    if crate::local_ai::cloud_off() {
+        ui.set_status(crate::local_ai::CLOUD_OFF_MESSAGE, true);
+        return;
+    }
     ui.set_busy(true);
     ui.set_status(
         "Claude が図を考えています…(数十秒かかることがあります)",
@@ -201,6 +205,13 @@ pub(super) fn install(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), Stri
         match fetch_json(&window, "GET", &api_url(&window, "/api/ai/status"), None).await {
             Ok((200, text)) => {
                 let v: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
+                // ブラウザ内 AI のモデルの取得元(社内に置いたモデルなど)。
+                if let Some(url) = v["local_model_url"].as_str() {
+                    crate::local_ai::set_model_url(url);
+                }
+                if let Some(url) = v["local_encoder_url"].as_str() {
+                    crate::local_ai::set_encoder_url(url);
+                }
                 if v["enabled"] == true {
                     ui.set_status("説明を書いて「生成」(Ctrl/⌘+Enter)", false);
                 } else {

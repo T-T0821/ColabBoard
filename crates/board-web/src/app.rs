@@ -29,6 +29,7 @@ mod history;
 mod imports;
 mod ink_ui;
 mod issues;
+mod local_ai_ui;
 mod media;
 mod meeting_link_ui;
 mod meeting_ui;
@@ -1971,6 +1972,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     comments::install(app, doc)?;
     history::install(app)?;
     plugins_ui::install(app, doc)?;
+    local_ai_ui::install(app, doc)?;
     call_ui::install(app, doc)?;
     meeting_ui::install(app, doc)?;
     meeting_link_ui::install(app, doc)?;

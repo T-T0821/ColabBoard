@@ -204,7 +204,12 @@ pub async fn generate(
 
 /// AI 機能が使えるか(画面の案内用)。
 pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
-    Json(json!({ "enabled": state.config.ai.is_some() }))
+    Json(json!({
+        "enabled": state.config.ai.is_some(),
+        // ブラウザ内 AI のモデルの取得元(指定がなければクライアントの既定)。
+        "local_model_url": state.config.local_ai.client_url(),
+        "local_encoder_url": state.config.local_ai.client_encoder_url(),
+    }))
 }
 
 #[cfg(test)]

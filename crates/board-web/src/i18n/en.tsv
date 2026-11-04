@@ -1236,6 +1236,67 @@ AI 機能 無制限	Unlimited AI
 一致するボードはありません	No matching boards
 お気に入りはまだありません。ボードの ☆ を押すとここに集まります。	No favorites yet. Press ☆ on a board to collect it here.
 フォルダの名前を入れてください	Enter a folder name
+# ブラウザ内 AI
+ブラウザ内 AI	On-device AI
+音声や手書きを、この端末の中だけで文字にする(サーバーに送らない)	Turn speech and handwriting into text on this device only (nothing is sent to the server)
+音声と手書きを、この端末の中だけで文字にします。内容はサーバーにも AI の会社にも送られません。	Speech and handwriting are turned into text on this device only. Nothing is sent to the server or to an AI company.
+クラウド AI を使わない(この端末)	Don't use cloud AI (this device)
+オンにすると、要約・図の生成・議事録などサーバーの Claude を使う機能を止め、「AI で整形」も端末内で読みます。	When on, features that use Claude on the server (summaries, diagram generation, minutes…) are blocked, and “AI cleanup” reads ink on this device instead.
+音声の文字起こし	Speech to text
+モデル	Model
+自動	Auto
+軽い(tiny・約 150 MB)	Light (tiny, about 150 MB)
+標準(base・約 290 MB、日本語向き)	Standard (base, about 290 MB, better for Japanese)
+モデルを準備	Prepare model
+● 録音して文字起こし	● Record and transcribe
+■ 録音を止める	■ Stop recording
+付箋にしてボードに置く	Put on the board as a sticky
+話すたびに付箋で置く	Add a sticky for each utterance
+手書きの文字	Handwriting
+手書きの線を選んで書式バーの「図形に整形」を押すと、図形と文字(英数字・かな・小学校で習う漢字)に整えます。読み間違えた字は、線を選んで正しい文字を教えると次から読めるようになります。	Select ink and press “Clean up shapes” in the format bar to turn it into shapes and text (letters, digits, kana and elementary-school kanji). If a character is misread, select the ink and teach the correct text; it will be read correctly next time.
+選んだ手書きの正しい文字	Correct text for the selected ink
+覚える	Teach
+まだ字を教えていません	You haven't taught any characters yet
+教えた字: {n} 個(この端末に保存)	Taught characters: {n} (saved on this device)
+覚えた字を忘れる	Forget taught characters
+保存したモデルを消す	Delete saved models
+モデルは未取得です。初回だけ約 {n} MB をダウンロードし、次からはこの端末に保存したものを使います	The model isn't downloaded yet. About {n} MB is downloaded once and kept on this device.
+モデルはこの端末に保存済みです。ネットワークなしで使えます	The model is saved on this device and works offline
+モデルを取得中… {n} MB / {n} MB	Downloading model… {n} MB / {n} MB
+モデルを取得中… {n} MB	Downloading model… {n} MB
+モデルを読み込み中…	Loading model…
+録音中・文字にしています…	Recording · transcribing…
+録音中です。話すと文字になります	Recording. Speak and it becomes text
+文字にしています…	Transcribing…
+準備できました。音声はこの端末の中だけで処理します	Ready. Audio is processed on this device only
+音声認識のモデルを読み込んでください	Load the speech model first
+モデルを読み込み中です	The model is loading
+ブラウザ内 AI の部品を起動できません	Couldn't start the on-device AI worker
+クラウド AI を使わない設定です。「ブラウザ内 AI」で切り替えられます	Cloud AI is turned off on this device. You can change this in “On-device AI”.
+教える手書きの線を選んでください	Select the ink to teach
+正しい文字を入れてください	Enter the correct text
+線を文字の数に区切れませんでした。1 行ずつ選んで教えてください	Couldn't split the ink into that many characters. Select one line at a time.
+{n} 字を覚えました。次から同じような字を読めます	Learned {n} characters. Similar handwriting will be read next time
+教えた字を忘れました	Forgot taught characters
+保存したモデルを消しました	Deleted saved models
+編集できないボードです	This board is read-only
+図形や文字として読める線がありませんでした	No ink could be read as shapes or text
+図形や文字として読める線がありませんでした。「AI で整形」も試せます	No ink could be read as shapes or text. Try “AI cleanup” too
+{n} 個の図形と {n} 行の文字に整えました(端末内で認識)。Ctrl/⌘+Z で戻せます	Cleaned up into {n} shapes and {n} lines of text (recognized on this device). Ctrl/⌘+Z to undo
+計算する装置	Compute device
+自動(NPU → GPU → CPU)	Auto (NPU → GPU → CPU)
+NPU や GPU があれば、音声を読む重い部分をそこで動かします(内容は端末の外に出ません)。WebNN でどの装置を使うかは最終的にブラウザが決めます	If an NPU or GPU is available, the heavy part of speech recognition runs there (nothing leaves this device). With WebNN, the browser makes the final choice of device
+CPU(wasm)で動かしています	Running on the CPU (wasm)
+このブラウザでは NPU / GPU を使えないので、CPU(wasm)で動かしています	This browser can't use an NPU / GPU, so it runs on the CPU (wasm)
+WebNN(NPU 優先)で動かしています(準備 {n} 秒)	Running on WebNN (NPU preferred) (prepared in {n} s)
+WebNN(GPU 優先)で動かしています(準備 {n} 秒)	Running on WebNN (GPU preferred) (prepared in {n} s)
+GPU(WebGPU)で動かしています(準備 {n} 秒)	Running on the GPU (WebGPU) (prepared in {n} s)
+WebNN(NPU 優先)の準備中…(初回はしばらくかかります)	Preparing WebNN (NPU preferred)… (the first time takes a while)
+WebNN(GPU 優先)の準備中…(初回はしばらくかかります)	Preparing WebNN (GPU preferred)… (the first time takes a while)
+GPU(WebGPU)の準備中…(初回はしばらくかかります)	Preparing the GPU (WebGPU)… (the first time takes a while)
+NPU / GPU を使う部品(ONNX Runtime Web)がサーバーにありません	The NPU / GPU runtime (ONNX Runtime Web) isn't installed on the server
+NPU / GPU を使う部品を起動できません	Couldn't start the NPU / GPU worker
+NPU / GPU を使う部品が止まりました	The NPU / GPU worker stopped
 PDF を読み込んでいます…	Reading the PDF…
 PDF のページを描いています {n} / {n}	Rendering PDF pages {n} / {n}
 PDF の {n} ページを取り込みました	Imported {n} PDF pages

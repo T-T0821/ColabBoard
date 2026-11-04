@@ -235,6 +235,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }),
         password_login: flag("PASSWORD_LOGIN", true),
         limits: board_server::guard::Limits::from_env(flag("COOKIE_SECURE", false)),
+        local_ai: board_server::local_ai::LocalAiConfig::from_env(),
         p2p: flag("P2P_ENABLED", true),
         monitor: monitor.clone(),
         backups,

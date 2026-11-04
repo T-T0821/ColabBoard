@@ -22,6 +22,7 @@ pub mod export;
 pub mod format;
 pub mod gallery;
 pub mod geom;
+pub mod handwriting;
 pub mod ink;
 pub mod issue;
 pub mod markdown;

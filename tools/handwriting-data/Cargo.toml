@@ -1,0 +1,9 @@
+[package]
+name = "handwriting-data"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "端末内の手書き文字認識で使う文字の見本(筆画データ)を作る"
+publish = false
+
+[dependencies]

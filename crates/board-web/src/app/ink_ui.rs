@@ -1,13 +1,16 @@
 //! 手書きの線を整った図形にする(書式バーの「図形に整形」「AI で整形」)。
 //!
-//! - 端末だけ: [`board_core::ink::recognize`] で四角・丸・三角・ひし形・線・矢印などを認識する
-//! - AI: サーバー(`/api/boards/{id}/ai/ink`)が線を画像にして Claude に読ませる。手書きの文字も読む
+//! - 端末だけ: [`board_core::handwriting::recognize_ink`] で四角・丸・三角・ひし形・線・矢印などの図形と、
+//!   手書きの文字(英数字・かな・小学校で習う漢字。教えた字も)を認識する。線はサーバーに送らない
+//! - AI: サーバー(`/api/boards/{id}/ai/ink`)が線を画像にして Claude に読ませる。
+//!   「クラウド AI を使わない」設定([`crate::local_ai::cloud_off`])のときは端末だけの認識にする
 //!
 //! どちらも [`board_core::ink::build`] で要素にし、元の線を消して置き換える(1 回の Undo で戻る)。
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use board_core::handwriting;
 use board_core::ink::{self, InkItem, InkKind};
 use board_core::{Element, ElementId, ShapeKind, Stroke};
 use wasm_bindgen::JsCast;
@@ -56,7 +59,7 @@ thread_local! {
 
 impl App {
     /// 選択中の手書きの線(蛍光ペンを除く)。
-    fn ink_strokes(&self) -> Vec<Stroke> {
+    pub(super) fn ink_strokes(&self) -> Vec<Stroke> {
         self.editor
             .selection()
             .iter()
@@ -68,7 +71,7 @@ impl App {
     }
 
     /// 認識結果で線を置き換える。置き換えた図形の数を返す。
-    fn apply_ink(&mut self, items: &[InkItem], strokes: &[Stroke]) -> usize {
+    pub(super) fn apply_ink(&mut self, items: &[InkItem], strokes: &[Stroke]) -> usize {
         let refs: Vec<&Stroke> = strokes.iter().collect();
         // 線の端は、手書きの近くにある既存の図形にもつなぐ。
         let area = strokes
@@ -131,13 +134,30 @@ impl App {
             return;
         }
         let refs: Vec<&Stroke> = strokes.iter().collect();
-        let items = ink::recognize(&refs);
+        let items = handwriting::recognize_ink(&refs, &crate::local_ai::recognizer());
+        let texts = items
+            .iter()
+            .filter(|i| matches!(i.kind, InkKind::Text(_)))
+            .count();
+        let shapes = items.len() - texts;
         let n = self.apply_ink(&items, &strokes);
         if n == 0 {
             toast(
                 &self.document,
-                "図形として読める線がありませんでした。「AI で整形」も試せます",
+                if crate::local_ai::cloud_off() {
+                    "図形や文字として読める線がありませんでした"
+                } else {
+                    "図形や文字として読める線がありませんでした。「AI で整形」も試せます"
+                },
                 "error",
+            );
+        } else if texts > 0 {
+            toast(
+                &self.document,
+                &format!(
+                    "{shapes} 個の図形と {texts} 行の文字に整えました(端末内で認識)。Ctrl/⌘+Z で戻せます"
+                ),
+                "done",
             );
         } else {
             toast(
@@ -176,6 +196,11 @@ fn parse_items(text: &str) -> Vec<InkItem> {
 /// Claude に読んでもらって置き換える。
 pub(super) fn beautify_ink_ai(app: &Rc<RefCell<App>>) {
     if INK_BUSY.with(Cell::get) {
+        return;
+    }
+    if crate::local_ai::cloud_off() {
+        // クラウド AI を使わない設定: 線を送らずに端末で読む。
+        app.borrow_mut().beautify_ink();
         return;
     }
     let (window, doc, url, strokes) = {
