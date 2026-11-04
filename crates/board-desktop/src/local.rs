@@ -52,6 +52,7 @@ fn config(ai_key: Option<&str>) -> Config {
         oidc: None,
         password_login: true,
         limits: board_server::guard::Limits::from_env(false),
+        ..Config::default()
     }
 }
 
