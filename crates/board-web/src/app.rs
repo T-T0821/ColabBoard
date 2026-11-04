@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
-use board_core::protocol::{Message, Presence, TOPIC_COMMENTS, TOPIC_VERSIONS};
+use board_core::protocol::{Message, Presence, TOPIC_COMMENTS, TOPIC_MEETING_LINK, TOPIC_VERSIONS};
 use board_core::{
     Board, Camera, Editor, Element as BoardElement, ElementId, Modifiers, Navigator, Tool, Vec2,
 };
@@ -29,6 +29,8 @@ mod imports;
 mod ink_ui;
 mod issues;
 mod media;
+mod meeting_link_ui;
+mod meeting_ui;
 mod mindmap_ui;
 mod offline;
 mod p2p_ui;
@@ -113,6 +115,8 @@ struct App {
     /// 音声通話(サーバーにつながるボードだけ)。
     voice: Option<crate::voice::VoiceCall>,
     call_ui: call_ui::CallUi,
+    /// 会議パネル(AI ファシリテーター・リアルタイム議事録・文字起こし)。
+    meeting: meeting_ui::MeetingUi,
     video: video_memo::VideoMemo,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
     live_board: Option<Board>,
@@ -133,6 +137,8 @@ struct App {
     /// サーバーを通さない直接接続(共同編集のボードだけ)。
     p2p: Option<crate::p2p::P2p>,
     p2p_ui: p2p_ui::P2pUi,
+    /// ギャラリーから開いたときに、空のボードへ置くテンプレート(`&template=`)。
+    pending_template: Option<templates_ui::Pending>,
 }
 
 struct Hud {
@@ -431,6 +437,7 @@ pub async fn run() -> Result<(), String> {
         history: history::History::new(&document)?,
         voice,
         call_ui: call_ui::CallUi::new(&document)?,
+        meeting: meeting_ui::MeetingUi::new(&document)?,
         video: video_memo::VideoMemo::new(&document)?,
         live_board: None,
         show_authors: true,
@@ -442,6 +449,7 @@ pub async fn run() -> Result<(), String> {
         public_view,
         p2p: p2p_room.then(crate::p2p::P2p::new),
         p2p_ui: p2p_ui::P2pUi::new(key.clone()),
+        pending_template: None,
     }));
     {
         let mut a = app.borrow_mut();
@@ -486,6 +494,9 @@ pub async fn run() -> Result<(), String> {
     reactions::install(&app)?;
     media::install(&app)?;
     templates_ui::install(&app)?;
+    if collaborative && !public_view {
+        templates_ui::start_pending(&app, params.get("template"));
+    }
     search_ui::install(&app)?;
     a11y::install(&app)?;
     issues::install(&app)?;
@@ -743,6 +754,7 @@ impl App {
                         self.initial_view();
                     }
                     self.editor.prune_selection(&self.board);
+                    self.apply_pending_template();
                     self.dirty = true;
                 }
                 NetEvent::Message(Message::Update(u)) => {
@@ -767,6 +779,9 @@ impl App {
                 NetEvent::Message(Message::Reaction(r)) => self.on_reaction(r),
                 NetEvent::Message(Message::Refresh(TOPIC_COMMENTS)) => self.fetch_comments(),
                 NetEvent::Message(Message::Refresh(TOPIC_VERSIONS)) => self.versions_changed(),
+                NetEvent::Message(Message::Refresh(TOPIC_MEETING_LINK)) => {
+                    meeting_link_ui::reload()
+                }
                 NetEvent::Message(Message::Refresh(_)) => {}
                 // 通話のメッセージは voice が先に受け取っている。
                 NetEvent::Message(Message::Voice(_) | Message::Signal(_)) => {}
@@ -995,6 +1010,7 @@ impl App {
         self.touch_frame(now);
         self.call_frame();
         self.p2p_frame();
+        self.meeting_frame(now);
         self.mind_frame();
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
@@ -1828,6 +1844,8 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     history::install(app)?;
     plugins_ui::install(app, doc)?;
     call_ui::install(app, doc)?;
+    meeting_ui::install(app, doc)?;
+    meeting_link_ui::install(app, doc)?;
     video_memo::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
@@ -1870,6 +1888,7 @@ fn start_loop(app: Rc<RefCell<App>>) {
     *tick2.borrow_mut() = Some(Closure::new(move |now: f64| {
         app.borrow_mut().frame(now);
         touch::open_pending_menu(&app);
+        meeting_ui::pump(&app);
         if let Some(cb) = tick.borrow().as_ref() {
             let _ = window2.request_animation_frame(cb.as_ref().unchecked_ref());
         }

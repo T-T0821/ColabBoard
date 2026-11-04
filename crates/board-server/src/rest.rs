@@ -48,6 +48,13 @@ pub fn routes() -> Router<Arc<AppState>> {
                 .delete(delete_element),
         )
         .route("/boards/{id}/ops", post(apply_ops))
+        .route("/boards/{id}/export", get(crate::transfer::export))
+        .route(
+            "/boards/{id}/import",
+            post(crate::transfer::import).layer(axum::extract::DefaultBodyLimit::max(
+                crate::transfer::MAX_IMPORT_BYTES,
+            )),
+        )
         .route(
             "/boards/{id}/comments",
             get(list_comments).post(post_comment),
@@ -145,7 +152,7 @@ pub fn access(
     Ok((meta, role.min(cap)))
 }
 
-fn need(role: Role, want: Role) -> ApiResult<()> {
+pub(crate) fn need(role: Role, want: Role) -> ApiResult<()> {
     if role >= want {
         Ok(())
     } else {
@@ -158,7 +165,7 @@ fn op_error(e: OpError) -> Error {
 }
 
 /// 重い処理(ボードの読み込み)を別スレッドで。
-async fn blocking<T: Send + 'static>(
+pub(crate) async fn blocking<T: Send + 'static>(
     f: impl FnOnce() -> ApiResult<T> + Send + 'static,
 ) -> ApiResult<T> {
     tokio::task::spawn_blocking(f)
@@ -553,7 +560,7 @@ async fn post_comment(
     let (meta, role) = access(&state, &actor, &id, q.key.as_deref())?;
     // 読むだけのトークンでもコメントはできない(閲覧者扱い)。
     need(role, Role::Commenter)?;
-    let posted = comments::post(
+    let (posted, sent) = comments::post(
         state.store(),
         meta.as_ref(),
         &id,
@@ -561,6 +568,7 @@ async fn post_comment(
         req,
         state.config.anonymous_boards,
     )?;
+    state.config.notifier.deliver(state.store(), sent);
     state.hub.refresh(&id, TOPIC_COMMENTS);
     Ok((StatusCode::CREATED, Json(posted)))
 }

@@ -222,6 +222,8 @@ pub fn delete(store: &Store, team: &TeamRecord) -> Result<Vec<String>, StoreErro
     for login in team.members.keys() {
         store.remove_pair(USER_TEAMS, login, &team.id)?;
     }
+    // 公開していたテンプレートは作った人だけのものに戻す。
+    crate::templates::detach_team(store, &team.id)?;
     store.remove(TEAMS, &team.id)?;
     Ok(ids)
 }

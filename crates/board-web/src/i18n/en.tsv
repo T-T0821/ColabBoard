@@ -964,6 +964,258 @@ SSO 自動参加	SSO auto-join
 グラボードのサーバーのディスク	Graboard server disk
 サーバーのディレクトリ	Server directory
 保存場所の変更	Data location changed
+運用	Operations
+エラー	Errors
+バックアップ	Backups
+解決済みも表示	Show resolved
+更新	Refresh
+· Slack 通知:	· Slack alerts:
+· ログ形式:	· Log format:
+有効	On
+エラーの記録はありません。	No errors recorded.
+未解決のエラーはありません。	No open errors.
+場所	Location
+最初	First seen
+最後	Last seen
+版	Version
+利用者	User
+ボード	Board
+ページ	Page
+ブラウザ	Browser
+未解決に戻す	Reopen
+解決済みにする	Mark resolved
+記録を消す	Delete record
+定期	Scheduled
+手動	Manual
+復元の前	Before restore
+ダウンロード	Download
+ボードを戻す…	Restore a board…
+まだバックアップがありません。	No backups yet.
+取っています…	Backing up…
+今すぐバックアップ	Back up now
+種類	Type
+大きさ	Size
+{n} 件	{n}
+保存先:	Location:
+定期バックアップは止めています(手動だけ)	Scheduled backups are off (manual only)
+{n} 時間ごと	Every {n} h
+定期と手動それぞれ {n} 個まで残す	Keeps up to {n} of each (scheduled and manual)
+次回	Next
+今もある	Exists
+削除済み	Deleted
+このサーバーにない	Not on this server
+戻す	Restore
+今の中身を置き換えます(今の状態はバージョン履歴に残ります)	Replaces the current content (the current state is kept in version history)
+コメント・バージョン履歴・メンバーごと作り直します	Recreates it with comments, version history and members
+このバックアップにボードはありません。	This backup has no boards.
+ボードを作り直しました。オーナーのボード一覧に戻っています。	The board was recreated and is back in its owner's board list.
+ボードの中身を戻しました。戻す前の状態はバージョン履歴にあります。	The board content was restored. The previous state is in version history.
+バックアップ作成	Backup created
+バックアップから復元	Restored from backup
+# 自作テンプレートのギャラリー
+標準	Standard
+チーム	Team
+自分	Mine
+テンプレートの種類	Template type
+＋ テンプレートに保存	+ Save as template
+テンプレートに保存	Save as template
+テンプレートを編集	Edit template
+{n} 回使用	Used {n}×
+自分だけ	Only me
+チームに公開中	Shared with the team
+編集・公開先の変更	Edit or change sharing
+編集	Edit
+ボードに置く	Place on the board
+要素 {n} 個	{n} elements
+選んでいる {n} 個の要素を保存します。	Saves the {n} selected elements.
+何も選んでいないので、ボード全体({n} 個の要素)を保存します。	Nothing is selected, so the whole board ({n} elements) will be saved.
+名前	Name
+説明	Description
+分類	Category
+公開先	Share with
+作った人だけ(公開をやめる)	Only the creator (stop sharing)
+例: 週次定例の振り返り	e.g. Weekly retro
+どんな場面で使うか	When to use it
+例: 振り返り	e.g. Retrospective
+チームに公開すると、メンバー全員の「チーム」タブに並び、誰でもボードに置けます。	Shared templates appear in every member's Team tab, and anyone on the team can place them.
+変更を保存	Save changes
+保存	Save
+削除	Delete
+自分のテンプレート	My templates
+チームのテンプレート	Team templates
+保存しました	Saved
+チームに公開しました	Shared with the team
+更新しました	Updated
+削除しました	Deleted
+保存する要素がありません	There is nothing to save
+保存する要素がありません。付箋や図形を置いてから保存してください	There is nothing to save. Add sticky notes or shapes first.
+チームに入ると、チームで公開されたテンプレートがここに並びます。チームはボード一覧で作れます。	Templates shared with your teams appear here. You can create a team from the board list.
+まだチームに公開されたテンプレートはありません。よく使う配置を選んで「＋ テンプレートに保存」から公開できます。	No team templates yet. Select a layout you use often and share it with "+ Save as template".
+まだ自作のテンプレートはありません。よく使う配置を選んで「＋ テンプレートに保存」を押すと、ここに並びます。	No templates of your own yet. Select a layout you use often and press "+ Save as template".
+テンプレートから作る	From a template
+テンプレートギャラリー	Template gallery
+閉じる	Close
+標準のテンプレート	Standard templates
+ボードでよく使う配置を選び、テンプレートのメニューの「＋ テンプレートに保存」を押すと、ここに並びます。チームに公開すると、メンバー全員が使えます。	Select a layout on a board and press "+ Save as template" in the Templates menu to add it here. Share it with a team so every member can use it.
+選ぶと新しいボードを作って置きます。チームのテンプレートはそのチームのボードになります。	Pick one to create a new board with it. Team templates create a board in that team.
+テンプレート作成	Template created
+テンプレートの変更	Template changed
+テンプレート削除	Template deleted
+会議	Meeting
+AI ファシリテーターとリアルタイム議事録	AI facilitator and live minutes
+会議の機能	Meeting tools
+進行	Agenda
+文字起こし	Transcript
+目的	Goal
+時間	Time
+例: 来期の重点施策を 3 つに絞る	e.g. Narrow next term's priorities down to 3
+話したいこと(1 行に 1 つ、任意)	Topics to cover (one per line, optional)
+話したいこと	Topics to cover
+AI で進行案を作る	Plan with AI
+目的・時間・メモとボードの内容から、議題と時間配分を提案します	Proposes an agenda and time allocation from the goal, length, notes and the board
+議題	Agenda
+会議を始める	Start meeting
+最初の議題から始め、全員に見えるタイマーを動かします	Starts with the first item and runs the shared timer
+次の議題へ	Next item
+最後の議題を終える	Finish the last item
+AI に助言をもらう	Ask AI for advice
+今の議題の発言とボードから、論点の整理と次の一手を提案します	Organizes the discussion points and suggests the next move from what was said and the board
+会議を終えてまとめる	End and summarize
+文字起こしとボードから、決定事項とアクションをまとめてボードに置きます	Summarizes decisions and action items from the transcript and the board, and places them on the board
+議題を片付ける	Clear agenda
+自動で更新	Auto-update
+発言が増えていれば、1 分ごとに AI が議事録を書き直します	AI rewrites the minutes every minute while new remarks come in
+今すぐ更新	Update now
+ボードに置く	Place on board
+今の議事録をボードの右に並べます	Places the current minutes to the right of the board
+● 文字起こしを始める	● Start transcribing
+■ 文字起こしを止める	■ Stop transcribing
+文字起こしを全員の画面から消す	Delete the transcript for everyone
+ブラウザの音声認識を使い、各自のマイクの声だけを文字にします(Chrome・Edge では音声がブラウザの提供元のサーバーで認識されます)。文字にした発言はボードと一緒に保存され、参加者全員に見えます。	Uses the browser's speech recognition to transcribe only your own microphone (in Chrome and Edge, audio is recognized on the browser vendor's servers). Transcribed remarks are saved with the board and visible to everyone.
+目的と時間を入れて「AI で進行案を作る」を押すと、議題と時間配分を提案します。	Enter a goal and length, then press "Plan with AI" to get an agenda and time allocation.
+文字起こしやボードの内容から、会議中に議事録を書き進めます。「自動で更新」を入れると、発言が増えるたびに 1 分ごとに書き直します。	Writes the minutes during the meeting from the transcript and the board. Turn on "Auto-update" to rewrite them every minute as new remarks come in.
+まだ発言はありません。「文字起こしを始める」を押して話すと、ここに出ます。	No remarks yet. Press "Start transcribing" and speak to see them here.
+あなたの声を文字にしています。ほかの参加者も各自で始めると、発言者ごとに記録されます	Transcribing your voice. When other participants start too, remarks are recorded per speaker
+ミュート中は文字にしません	Not transcribing while muted
+このブラウザは音声の文字起こしに対応していません(Chrome・Edge・Safari で使えます)	This browser does not support speech transcription (use Chrome, Edge or Safari)
+マイクの使用が許可されていません。ブラウザの設定で許可してください	Microphone access is blocked. Allow it in your browser settings
+マイクが見つかりません	No microphone found
+音声認識のサービスにつながりません	Cannot reach the speech recognition service
+この言語の音声認識に対応していません	Speech recognition does not support this language
+文字起こしが止まりました。もう一度始めてください	Transcription stopped. Please start it again
+音声認識を始められません	Could not start speech recognition
+AI が議事録を更新しています…	AI is updating the minutes…
+この画面から 1 分ごとに更新します	Updating every minute from this screen
+議事録を更新しました	Updated the minutes
+まだ議事録がありません。「今すぐ更新」で作れます	No minutes yet. Press "Update now" to create them
+議事録を更新中です。少し待ってからもう一度押してください	Updating the minutes. Wait a moment and try again
+AI が会議のまとめ(決定事項・アクション)を書いています…	AI is summarizing the meeting (decisions and action items)…
+AI ファシリテーター	AI facilitator
+議題から話がそれています	The discussion has drifted from the agenda
+論点	Discussion points
+まだ決まっていないこと	Still undecided
+次の一手	Next move
+話し合ったこと	Discussed
+決定事項	Decisions
+アクション	Action items
+やること	Task
+担当	Owner
+期限	Due
+未解決の課題	Open questions
+終了	Ended
+合計	Total
+分	min
+この議題を消す	Remove this item
+会議の目的を書いてください	Please enter the meeting goal
+AI が議題と時間配分を考えています…	AI is planning the agenda and timing…
+進行案を作れませんでした	Could not create a plan
+AI が使えないので、メモの行を議題にして時間を均等に割りました	AI is unavailable, so each note line became an item with equal time
+進行案を作りました。分数は直せます。「会議を始める」で最初の議題のタイマーが動きます	Plan created. You can adjust the minutes. "Start meeting" starts the timer for the first item
+AI が議論を整理しています…	AI is organizing the discussion…
+議題の時間を過ぎました。AI ファシリテーターの助言を会議パネルに出しました	Time is up for this item. The AI facilitator's advice is in the meeting panel
+助言を会議パネルに出しました	Advice is in the meeting panel
+会議を始めました。文字起こしを始めると、発言が議事録に入ります	Meeting started. Start transcribing to get remarks into the minutes
+議題はすべて終わりました。「会議を終えてまとめる」で議事録をボードに置けます	All items are done. Press "End and summarize" to place the minutes on the board
+会議が終わったので文字起こしを止めました	The meeting ended, so transcription stopped
+文字起こしは共同編集のボードで、編集できる人だけ使えます	Transcription is available on shared boards to people who can edit
+文字起こしを全員の画面から消します。よろしいですか?	Delete the transcript for everyone?
+# 会議と予定(Zoom・Meet・Teams・カレンダー)
+会議に参加	Join meeting
+予定・参加	Schedule & join
+Zoom・Meet・Teams の会議とカレンダーの予定	Zoom, Meet and Teams meetings and calendar events
+次の会議	Next meeting
+会議の時間です	The meeting is starting
+開催中	Live
+まもなく開始	Starting soon
+終わりました	Ended
+時刻は未定	Time not set
+Zoom に参加 ↗	Join Zoom ↗
+Google Meet に参加 ↗	Join Google Meet ↗
+Microsoft Teams に参加 ↗	Join Microsoft Teams ↗
+オンライン会議 に参加 ↗	Join online meeting ↗
+会議 に参加 ↗	Join meeting ↗
+オンライン会議	Online meeting
+カレンダー	Calendar
+Google カレンダーに追加 ↗	Add to Google Calendar ↗
+.ics を保存(Outlook・Teams)	Save .ics (Outlook, Teams)
+予定の説明にボードの URL が入るので、カレンダーからボードを開けます。	The event description includes the board URL, so people can open the board from their calendar.
+カレンダーの予定を開く ↗	Open calendar event ↗
+会議の参加者に知らせる	Tell meeting participants
+招待文をコピー	Copy invitation
+Zoom・Meet・Teams の会議のチャットに貼ると、参加者がそこからボードを開けます。Teams ではチャネルやチャットの「+」から「Web サイト」タブにボードの URL を追加できます。参加者がボードを開けるよう、共有の設定も確かめてください。	Paste it into the Zoom, Meet or Teams meeting chat so participants can open the board from there. In Teams you can also add the board URL as a "Website" tab with "+" in a channel or chat. Check the sharing settings so participants can open the board.
+編集	Edit
+紐づけを外す	Unlink
+が設定	set this up
+まだ会議は紐づけられていません。編集できる人が Zoom・Meet・Teams の会議やカレンダーの予定を紐づけられます。	No meeting is linked yet. Editors can link a Zoom, Meet or Teams meeting or a calendar event.
+会議の URL	Meeting URL
+予定の名前	Event name
+例: 週次定例	e.g. Weekly sync
+終わり	End
+カレンダーの予定のリンク(任意)	Calendar event link (optional)
+Google カレンダーの予定を開き、「︙」→「予定の公開」などでリンクをコピーして貼ると、ボードから予定に戻れます。	Open the event in Google Calendar, copy its link (for example from "⋮" → "Publish event") and paste it here to get back to the event from the board.
+紐づけを外しました	Unlinked
+会議の URL か予定を入れてください	Enter a meeting URL or event details
+開始の時刻を入れると保存できます	Set a start time to save the event
+会議の URL は https:// で始まる形で入力してください	Enter a meeting URL that starts with https://
+会議の URL は Zoom・Google Meet・Microsoft Teams のものを入力してください	Enter a Zoom, Google Meet or Microsoft Teams meeting URL
+予定の URL は Google カレンダーか Outlook の予定のリンクを入力してください	Enter a Google Calendar or Outlook event link
+終わりの時刻は開始より後にしてください	The end time must be after the start time
+終わりだけでなく開始の時刻も入れてください	Enter a start time as well as an end time
+予定の長さは 24 時間までにしてください	Events can be up to 24 hours long
+会議を紐づけられるのは、ログインして作ったボードだけです	Meetings can only be linked to boards created while signed in
+プラン: 無料	Plan: Free
+プラン: プロ	Plan: Pro
+料金プラン	Plans
+今月の AI 機能	AI this month
+利用中	Current
+今のプラン	Current plan
+プロにアップグレード	Upgrade to Pro
+お支払いの管理	Manage billing
+無料	Free
+プロ	Pro
+{n} / 無制限	{n} / unlimited
+ボード {n} 個	{n} boards
+ボード 無制限	Unlimited boards
+AI 機能 月 {n} 回	AI {n} times / month
+AI 機能 無制限	Unlimited AI
+ボードのメンバー {n} 人まで	Up to {n} members per board
+ボードのメンバー 無制限	Unlimited members per board
+動画メモ {n} MB まで	Video memos up to {n} MB per board
+動画メモ 無制限	Unlimited video memos
+次の更新日: {n}年{n}月{n}日	Renews on {2}/{3}/{1}
+{n}年{n}月{n}日 に無料プランに戻ります(解約の予定)。	Returns to the Free plan on {2}/{3}/{1} (cancellation scheduled).
+お支払いを確認できていません。「お支払いの管理」から支払い方法を更新してください。	We couldn't confirm your payment. Update your payment method in "Manage billing".
+テストモードです。申し込んでも実際の請求は発生しません。	Test mode: you won't actually be charged.
+プランはボードのオーナーに付きます。メンバー数・動画メモはボードごと、AI 機能はオーナーの月ごとの回数で数えます。プランを下げても、今あるボードはそのまま残ります。	Plans belong to the board owner. Members and video memos are counted per board, AI per owner per month. Downgrading keeps your existing boards.
+お申し込みありがとうございます。プロプランになりました。	Thanks! You're now on the Pro plan.
+申し込みを取りやめました。プランは変わっていません。	Checkout canceled. Your plan hasn't changed.
+解約しました。無料プランに戻りました。	Subscription canceled. You're back on the Free plan.
+無料プランで持てるボードは {n} 個までです。ホーム画面の「プラン」からプロにすると増やせます	The Free plan allows up to {n} boards. Upgrade to Pro from "Plan" on the home screen for more.
+無料プランで 1 つのボードに招待できるのは {n} 人までです。ホーム画面の「プラン」からプロにすると増やせます	The Free plan allows up to {n} members per board. Upgrade to Pro from "Plan" on the home screen for more.
+無料プランで 1 つのボードに置ける動画メモは合計 {n} MB までです。ホーム画面の「プラン」からプロにすると増やせます	The Free plan allows up to {n} MB of video memos per board. Upgrade to Pro from "Plan" on the home screen for more.
+無料プランの AI 機能は 1 か月 {n} 回までです(今月の分を使い切りました)。ホーム画面の「プラン」からプロにすると増やせます	The Free plan includes {n} AI uses per month, and you've used them all. Upgrade to Pro from "Plan" on the home screen for more.
+このボードで AI 機能を使うにはログインしてください	Log in to use AI on this board
+料金プランの変更	Plan changed
 タグ・フォルダ	Tags & folder
 タグとフォルダを変える	Edit tags and folder
 お気に入りにする	Add to favorites
@@ -1052,3 +1304,28 @@ SSO 自動参加	SSO auto-join
 直接接続でつながった	Connected directly
 直接接続の切断	Direct connection ended
 直接接続の相手を通報	Direct connection peer reported
+外部と通信する	Connect to the internet
+データを保存する	Store data
+ボードの要素(付箋・図形・文字など)を読みます	Reads the board's elements (stickies, shapes, text and so on)
+ボードの要素を作る・変える・消すことができます	Can create, change and delete elements on the board
+書かれた接続先にボードの内容を送ったり、そこからデータを取ったりできます	Can send board content to the listed hosts and fetch data from them
+このプラグイン専用の場所に、あなたごとのデータ(設定など)を残せます	Can keep your own data (such as settings) in a place only this plugin uses
+(サーバーの設定で使えません)	(not allowed by this server)
+選んだ権限を許可	Allow selected
+許可しない	Don't allow
+保存	Save
+最初に戻す	Reset
+ボードの読み書き以外の許可を取り消し、次の実行でまた確認します	Revokes everything except reading and editing the board, and asks again next time
+保存したデータを消す({n} KB)	Delete saved data ({n} KB)
+許可していません	Not allowed
+このプラグインは外部との通信やデータの保存を求めています。ログインすると、許可してから実行できます。	This plugin wants to connect to the internet or store data. Sign in to allow it and run it.
+権限の確認	Permission request
+このプラグインは次の権限を求めています。	This plugin is asking for the following permissions.
+許可するものを選んでください。許可しなかった権限は、プラグインからは使えません。	Choose what to allow. The plugin can't use anything you don't allow.
+権限の設定	Permissions
+先に権限を許可するかどうか決めてください	Decide on the permissions first
+外部との通信 {n} 件	Network requests: {n}
+失敗	Failed
+権限の設定を保存しました	Permissions saved
+権限の設定を最初に戻しました	Permissions reset
+保存したデータを消しました	Saved data deleted

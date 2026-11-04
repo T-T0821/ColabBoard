@@ -3,6 +3,7 @@
 //! コメントはサーバーの HTTP API で読み書きする。誰かが書き込むとサーバーから
 //! `Message::Refresh(TOPIC_COMMENTS)` が届くので取り直す。
 //! 「コメント」を押してからボードをクリックするとその位置(図形の上なら図形に結びつけて)に置ける。
+//! スレッドには期限を付けられ、近づく・過ぎるとメンションした人と書いた人に通知が届く(メール・プッシュ通知も)。
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -22,6 +23,78 @@ use crate::http::{self, escape};
 
 /// 通知を見直す間隔(ミリ秒)。
 const NOTIFICATION_INTERVAL_MS: f64 = 30_000.0;
+/// 期限が「近い」とみなす残り時間(ミリ秒)。
+const DUE_SOON_MS: f64 = 24.0 * 60.0 * 60.0 * 1000.0;
+
+/// `<input type="datetime-local">` の値(端末の時刻、`2026-11-03T18:00`)。
+fn local_input(ms: u64) -> String {
+    let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(ms as f64));
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}",
+        d.get_full_year(),
+        d.get_month() + 1,
+        d.get_date(),
+        d.get_hours(),
+        d.get_minutes()
+    )
+}
+
+/// `<input type="datetime-local">` の値を UNIX ミリ秒に(端末の時刻として読む)。
+fn parse_local(v: &str) -> Option<u64> {
+    let v = v.trim();
+    if v.is_empty() {
+        return None;
+    }
+    let t = js_sys::Date::new(&wasm_bindgen::JsValue::from_str(v)).get_time();
+    (t.is_finite() && t > 0.0).then_some(t as u64)
+}
+
+/// 「11/3(火) 18:00」。
+fn due_label(ms: u64) -> String {
+    const DAYS: [&str; 7] = ["日", "月", "火", "水", "木", "金", "土"];
+    let d = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(ms as f64));
+    format!(
+        "{}/{}({}) {:02}:{:02}",
+        d.get_month() + 1,
+        d.get_date(),
+        DAYS[d.get_day() as usize % 7],
+        d.get_hours(),
+        d.get_minutes()
+    )
+}
+
+/// 期限の状態(`overdue` 過ぎた・`soon` 24 時間以内・`` それ以外)。解決済みなら空。
+fn due_state(c: &Comment) -> &'static str {
+    match c.due {
+        Some(d) if !c.resolved => {
+            let left = d as f64 - js_sys::Date::now();
+            if left <= 0.0 {
+                "overdue"
+            } else if left <= DUE_SOON_MS {
+                "soon"
+            } else {
+                "later"
+            }
+        }
+        _ => "",
+    }
+}
+
+fn due_badge(c: &Comment) -> String {
+    match c.due {
+        Some(d) => format!(
+            r#"<span class="due-badge" data-due="{state}">{prefix}{label}</span>"#,
+            state = due_state(c),
+            prefix = if due_state(c) == "overdue" {
+                "期限切れ "
+            } else {
+                "期限 "
+            },
+            label = due_label(d),
+        ),
+        None => String::new(),
+    }
+}
 
 #[derive(Clone, Debug, PartialEq)]
 enum Open {
@@ -284,14 +357,31 @@ impl App {
         }
         for n in c.notifications.iter().take(30) {
             let what = match n.kind {
-                NotificationKind::Mention => "あなたをメンションしました",
-                NotificationKind::Reply => "スレッドに返信しました",
+                NotificationKind::Mention => format!(
+                    "<strong>{}</strong> があなたをメンションしました",
+                    escape(&n.from_name)
+                ),
+                NotificationKind::Reply => format!(
+                    "<strong>{}</strong> がスレッドに返信しました",
+                    escape(&n.from_name)
+                ),
+                NotificationKind::Due => format!(
+                    r#"<strong class="due-text">期限が近づいています</strong>{}"#,
+                    n.due
+                        .map(|d| format!("({})", due_label(d)))
+                        .unwrap_or_default()
+                ),
+                NotificationKind::Overdue => format!(
+                    r#"<strong class="due-text overdue">期限を過ぎました</strong>{}"#,
+                    n.due
+                        .map(|d| format!("({})", due_label(d)))
+                        .unwrap_or_default()
+                ),
             };
             html.push_str(&format!(
-                r#"<li><button class="notif {unread}" data-action="open-notif" data-id="{id}"><span><strong>{from}</strong> が {what}</span><span class="muted small">{title} · {ago}</span><span class="excerpt">{excerpt}</span></button></li>"#,
+                r#"<li><button class="notif {unread}" data-action="open-notif" data-id="{id}"><span>{what}</span><span class="muted small">{title} · {ago}</span><span class="excerpt">{excerpt}</span></button></li>"#,
                 unread = if n.read { "" } else { "unread" },
                 id = n.id,
-                from = escape(&n.from_name),
                 title = escape(&n.board_title),
                 ago = ago(n.created),
                 excerpt = escape(&n.excerpt),
@@ -322,7 +412,7 @@ impl App {
         );
 
         // ピン
-        let visible: Vec<(u64, String, bool, usize)> = self
+        let visible: Vec<(u64, String, bool, usize, &'static str)> = self
             .comments
             .roots()
             .filter(|c| self.comments.show_resolved || !c.resolved)
@@ -332,6 +422,7 @@ impl App {
                     c.author_name.clone(),
                     c.resolved,
                     self.comments.replies(c.id).count(),
+                    due_state(c),
                 )
             })
             .collect();
@@ -343,7 +434,7 @@ impl App {
             }
             k
         });
-        for (id, name, resolved, replies) in visible {
+        for (id, name, resolved, replies, due) in visible {
             let el = match self.comments.pin_els.get(&id) {
                 Some(el) => el.clone(),
                 None => {
@@ -374,6 +465,7 @@ impl App {
                     }
                 ),
             );
+            let _ = el.set_attribute("data-due", due);
             let open = self.comments.open == Some(Open::Thread(id));
             let _ = el.set_attribute(
                 "data-state",
@@ -420,12 +512,13 @@ impl App {
         for r in roots {
             let n = c.replies(r.id).count();
             html.push_str(&format!(
-                r#"<li><button class="thread {state}" data-action="open-thread" data-id="{id}"><span class="row"><strong>{name}</strong><span class="muted small">{ago}</span>{resolved}</span><span class="excerpt">{body}</span>{replies}</button></li>"#,
+                r#"<li><button class="thread {state}" data-action="open-thread" data-id="{id}"><span class="row"><strong>{name}</strong><span class="muted small">{ago}</span>{resolved}{due}</span><span class="excerpt">{body}</span>{replies}</button></li>"#,
                 state = if c.open == Some(Open::Thread(r.id)) { "open" } else { "" },
                 id = r.id,
                 name = escape(&r.author_name),
                 ago = ago(r.created),
                 resolved = if r.resolved { r#"<span class="badge">解決済み</span>"# } else { "" },
+                due = due_badge(r),
                 body = escape(&r.body.chars().take(120).collect::<String>()),
                 replies = if n > 0 { format!(r#"<span class="muted small">返信 {n} 件</span>"#) } else { String::new() },
             ));
@@ -459,10 +552,15 @@ impl App {
             .as_ref()
             .map(|m| format!(r#"<p class="form-error small">{}</p>"#, escape(m)))
             .unwrap_or_default();
-        let compose = |placeholder: &str, label: &str| {
+        let compose = |placeholder: &str, label: &str, with_due: bool| {
             if can_post {
+                let due = if with_due {
+                    r#"<label class="due-field small">期限(任意) <input type="datetime-local" name="due" /></label>"#
+                } else {
+                    ""
+                };
                 format!(
-                    r#"<form data-form="comment"><textarea name="body" rows="2" placeholder="{placeholder}" autofocus></textarea><div class="row"><span class="muted small grow">@ログイン名 でメンション · Ctrl/⌘+Enter で送信</span><button type="submit" class="primary">{label}</button></div></form>"#
+                    r#"<form data-form="comment"><textarea name="body" rows="2" placeholder="{placeholder}" autofocus></textarea>{due}<div class="row"><span class="muted small grow">@ログイン名 でメンション · Ctrl/⌘+Enter で送信</span><button type="submit" class="primary">{label}</button></div></form>"#
                 )
             } else if me.is_none() {
                 login_link()
@@ -474,7 +572,7 @@ impl App {
             None => String::new(),
             Some(Open::Draft { .. }) => format!(
                 r#"<header class="row"><strong class="grow">新しいコメント</strong><button class="quiet" data-action="close-popover" aria-label="閉じる">×</button></header>{message}{}"#,
-                compose("コメントを書く", "送信")
+                compose("コメントを書く", "送信", true)
             ),
             Some(Open::Thread(id)) => {
                 let Some(root) = c.root(*id) else {
@@ -511,14 +609,39 @@ impl App {
                 } else {
                     String::new()
                 };
+                let due = if can_post && !root.resolved {
+                    format!(
+                        r#"<div class="due-row row small"><label class="due-field grow">期限 <input type="datetime-local" data-change="due" data-id="{id}" value="{value}" aria-label="期限" /></label>{clear}{badge}</div>"#,
+                        id = root.id,
+                        value = root.due.map(local_input).unwrap_or_default(),
+                        clear = if root.due.is_some() {
+                            format!(
+                                r#"<button class="quiet small" data-action="clear-due" data-id="{}">外す</button>"#,
+                                root.id
+                            )
+                        } else {
+                            String::new()
+                        },
+                        badge = match due_state(root) {
+                            "overdue" =>
+                                r#"<span class="due-badge" data-due="overdue">期限切れ</span>"#,
+                            "soon" => r#"<span class="due-badge" data-due="soon">まもなく</span>"#,
+                            _ => "",
+                        },
+                    )
+                } else if root.due.is_some() {
+                    format!(r#"<div class="due-row small">{}</div>"#, due_badge(root))
+                } else {
+                    String::new()
+                };
                 format!(
-                    r#"<header class="row"><strong class="grow">{title}</strong>{resolve}<button class="quiet" data-action="close-popover" aria-label="閉じる">×</button></header><ul class="thread-items">{items}</ul>{message}{compose}"#,
+                    r#"<header class="row"><strong class="grow">{title}</strong>{resolve}<button class="quiet" data-action="close-popover" aria-label="閉じる">×</button></header>{due}<ul class="thread-items">{items}</ul>{message}{compose}"#,
                     title = if root.resolved {
                         "解決済みのスレッド"
                     } else {
                         "スレッド"
                     },
-                    compose = compose("返信する", "返信"),
+                    compose = compose("返信する", "返信", false),
                 )
             }
         };
@@ -657,7 +780,7 @@ impl App {
         false
     }
 
-    fn submit_comment(&mut self, body: String) {
+    fn submit_comment(&mut self, body: String, due: Option<u64>) {
         let Some((room, key, _, _)) = self.comment_ctx() else {
             return;
         };
@@ -668,6 +791,7 @@ impl App {
                 y: world.y,
                 anchor: anchor.clone(),
                 parent: None,
+                due,
             },
             Some(Open::Thread(id)) => NewComment {
                 body,
@@ -675,6 +799,7 @@ impl App {
                 y: 0.0,
                 anchor: None,
                 parent: Some(*id),
+                due: None,
             },
             None => return,
         };
@@ -767,13 +892,25 @@ impl App {
                         "PATCH",
                         id,
                         Some(EditComment {
-                            body: None,
                             resolved: Some(resolved),
+                            ..Default::default()
                         }),
                     );
                     if resolved {
                         self.comments.open = None;
                     }
+                }
+            }
+            "clear-due" => {
+                if let Some(id) = id {
+                    self.comment_request(
+                        "PATCH",
+                        id,
+                        Some(EditComment {
+                            due: Some(0),
+                            ..Default::default()
+                        }),
+                    );
                 }
             }
             "delete-comment" => {
@@ -827,6 +964,10 @@ impl App {
                 }
                 self.comments.notif_menu.set_hidden(true);
                 self.render_bell();
+                if n.board.is_empty() {
+                    // テストの通知(開くボードがない)。
+                    return;
+                }
                 let same = self.comment_ctx().is_some_and(|c| c.0 == n.board);
                 if same {
                     self.open_thread(n.thread, true);
@@ -935,6 +1076,39 @@ pub fn install(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String> {
         )?;
     }
     {
+        // 期限を変えたら保存する。
+        let app = app.clone();
+        listen(
+            popover.as_ref(),
+            "change",
+            false,
+            move |e: web_sys::Event| {
+                let Some(input) = e
+                    .target()
+                    .and_then(|t| t.dyn_into::<web_sys::HtmlInputElement>().ok())
+                    .filter(|i| i.get_attribute("data-change").as_deref() == Some("due"))
+                else {
+                    return;
+                };
+                let Some(id) = input
+                    .get_attribute("data-id")
+                    .and_then(|i| i.parse::<u64>().ok())
+                else {
+                    return;
+                };
+                let due = parse_local(&input.value()).unwrap_or(0);
+                app.borrow().comment_request(
+                    "PATCH",
+                    id,
+                    Some(EditComment {
+                        due: Some(due),
+                        ..Default::default()
+                    }),
+                );
+            },
+        )?;
+    }
+    {
         // Ctrl/⌘+Enter で送信。
         let app = app.clone();
         listen(
@@ -992,6 +1166,12 @@ fn submit_from(app: &Rc<RefCell<App>>, e: &web_sys::Event) {
     if body.trim().is_empty() {
         return;
     }
+    let due = form
+        .query_selector("input[name=due]")
+        .ok()
+        .flatten()
+        .and_then(|i| i.dyn_into::<web_sys::HtmlInputElement>().ok())
+        .and_then(|i| parse_local(&i.value()));
     text.set_value("");
-    app.borrow_mut().submit_comment(body);
+    app.borrow_mut().submit_comment(body, due);
 }

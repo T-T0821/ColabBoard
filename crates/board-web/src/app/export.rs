@@ -30,7 +30,7 @@ pub enum ExportFormat {
 }
 
 /// バイト列をファイルとして保存させる。
-fn download(name: &str, mime: &str, bytes: &[u8]) -> Result<(), String> {
+pub(super) fn download(name: &str, mime: &str, bytes: &[u8]) -> Result<(), String> {
     let window = web_sys::window().ok_or("window がありません")?;
     let doc = window.document().ok_or("document がありません")?;
     let array = js_sys::Uint8Array::from(bytes);
