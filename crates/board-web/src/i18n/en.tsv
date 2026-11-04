@@ -1042,6 +1042,50 @@ AI が議論を整理しています…	AI is organizing the discussion…
 会議が終わったので文字起こしを止めました	The meeting ended, so transcription stopped
 文字起こしは共同編集のボードで、編集できる人だけ使えます	Transcription is available on shared boards to people who can edit
 文字起こしを全員の画面から消します。よろしいですか?	Delete the transcript for everyone?
+# 会議と予定(Zoom・Meet・Teams・カレンダー)
+会議に参加	Join meeting
+予定・参加	Schedule & join
+Zoom・Meet・Teams の会議とカレンダーの予定	Zoom, Meet and Teams meetings and calendar events
+次の会議	Next meeting
+会議の時間です	The meeting is starting
+開催中	Live
+まもなく開始	Starting soon
+終わりました	Ended
+時刻は未定	Time not set
+Zoom に参加 ↗	Join Zoom ↗
+Google Meet に参加 ↗	Join Google Meet ↗
+Microsoft Teams に参加 ↗	Join Microsoft Teams ↗
+オンライン会議 に参加 ↗	Join online meeting ↗
+会議 に参加 ↗	Join meeting ↗
+オンライン会議	Online meeting
+カレンダー	Calendar
+Google カレンダーに追加 ↗	Add to Google Calendar ↗
+.ics を保存(Outlook・Teams)	Save .ics (Outlook, Teams)
+予定の説明にボードの URL が入るので、カレンダーからボードを開けます。	The event description includes the board URL, so people can open the board from their calendar.
+カレンダーの予定を開く ↗	Open calendar event ↗
+会議の参加者に知らせる	Tell meeting participants
+招待文をコピー	Copy invitation
+Zoom・Meet・Teams の会議のチャットに貼ると、参加者がそこからボードを開けます。Teams ではチャネルやチャットの「+」から「Web サイト」タブにボードの URL を追加できます。参加者がボードを開けるよう、共有の設定も確かめてください。	Paste it into the Zoom, Meet or Teams meeting chat so participants can open the board from there. In Teams you can also add the board URL as a "Website" tab with "+" in a channel or chat. Check the sharing settings so participants can open the board.
+編集	Edit
+紐づけを外す	Unlink
+が設定	set this up
+まだ会議は紐づけられていません。編集できる人が Zoom・Meet・Teams の会議やカレンダーの予定を紐づけられます。	No meeting is linked yet. Editors can link a Zoom, Meet or Teams meeting or a calendar event.
+会議の URL	Meeting URL
+予定の名前	Event name
+例: 週次定例	e.g. Weekly sync
+終わり	End
+カレンダーの予定のリンク(任意)	Calendar event link (optional)
+Google カレンダーの予定を開き、「︙」→「予定の公開」などでリンクをコピーして貼ると、ボードから予定に戻れます。	Open the event in Google Calendar, copy its link (for example from "⋮" → "Publish event") and paste it here to get back to the event from the board.
+紐づけを外しました	Unlinked
+会議の URL か予定を入れてください	Enter a meeting URL or event details
+開始の時刻を入れると保存できます	Set a start time to save the event
+会議の URL は https:// で始まる形で入力してください	Enter a meeting URL that starts with https://
+会議の URL は Zoom・Google Meet・Microsoft Teams のものを入力してください	Enter a Zoom, Google Meet or Microsoft Teams meeting URL
+予定の URL は Google カレンダーか Outlook の予定のリンクを入力してください	Enter a Google Calendar or Outlook event link
+終わりの時刻は開始より後にしてください	The end time must be after the start time
+終わりだけでなく開始の時刻も入れてください	Enter a start time as well as an end time
+予定の長さは 24 時間までにしてください	Events can be up to 24 hours long
+会議を紐づけられるのは、ログインして作ったボードだけです	Meetings can only be linked to boards created while signed in
 プラン: 無料	Plan: Free
 プラン: プロ	Plan: Pro
 料金プラン	Plans

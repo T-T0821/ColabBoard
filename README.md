@@ -124,6 +124,7 @@ Miro や FigJam のように、Web 上で複数人が同時に編集できるホ
 | 機能 | 内容 |
 | --- | --- |
 | **Slack 通知** | オーナーは「共有」パネルで Slack の Incoming Webhook URL を登録すると、コメント・メンション・名前を付けたバージョンの保存(と復元)をチャンネルに流せる。送る出来事は選べて、「テスト送信」で届くか確かめられる。URL は保存後は末尾しか表示しない |
+| **会議・カレンダー連携(Zoom・Google Meet・Teams)** | 上部の「会議」から、ボードに会議の参加 URL と予定(名前・開始・終わり・カレンダーの予定のリンク)を紐づけられる(編集者以上)。開始 15 分前からボタンが「会議に参加」に変わり、開催中は色が付く。パネルからは会議への参加、Google カレンダーへの追加(予定の説明にボードの URL が入る)、`.ics` の保存(Outlook・Apple カレンダー・Teams)、会議のチャットに貼る招待文のコピーができ、参加者はそこからボードを開ける。Teams ではチャネルやチャットの「Web サイト」タブにボードの URL を追加でき、埋め込み用の鍵を使った `&embed=1` の URL なら会議アプリの中でもログインなしで表示できる。受け付ける会議の URL は Zoom・Meet・Teams のものだけで、`MEETING_HOSTS` で Webex などを足せる。誰かが変えると開いている全員の表示が変わる |
 | **GitHub・Jira の課題カード** | 課題やプルリクエストの URL(`https://github.com/…/issues/12`、`…/pull/34`、`https://…atlassian.net/browse/PROJ-5`)を貼ると、番号・タイトル・状態・担当者を書いたカードになる(複数行まとめて貼れる)。色は状態ごと(オープン=緑、進行中=青、完了・マージ=紫、対応しないで閉じた=灰)。ボードを開いている間は 2 分ごとに状態を引き直して全員のカードを書き換える。クリックで課題を開く |
 
 ### 性能確認・動作環境
@@ -297,6 +298,7 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `JIRA_EMAIL` / `JIRA_API_TOKEN` | なし | Jira の API トークン(3 つそろうと Jira 連携が有効になる) |
 | `JIRA_API_URL` | `JIRA_BASE_URL` | Jira の API を別の場所(プロキシなど)経由で呼ぶとき |
 | `EMBED_ALLOWED_ORIGINS` | `*` | ボードを iframe で埋め込んでよいサイト(空白区切り。例 `https://wiki.example.com https://*.example.org`) |
+| `MEETING_HOSTS` | なし | ボードに紐づける会議の URL として、Zoom・Meet・Teams のほかに受け付けるドメイン(カンマ区切り。例 `webex.com,whereby.com`。サブドメインも含む) |
 | `SLACK_WEBHOOK_PREFIXES` | `https://hooks.slack.com/` | Slack 通知を送ってよい Webhook URL の先頭(カンマ区切り)。これ以外の URL は登録できない |
 | `PLUGIN_DIR` | なし | ここにある `*.wasm` をサーバーのプラグインとして読み込む(全員が使える) |
 | `USER_PLUGINS` | `1` | `0` にすると各自がプラグインを入れるのを禁止(サーバーのプラグインだけになる) |

@@ -6,7 +6,7 @@
 //! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
 //! - `/api/billing/...`: 料金プランと Stripe での支払い([`billing`])。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])・会議の進行役([`ai_meeting`])、Slack 通知([`slack`])、メール・プッシュ通知([`notify`])、GitHub・Jira の課題カード([`issues`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])・会議の進行役([`ai_meeting`])、Slack 通知([`slack`])、メール・プッシュ通知([`notify`])、会議・カレンダーの紐づけ([`meeting_link`])、GitHub・Jira の課題カード([`issues`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -29,6 +29,7 @@ mod embedded;
 pub mod guard;
 pub mod issues;
 pub mod media;
+pub mod meeting_link;
 pub mod notify;
 pub mod og;
 pub mod oidc;
@@ -88,6 +89,8 @@ pub struct Config {
     pub issues: issues::IssuesConfig,
     /// 音声通話の ICE サーバー(`RTCIceServer` の配列)。`GET /api/rtc` で配る。
     pub ice_servers: serde_json::Value,
+    /// 会議の URL として受け付ける、Zoom・Meet・Teams 以外のドメイン(`MEETING_HOSTS`)。
+    pub meeting_hosts: Vec<String>,
     /// `?embed=1` のページを iframe で埋め込んでよいサイト(CSP の `frame-ancestors` の値)。
     /// それ以外のページは同じサイトからしか埋め込めない。
     pub embed_origins: String,
@@ -145,6 +148,7 @@ impl Default for Config {
             plugins: plugins::PluginConfig::default(),
             issues: issues::IssuesConfig::default(),
             ice_servers: default_ice_servers(),
+            meeting_hosts: Vec::new(),
             embed_origins: "*".into(),
             admins: Vec::new(),
             trust_proxy: false,
