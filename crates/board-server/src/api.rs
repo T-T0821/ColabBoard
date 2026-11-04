@@ -50,6 +50,10 @@ pub fn routes() -> Router<Arc<AppState>> {
         )
         .route("/boards/{id}/slack/test", post(slack::send_test))
         .route(
+            "/boards/{id}/meeting-link",
+            get(crate::meeting_link::get_meeting).put(crate::meeting_link::set_meeting),
+        )
+        .route(
             "/boards/{id}/comments",
             get(list_comments).post(post_comment),
         )
@@ -365,6 +369,7 @@ async fn create_board(
             format!("持てるボードは {max} 個までです。使わないボードを削除してください"),
         ));
     }
+    crate::billing::check_new_board(&state, &user.login)?;
     if let Some(team) = &req.team {
         crate::teams::member_team(state.store(), team, &user.login)?;
     }
@@ -466,6 +471,7 @@ async fn delete_board(
     meta.link = None;
     meta.embed = None;
     meta.slack = None;
+    meta.meeting_link = None;
     if let Some(team) = meta.team.take() {
         boards::detach(state.store(), &team, &id)?;
     }
@@ -514,6 +520,13 @@ async fn set_member(
                 return Err(Error::bad_request(format!(
                     "「{login}」というユーザーはいません"
                 )));
+            }
+            if !meta.members.contains_key(&login) {
+                crate::billing::check_new_member(
+                    &state,
+                    meta.owner.as_deref(),
+                    meta.members.len(),
+                )?;
             }
             meta.members.insert(login.clone(), role.min(Role::Editor));
             boards::remember(state.store(), &login, &id, None)?;
@@ -690,7 +703,7 @@ async fn post_comment(
     if !role.can_comment() {
         return Err(Error::forbidden());
     }
-    let posted = comments::post(
+    let (posted, sent) = comments::post(
         state.store(),
         meta.as_ref(),
         &id,
@@ -698,6 +711,7 @@ async fn post_comment(
         req,
         state.config.anonymous_boards,
     )?;
+    state.config.notifier.deliver(state.store(), sent);
     // コメントしたボードは一覧に載せる。
     boards::remember(state.store(), &user.login, &id, q.key.as_deref())?;
     state.hub.refresh(&id, TOPIC_COMMENTS);
