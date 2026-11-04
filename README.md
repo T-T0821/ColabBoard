@@ -164,6 +164,17 @@ cargo run -p board-server --release
 サーバーなしで試すだけなら、`cd crates/board-web && trunk serve` で開いたページがそのタブだけで動く(サーバーが見つからないと自動でオフラインになる)。
 クライアントを編集しながら開発するときは、サーバーを起動したまま `trunk serve` を使う(`/ws` はサーバーへ中継される)。
 
+### Dev Container で開発する
+
+VS Code の Dev Containers 拡張(または GitHub Codespaces)でリポジトリを開き、「Reopen in Container」を選ぶと、Rust(wasm32 ターゲット・rustfmt・clippy 込み)、trunk、Node.js 22 が入った環境が立ち上がる。中身は [.devcontainer/](.devcontainer/) にある。
+
+```sh
+cargo run -p board-server              # → http://localhost:8080
+(cd crates/board-web && trunk serve)   # → http://localhost:8081(/ws と /api は 8080 へ中継)
+```
+
+コンテナ内の `trunk serve` は 8081 で待ち受ける(サーバーの 8080 とぶつからないよう `TRUNK_SERVE_PORT` を設定済み)。`target/` と crates のダウンロード先は Docker ボリュームに置くので、macOS / Windows でもビルドが遅くならない。
+
 ### クラウドの公式アイコン
 
 AWS・Azure・Google Cloud の公式アイコンは構成図を描くために提供されていますが、ソースコードと一緒に再配布する許可はないため、リポジトリには含めていません。
