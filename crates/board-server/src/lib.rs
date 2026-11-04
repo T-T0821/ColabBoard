@@ -35,7 +35,9 @@ pub mod media;
 pub mod meeting_link;
 pub mod notify;
 pub mod og;
+
 pub mod oidc;
+pub mod p2p;
 pub mod plugins;
 pub mod public;
 pub mod rest;
@@ -109,6 +111,8 @@ pub struct Config {
     pub password_login: bool,
     /// 回数制限・利用上限・セキュリティヘッダー。
     pub limits: guard::Limits,
+    /// サーバーを通さない直接接続(P2P)を許すか。チームごとにも止められる。
+    pub p2p: bool,
     /// エラー監視(集めたエラーの置き場)。
     pub monitor: Arc<errors::Monitor>,
     /// 定期バックアップ。`None` なら無効。
@@ -164,6 +168,7 @@ impl Default for Config {
             oidc: None,
             password_login: true,
             limits: guard::Limits::default(),
+            p2p: true,
             monitor: Arc::new(errors::Monitor::new()),
             backups: None,
             notifier: Arc::new(notify::Notifier::default()),
@@ -220,6 +225,13 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/ai/status", get(ai_diagram::status))
         .route("/api/boards/{id}/issues", post(issues::lookup))
         .route("/api/rtc", get(rtc_config))
+        .route("/api/boards/{id}/p2p", get(p2p::get_policy))
+        .route("/api/boards/{id}/p2p/events", post(p2p::post_events))
+        .route("/api/boards/{id}/p2p/report", post(p2p::post_report))
+        .route(
+            "/api/teams/{tid}/p2p",
+            axum::routing::put(p2p::set_team_p2p),
+        )
         .route("/p/{id}/{slug}", get(public::page))
         .route("/p/{id}/{slug}/og.png", get(public::image))
         .route(

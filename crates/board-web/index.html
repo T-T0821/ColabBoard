@@ -49,6 +49,7 @@
     <span id="hud-net" data-status="connecting" role="status">接続中…</span>
     <button id="share" title="このボードを共有">リンクをコピー</button>
     <button id="slides-start" title="フレームを 1 枚ずつスライドとして全画面で表示 (← → で移動、Esc で終了)">スライド</button>
+    <button id="p2p-toggle" title="サーバーを通さず、同じネットワークの端末と直接つないで編集する" aria-pressed="false" hidden>直接つなぐ</button>
     <button id="call-toggle" title="ボードを開いたまま、参加者と音声で話す" aria-pressed="false">通話</button>
     <button id="meeting-toggle" title="AI ファシリテーターとリアルタイム議事録" aria-pressed="false" aria-controls="meeting-panel" data-live="off">会議</button>
     <button id="comments-toggle" title="コメント" aria-pressed="false">コメント</button>
@@ -118,6 +119,7 @@
   <section id="comments-panel" class="panel comments-panel" aria-label="コメント一覧" hidden></section>
   <section id="notif-menu" class="panel notif-menu" aria-label="通知" hidden></section>
   <section id="history-panel" class="panel history-panel" aria-label="バージョン履歴" hidden></section>
+  <section id="p2p-panel" class="panel history-panel p2p-panel" aria-label="直接つなぐ" hidden></section>
   <section id="plugins-panel" class="panel history-panel plugins-panel" aria-label="プラグイン" hidden></section>
   <div id="preview-banner" class="panel preview-banner" role="status" hidden></div>
 

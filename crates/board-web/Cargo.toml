@@ -99,6 +99,13 @@ web-sys = { version = "0.3", features = [
     "RtcTrackEvent",
     "RtcRtpSender",
     "RtcPeerConnectionState",
+    "RtcDataChannel",
+    "RtcDataChannelInit",
+    "RtcDataChannelEvent",
+    "RtcDataChannelState",
+    "RtcDataChannelType",
+    "RtcIceGatheringState",
+    "RtcSessionDescription",
     "MutationObserver",
     "MutationObserverInit",
     "MutationRecord",
@@ -110,3 +117,5 @@ web-sys = { version = "0.3", features = [
     "CanvasGradient",
 ] }
 # PDF の取り込み(Pure Rust のラスタライザ)。wasm が数 MB 増えるので機能で切れるようにする。
+# 直接接続(P2P)の招待リンクを QR コード(SVG)にする。
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }

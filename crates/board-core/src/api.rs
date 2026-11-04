@@ -52,6 +52,10 @@
 //! | `PUT` | `/api/teams/{tid}/sso` | SSO 自動参加ドメインの設定([`TeamSso`] → [`Team`]、サーバー管理者のみ) |
 //! | `GET` | `/api/storage` | 選べるデータの保存場所([`StorageLocation`] の配列、要ログイン) |
 //! | `PUT` | `/api/teams/{tid}/storage` | チームのボードの保存場所を変え、中身を移す([`SetTeamStorage`] → [`Team`]、チームのオーナーのみ) |
+//! | `PUT` | `/api/teams/{tid}/p2p` | チームのボードで直接接続(P2P)を許すか([`SetTeamP2p`] → [`Team`]、チームの管理者以上) |
+//! | `GET` | `/api/boards/{id}/p2p?key=` | このボードで直接接続を使えるか([`P2pPolicy`]、閲覧者以上) |
+//! | `POST` | `/api/boards/{id}/p2p/events?key=` | 直接接続を使った記録([`P2pEvent`] の配列。中身は送らない。操作ログに残る) |
+//! | `POST` | `/api/boards/{id}/p2p/report?key=` | 直接つないだ相手を通報([`P2pReport`]。操作ログに残る) |
 //! | `GET` | `/api/templates` | 使える自作テンプレート(自分の + 入っているチームに公開されたもの。[`UserTemplate`] の配列、よく使われる順) |
 //! | `POST` | `/api/templates` | 自作テンプレートを保存する([`NewUserTemplate`] → [`UserTemplate`]。`team` を付けるとそのチームに公開) |
 //! | `PATCH` | `/api/templates/{id}` | 名前・説明・分類・公開先の変更([`EditUserTemplate`] → [`UserTemplate`]、作った人かチームの管理者) |
@@ -432,6 +436,9 @@ pub struct Team {
     /// チームのボードの中身を置く場所の ID([`StorageLocation`])。`None` はこのサーバー。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
+    /// チームのボードでサーバーを通さない直接接続(P2P)を止めているか。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub p2p_disabled: bool,
 }
 
 /// サーバーの管理者が用意したデータの保存場所。
@@ -456,6 +463,123 @@ pub struct SetTeamStorage {
 pub struct TeamSso {
     pub domains: Vec<String>,
 }
+
+/// チームのボードで直接接続(P2P)を許すか(チームの管理者以上)。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SetTeamP2p {
+    pub allowed: bool,
+}
+
+/// このボードで直接接続(P2P)を使えるか。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct P2pPolicy {
+    pub allowed: bool,
+    /// 使えないときの理由(画面に出す)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// 直接接続を使った記録の種類。ボードの中身は送らない。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum P2pEventKind {
+    /// 招待コードを作った。
+    Invite,
+    /// 招待コードで参加した。
+    Join,
+    /// 相手とつながった。
+    Connect,
+    /// 相手との接続が切れた(切った)。
+    Disconnect,
+}
+
+impl P2pEventKind {
+    pub fn action(self) -> &'static str {
+        match self {
+            Self::Invite => "p2p.invite",
+            Self::Join => "p2p.join",
+            Self::Connect => "p2p.connect",
+            Self::Disconnect => "p2p.disconnect",
+        }
+    }
+}
+
+/// 直接接続を使った記録(`POST /api/boards/{id}/p2p/events`)。
+///
+/// サーバーにつながっていない間の記録は端末にためておき、つながったときにまとめて送る。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct P2pEvent {
+    pub kind: P2pEventKind,
+    /// 端末での時刻(UNIX ミリ秒)。後からまとめて送ったときに、いつのことか分かるように。
+    pub at: u64,
+    /// 相手の表示名(分かれば)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
+}
+
+/// 通報の理由。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReportReason {
+    /// 嫌がらせ・迷惑な行為。
+    Harassment,
+    /// 違法・有害な内容。
+    Illegal,
+    /// 情報の持ち出し・なりすまし。
+    Leak,
+    /// 宣伝・スパム。
+    Spam,
+    Other,
+}
+
+impl ReportReason {
+    pub const ALL: [Self; 5] = [
+        Self::Harassment,
+        Self::Illegal,
+        Self::Leak,
+        Self::Spam,
+        Self::Other,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Harassment => "嫌がらせ・迷惑な行為",
+            Self::Illegal => "違法・有害な内容",
+            Self::Leak => "情報の持ち出し・なりすまし",
+            Self::Spam => "宣伝・スパム",
+            Self::Other => "その他",
+        }
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Harassment => "harassment",
+            Self::Illegal => "illegal",
+            Self::Leak => "leak",
+            Self::Spam => "spam",
+            Self::Other => "other",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|r| r.id() == s)
+    }
+}
+
+/// 直接つないだ相手の通報(`POST /api/boards/{id}/p2p/report`)。操作ログに残り、管理者が見る。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct P2pReport {
+    pub reason: ReportReason,
+    /// 通報する相手の表示名。
+    pub peer: String,
+    /// 補足(任意。[`MAX_REPORT_NOTE_CHARS`] 文字まで)。
+    #[serde(default)]
+    pub note: String,
+    /// 端末での時刻(UNIX ミリ秒)。
+    pub at: u64,
+}
+
+pub const MAX_REPORT_NOTE_CHARS: usize = 500;
 
 /// サーバーが受け付けるログイン方法。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -622,6 +746,12 @@ impl AuditEvent {
             "team.member" => "チームのメンバー変更",
             "team.settings" => "チームの設定変更",
             "team.storage" => "保存場所の変更",
+            "team.p2p" => "直接接続(P2P)の設定変更",
+            "p2p.invite" => "直接接続の招待",
+            "p2p.join" => "直接接続で参加",
+            "p2p.connect" => "直接接続でつながった",
+            "p2p.disconnect" => "直接接続の切断",
+            "p2p.report" => "直接接続の相手を通報",
             "billing.plan" => "料金プランの変更",
             "token.create" => "API トークン作成",
             "token.revoke" => "API トークン失効",

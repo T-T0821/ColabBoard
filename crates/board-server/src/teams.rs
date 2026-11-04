@@ -37,6 +37,9 @@ pub struct TeamRecord {
     /// ボードの中身を置く場所([`crate::storage`])。`None` はこのサーバー。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
+    /// チームのボードで直接接続(P2P)を止めているか([`crate::p2p`])。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub p2p_disabled: bool,
 }
 
 impl TeamRecord {
@@ -49,6 +52,7 @@ impl TeamRecord {
             created: self.created,
             sso_domains: self.sso_domains.clone(),
             storage: self.storage.clone(),
+            p2p_disabled: self.p2p_disabled,
         }
     }
 
@@ -130,6 +134,7 @@ pub fn create(store: &Store, owner: &str, name: &str) -> Result<TeamRecord, Stor
             members: BTreeMap::from([(owner.to_string(), TeamRole::Owner)]),
             sso_domains: Vec::new(),
             storage: None,
+            p2p_disabled: false,
         };
         if store.insert_new_json(TEAMS, &team.id, &team)? {
             store.put_pair(USER_TEAMS, owner, &team.id, &now_ms())?;

@@ -7,8 +7,8 @@ use std::rc::Rc;
 
 use board_core::api::{
     AuditEvent, BoardInfo, Login, MatchKind, Me, NewBoard, NewTeam, RenameFolder, Role, SearchHit,
-    SetBoardTeam, SetLabels, SetTeamMember, SetTeamStorage, Signup, SsoStatus, StorageLocation,
-    Team, TeamInfo, TeamRole, TeamSso, UserTemplate,
+    SetBoardTeam, SetLabels, SetTeamMember, SetTeamP2p, SetTeamStorage, Signup, SsoStatus,
+    StorageLocation, Team, TeamInfo, TeamRole, TeamSso, UserTemplate,
 };
 use board_core::templates::{Category, Template};
 use wasm_bindgen::JsCast;
@@ -1055,6 +1055,18 @@ impl Home {
         } else {
             String::new()
         };
+        // サーバーを通さない直接接続(P2P)。中身がサーバーを通らないので、管理者が止められる。
+        let p2p = if admin {
+            format!(
+                r#"<form data-form="team-p2p" class="inline"><label class="check"><input type="checkbox" name="allowed" {checked} /> チームのボードで直接接続(P2P)を許可</label><button type="submit">保存</button></form><p class="muted small">直接接続ではボードの中身がサーバーを通りません。使った記録(誰がいつ)と通報は操作ログに残ります。</p>"#,
+                checked = if team.p2p_disabled { "" } else { "checked" },
+            )
+        } else if team.p2p_disabled {
+            r#"<p class="muted small">このチームでは直接接続(P2P)が止められています</p>"#
+                .to_string()
+        } else {
+            String::new()
+        };
         let danger = if owner {
             if self.confirm_delete_team {
                 r#"<button type="button" class="danger" data-action="delete-team">本当にチームを削除</button><button type="button" data-action="cancel-delete-team">やめる</button>"#
@@ -1068,7 +1080,7 @@ impl Home {
             r#"<section class="team-panel">
   <header><h2 translate="no">{name}</h2><span class="badge" data-role="{rs}">{rl}</span><span class="muted">{n} 人</span><span class="spacer"></span>{log}{danger}</header>
   <ul class="team-members">{members}</ul>
-  {add}{mv}{storage}{sso}
+  {add}{mv}{storage}{p2p}{sso}
   <p class="muted small">チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。</p>
 </section>"#,
             name = escape(&team.name),
@@ -1265,6 +1277,26 @@ fn install(home: &Shared) -> Result<(), String> {
                             "PUT",
                             &format!("/teams/{}/sso", http::encode(&t)),
                             &TeamSso { domains },
+                        )
+                        .await
+                        .map(|_| ()),
+                        None => Ok(()),
+                    };
+                    after_team_call(&h, res).await;
+                }
+                "team-p2p" => {
+                    let allowed = form
+                        .query_selector("[name=allowed]")
+                        .ok()
+                        .flatten()
+                        .and_then(|e| e.dyn_into::<web_sys::HtmlInputElement>().ok())
+                        .is_some_and(|i| i.checked());
+                    let team = h.borrow().filter.team().map(str::to_string);
+                    let res = match team {
+                        Some(t) => http::send::<_, Team>(
+                            "PUT",
+                            &format!("/teams/{}/p2p", http::encode(&t)),
+                            &SetTeamP2p { allowed },
                         )
                         .await
                         .map(|_| ()),
