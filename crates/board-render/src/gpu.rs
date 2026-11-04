@@ -43,6 +43,8 @@ pub struct FrameStats {
     pub draw_calls: u32,
     /// 描画先が使えず描画を飛ばしたか。
     pub skipped: bool,
+    /// まだテクスチャにしていない画像が見えている(次のフレームでも描き続ける)。
+    pub images_pending: bool,
 }
 
 pub struct Renderer {
@@ -65,6 +67,8 @@ pub struct Renderer {
     instance_count: u32,
     uploaded_revision: Option<u64>,
     hidden: std::collections::HashSet<board_core::ElementId>,
+    /// 今の時刻(ミリ秒)。あれば画像のテクスチャ作りを 1 フレームの時間で区切る。
+    clock: Option<Box<dyn Fn() -> f64>>,
     /// GPU に送ってあるインスタンス列(差分転送のために覚えておく)。
     uploaded: Vec<ShapeInstance>,
     staging: Vec<ShapeInstance>,
@@ -212,6 +216,7 @@ impl Renderer {
             instance_count: 0,
             uploaded_revision: None,
             hidden: Default::default(),
+            clock: None,
             uploaded: Vec::new(),
             staging: Vec::new(),
             layers: Vec::new(),
@@ -277,6 +282,12 @@ impl Renderer {
     }
 
     /// 個人作業エリアで隠す要素を設定する(変わったらインスタンス列を作り直す)。
+    /// 時刻(ミリ秒)の取り方を渡す。画像のテクスチャ作りを 1 フレームあたり
+    /// [`crate::images::UPLOAD_BUDGET_MS`] までにする(渡さなければ枚数で区切る)。
+    pub fn set_clock(&mut self, clock: impl Fn() -> f64 + 'static) {
+        self.clock = Some(Box::new(clock));
+    }
+
     pub fn set_hidden(&mut self, hidden: &std::collections::HashSet<board_core::ElementId>) {
         if *hidden != self.hidden {
             self.hidden = hidden.clone();
@@ -362,13 +373,20 @@ impl Renderer {
     ) -> Result<FrameStats, RenderError> {
         let uploaded = self.sync_instances(board);
         self.sync_overlay(overlay);
-        self.images.prepare(
+        let clock = self.clock.as_deref();
+        let start = clock.map_or(0.0, |c| c());
+        let mut more = |done: usize| match clock {
+            Some(c) => done == 0 || c() - start < crate::images::UPLOAD_BUDGET_MS,
+            None => done < crate::images::UPLOADS_PER_FRAME,
+        };
+        let images = self.images.prepare(
             &self.device,
             &self.queue,
             board,
             camera,
             &self.layers,
             &self.hidden,
+            &mut more,
         );
         self.text.prepare(
             &self.device,
@@ -461,6 +479,7 @@ impl Renderer {
             drawn,
             draw_calls,
             skipped: false,
+            images_pending: images.pending,
         })
     }
 }
@@ -529,6 +548,7 @@ impl Renderer {
         camera.origin = area.min;
 
         self.sync_instances(board);
+        // 書き出しは 1 枚の絵なので、見えている画像を全部テクスチャにしてから描く。
         self.images.prepare(
             &self.device,
             &self.queue,
@@ -536,6 +556,7 @@ impl Renderer {
             &camera,
             &self.layers,
             &self.hidden,
+            &mut |_| true,
         );
         self.text.set_dark(false);
         self.text.prepare(

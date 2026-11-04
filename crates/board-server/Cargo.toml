@@ -6,7 +6,8 @@ license.workspace = true
 description = "グラボード の同期サーバー(WebSocket + 永続化)"
 
 [dependencies]
-board-core.workspace = true
+board-core = { workspace = true, features = ["spreadsheet"] }
+board-export.workspace = true
 axum = { version = "0.8.9", features = ["ws"] }
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
 tower-http = { version = "0.7.1", features = ["fs", "trace"] }
@@ -31,6 +32,7 @@ wasmi = "2"
 rsa = { version = "0.9", features = ["sha2"] }
 sha2 = "0.10"
 p256 = { version = "0.13", features = ["ecdsa"] }
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "pool", "hostname", "builder", "tokio1-rustls", "aws-lc-rs", "webpki-roots"] }
 
 [features]
 # ビルド済みの Web クライアント(crates/board-web/dist)をバイナリに埋め込み、1 ファイルで配れるようにする。
@@ -38,6 +40,7 @@ p256 = { version = "0.13", features = ["ecdsa"] }
 embed = ["dep:rust-embed"]
 
 [dev-dependencies]
+board-e2e = { path = "../board-e2e" }
 tokio-tungstenite = "0.28"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }

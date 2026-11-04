@@ -32,40 +32,103 @@ pub struct Sheet {
 
 /// 区切り文字 `delim` の CSV を読む(RFC 4180: `"` で囲めば区切り・改行を含められ、`""` は `"`)。
 pub fn parse_delimited(text: &str, delim: char) -> Vec<Vec<String>> {
+    scan(text, delim, usize::MAX).0
+}
+
+/// 巨大な CSV 用。空でない行を先頭から `keep` 行まで読み、空でない行の総数も返す。
+/// 上限を超えた部分は文字列を作らずに数えるだけなので、数百 MB でもメモリを食わない。
+pub fn parse_limited(text: &str, keep: usize) -> (Vec<Vec<String>>, usize) {
+    scan(text, sniff_delimiter(text), keep)
+}
+
+fn scan(text: &str, delim: char, keep: usize) -> (Vec<Vec<String>>, usize) {
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     let mut rows = Vec::new();
     let mut row = Vec::new();
     let mut field = String::new();
     let mut quoted = false;
+    // 今の欄がまだ始まっていない(`"` で囲み始められる)か。
+    let mut at_start = true;
+    // 今の行に空白以外の文字があるか。
+    let mut filled = false;
+    let mut kept = 0usize;
+    let mut total = 0usize;
+    // 行の終わり。空でない行を数え、上限までなら残す。
+    let end_row = |row: &mut Vec<String>,
+                   filled: &mut bool,
+                   rows: &mut Vec<Vec<String>>,
+                   kept: &mut usize,
+                   total: &mut usize| {
+        if *filled {
+            *total += 1;
+        }
+        if *kept < keep {
+            if *filled {
+                *kept += 1;
+            }
+            rows.push(std::mem::take(row));
+        } else {
+            row.clear();
+        }
+        *filled = false;
+    };
     let mut chars = text.chars().peekable();
     while let Some(c) = chars.next() {
+        let store = kept < keep;
         if quoted {
             match c {
                 '"' if chars.peek() == Some(&'"') => {
-                    field.push('"');
+                    if store {
+                        field.push('"');
+                    }
+                    filled = true;
                     chars.next();
                 }
                 '"' => quoted = false,
-                _ => field.push(c),
+                _ => {
+                    if store {
+                        field.push(c);
+                    }
+                    filled |= !c.is_whitespace();
+                }
             }
             continue;
         }
         match c {
-            '"' if field.is_empty() => quoted = true,
-            c if c == delim => row.push(std::mem::take(&mut field)),
+            '"' if at_start => {
+                quoted = true;
+                at_start = false;
+            }
+            c if c == delim => {
+                if store {
+                    row.push(std::mem::take(&mut field));
+                }
+                at_start = true;
+            }
             '\r' => {}
             '\n' => {
-                row.push(std::mem::take(&mut field));
-                rows.push(std::mem::take(&mut row));
+                if store {
+                    row.push(std::mem::take(&mut field));
+                }
+                at_start = true;
+                end_row(&mut row, &mut filled, &mut rows, &mut kept, &mut total);
             }
-            _ => field.push(c),
+            _ => {
+                if store {
+                    field.push(c);
+                }
+                filled |= !c.is_whitespace();
+                at_start = false;
+            }
         }
     }
-    if !field.is_empty() || !row.is_empty() {
-        row.push(field);
-        rows.push(row);
+    if !at_start || !row.is_empty() || filled {
+        if kept < keep {
+            row.push(field);
+        }
+        end_row(&mut row, &mut filled, &mut rows, &mut kept, &mut total);
     }
-    rows
+    (rows, total)
 }
 
 /// 区切り文字を推測する(1 行目で一番多いもの。タブ・カンマ・セミコロン)。
@@ -269,6 +332,26 @@ mod tests {
         );
         assert_eq!(parse("a\tb,c\n1\t2,3")[1], vec!["1", "2,3"]);
         assert_eq!(sniff_delimiter("a;b;c"), ';');
+    }
+
+    #[test]
+    fn huge_csv_keeps_the_head_and_counts_the_rest() {
+        let mut text = String::from("名前,点\n\n");
+        for i in 0..10_000 {
+            text.push_str(&format!("人{i},\"{i}\n点\"\n"));
+        }
+        let (rows, total) = parse_limited(&text, 3);
+        assert_eq!(total, 10_001);
+        assert_eq!(
+            rows,
+            vec![
+                vec!["名前", "点"],
+                vec![""],
+                vec!["人0", "0\n点"],
+                vec!["人1", "1\n点"],
+            ]
+        );
+        assert_eq!(parse_limited("a,b\n1,2", 10), (parse("a,b\n1,2"), 2));
     }
 
     #[test]

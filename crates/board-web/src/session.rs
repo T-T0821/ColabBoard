@@ -22,6 +22,8 @@ pub enum Access {
     Granted(BoardInfo),
     /// 権限がない(またはボードがない)。
     Denied,
+    /// 通報を受けて管理者が利用停止にした。
+    Suspended,
     /// API のないサーバー・つながらない。従来どおり誰でも編集できるものとして扱う。
     Unavailable,
 }
@@ -29,6 +31,7 @@ pub enum Access {
 pub async fn check_access(room: &str, key: Option<&str>) -> Access {
     match http::get::<BoardInfo>(&http::board_path(room, key, "")).await {
         Ok(info) => Access::Granted(info),
+        Err(HttpError::Status(403, m)) if m.contains("利用停止") => Access::Suspended,
         Err(HttpError::Status(403 | 404, _)) => Access::Denied,
         Err(HttpError::Status(s, m)) => {
             log::warn!("ボード情報を取得できません({s}): {m}");
@@ -83,6 +86,26 @@ pub fn show_denied(document: &Document, logged_in: bool, revoked: bool) {
     }
 }
 
+/// 管理者が利用停止にしたボードの画面。
+pub fn show_suspended(document: &Document) {
+    let Some(root) = document.get_element_by_id("home") else {
+        return;
+    };
+    if let Some(body) = document.body() {
+        let _ = body.class_list().add_1("home-mode");
+    }
+    root.set_inner_html(
+        r#"<div class="home-card auth">
+  <h1>このボードは利用停止されています</h1>
+  <p class="muted">通報を受けて、管理者がこのボードを開けないようにしました。心当たりがない場合は、サーバーやチームの管理者に問い合わせてください。</p>
+  <p class="row"><a class="button" href="./">ボード一覧へ</a></p>
+</div>"#,
+    );
+    if let Ok(root) = root.dyn_into::<HtmlElement>() {
+        root.set_hidden(false);
+    }
+}
+
 /// ボード画面の上部(ボード名・アカウント・共有)。
 pub struct BoardChrome {
     window: Window,
@@ -96,6 +119,8 @@ pub struct BoardChrome {
     slack: Option<SlackSettings>,
     /// Slack の設定・テスト送信の結果(成功なら `Ok`)。
     slack_status: Option<Result<String, String>>,
+    /// 暗号化ボードの鍵(リンクの `#k=` に載せる形)。共有リンクに付ける。
+    pub e2e_key: Option<String>,
 }
 
 pub type SharedChrome = Rc<RefCell<BoardChrome>>;
@@ -120,6 +145,7 @@ impl BoardChrome {
             share_error: None,
             slack: None,
             slack_status: None,
+            e2e_key: None,
         }));
         chrome.borrow().render_header();
         install(&chrome);
@@ -214,14 +240,34 @@ impl BoardChrome {
             loc.origin().unwrap_or_default(),
             loc.pathname().unwrap_or_default()
         );
-        format!("{base}{}", board_url(&self.room, Some(key)))
+        format!(
+            "{base}{}{}",
+            board_url(&self.room, Some(key)),
+            self.fragment()
+        )
+    }
+
+    /// 暗号化ボードなら、鍵を載せたフラグメント(`#k=…`。ブラウザはサーバーに送らない)。
+    fn fragment(&self) -> String {
+        self.e2e_key
+            .as_ref()
+            .map(|k| format!("#k={k}"))
+            .unwrap_or_default()
+    }
+
+    fn is_e2e(&self) -> bool {
+        self.info.as_ref().is_some_and(|i| i.e2e.is_some())
     }
 
     /// 埋め込み用の iframe のコード。
     fn embed_code(&self, key: &str) -> String {
+        let loc = self.window.location();
         format!(
-            r#"<iframe src="{}&embed=1" width="800" height="600" style="border:0" allow="clipboard-write; fullscreen" title="グラボード"></iframe>"#,
-            self.link_url(key)
+            r#"<iframe src="{}{}{}&embed=1{}" width="800" height="600" style="border:0" allow="clipboard-write; fullscreen" title="グラボード"></iframe>"#,
+            loc.origin().unwrap_or_default(),
+            loc.pathname().unwrap_or_default(),
+            board_url(&self.room, Some(key)),
+            self.fragment(),
         )
     }
 
@@ -281,6 +327,7 @@ impl BoardChrome {
             None => String::new(),
         };
         let public = match &sh.public {
+            _ if self.is_e2e() => r#"<p class="muted small">暗号化ボードは Web に公開できません(公開ページはサーバーが中身を描くため)。</p>"#.to_string(),
             Some(p) => format!(
                 r#"<p class="muted small">URL を知っている人は誰でも、ログインせずに見られます(編集・コメントはできません)。SNS やチャットに貼るとプレビュー画像が出ます。</p>
 <div class="row"><input class="grow" readonly value="{url}" data-copy /><button data-action="copy-public">コピー</button></div>
@@ -303,6 +350,11 @@ impl BoardChrome {
                 opts = options(Some(*role), false)
             ));
         }
+        let e2e_note = if self.is_e2e() {
+            r#"<p class="muted small e2e-note">🔒 暗号化ボードです。上のリンクの # 以降に復号の鍵が入っています(サーバーには送られません)。招待したメンバーにも、このリンクか鍵のパネルの鍵付きリンクを渡してください。メンバーを外したら、鍵のパネルから鍵を作り直してください。</p>"#
+        } else {
+            ""
+        };
         let err = self
             .share_error
             .as_ref()
@@ -313,6 +365,7 @@ impl BoardChrome {
 <section>
   <label class="field">リンクを知っている人<select data-link-role>{link_opts}</select></label>
   {link}
+  {e2e_note}
 </section>
 <section class="public-share">
   <label class="row switch"><strong class="grow">Web に公開</strong><input type="checkbox" data-public {public_checked} /></label>
@@ -337,9 +390,12 @@ impl BoardChrome {
                 .replace("オフ(招待した人だけ)", "オフ"),
             link_opts = options(sh.link.as_ref().map(|l| l.role), true),
             invite_opts = options(Some(Role::Editor), false),
-            public_checked = if sh.public.is_some() { "checked" } else { "" },
+            public_checked = if sh.public.is_some() { "checked" } else if self.is_e2e() { "disabled" } else { "" },
         ));
-        if let Ok(Some(section)) = panel.query_selector("[data-slot=slack]") {
+        // 暗号化ボードでは通知する出来事(コメント・バージョン)がないので出さない。
+        if let Ok(Some(section)) = panel.query_selector("[data-slot=slack]")
+            && !self.is_e2e()
+        {
             section.set_inner_html(&self.slack_html());
         }
     }

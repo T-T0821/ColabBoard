@@ -89,10 +89,10 @@ mod tests {
         assert!(is_hashed("board-web-2f9e328adb9aed82.js"));
         assert!(is_hashed("board-web-a198497814fb2da9_bg.wasm"));
         assert!(is_hashed("style-b1fefdf75a8409e4.css"));
-        // PDF の Worker は名前が固定なので、長くキャッシュしてはいけない。
-        assert!(!is_hashed("board-pdf.js"));
-        assert!(!is_hashed("board-pdf_bg.wasm"));
-        assert!(!is_hashed("board-pdf_loader.js"));
+        // ファイル処理の Worker は名前が固定なので、長くキャッシュしてはいけない。
+        assert!(!is_hashed("board-files.js"));
+        assert!(!is_hashed("board-files_bg.wasm"));
+        assert!(!is_hashed("board-files_loader.js"));
         assert!(!is_hashed("sw.js"));
         assert!(!is_hashed("index.html"));
     }

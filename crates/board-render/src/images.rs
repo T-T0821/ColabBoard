@@ -16,6 +16,21 @@ use crate::Layer;
 /// テクスチャの一辺の上限(WebGL2 でも確実に使える大きさ)。
 pub const MAX_TEXTURE_SIZE: u32 = 2048;
 
+/// 1 フレームで画像をデコードしてテクスチャにする時間の目安(ミリ秒)。数百ページの PDF の
+/// ように画像がたくさん見えていても、1 フレームが長くならないよう何フレームかに分けて用意する。
+pub const UPLOAD_BUDGET_MS: f64 = 8.0;
+/// 時刻が分からないときに、1 フレームでテクスチャにする画像の数。
+pub const UPLOADS_PER_FRAME: usize = 2;
+
+/// [`ImageLayer::prepare`] の結果。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Prepared {
+    /// 描く画像(アイコンを含む)の数。
+    pub drawn: usize,
+    /// 上限に達して、見えているのにテクスチャにしていない画像が残っている。
+    pub pending: bool,
+}
+
 pub const IMAGES_WGSL: &str = include_str!("images.wgsl");
 
 #[repr(C)]
@@ -247,7 +262,9 @@ impl ImageLayer {
         }))
     }
 
-    /// 見えている画像を準備する(未デコードのものはここでテクスチャにする)。
+    /// 見えている画像を準備する(未デコードのものはここでテクスチャにする。ただし
+    /// `more(作った枚数)` が `false` を返したらやめ、残りは前の版があればそれを描き、なければまだ描かない)。
+    #[allow(clippy::too_many_arguments)]
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
@@ -256,7 +273,10 @@ impl ImageLayer {
         camera: &Camera,
         layers: &[Layer],
         hidden: &std::collections::HashSet<board_core::ElementId>,
-    ) -> usize {
+        more: &mut dyn FnMut(usize) -> bool,
+    ) -> Prepared {
+        let mut uploads = 0;
+        let mut pending = false;
         self.draws.clear();
         self.draws.resize_with(layers.len(), Vec::new);
         for e in self.cache.values_mut() {
@@ -293,7 +313,13 @@ impl ImageLayer {
                 let Some(data) = &s.image else { continue };
                 let key = data.key();
                 let stale = self.cache.get(&s.id).is_none_or(|c| c.key != key);
-                if stale {
+                if stale && !more(uploads) {
+                    pending = true;
+                    if !self.cache.contains_key(&s.id) {
+                        continue;
+                    }
+                } else if stale {
+                    uploads += 1;
                     let bind = self.upload(device, queue, data.bytes());
                     self.cache.insert(
                         s.id,
@@ -324,7 +350,10 @@ impl ImageLayer {
         if !instances.is_empty() {
             queue.write_buffer(&self.buf, 0, bytemuck::cast_slice(&instances));
         }
-        instances.len()
+        Prepared {
+            drawn: instances.len(),
+            pending,
+        }
     }
 
     /// `layer` 段目の画像を描く。呼んだ後は bind group 0 を戻すこと。
