@@ -7,6 +7,7 @@
 //!   `embed` 機能付きでビルドしたバイナリは、指定がなく既定の場所にもなければ埋め込み版を配る。
 //! - `MAX_MESSAGE_MB`(既定 128): WebSocket で受け取る 1 通の上限。とても大きなボードを使うなら増やす。
 //! - `ANONYMOUS_BOARDS`(既定 `1`): `0` でログインなしのボード作成を禁止する。
+//! - `E2E_BOARDS`(既定 `1`): `0` でエンドツーエンド暗号化ボードを作れなくする(サーバー管理者は画面からも変えられ、そちらが優先)。
 //! - `COOKIE_SECURE`(既定 `0`): `1` でログイン Cookie に `Secure` を付ける(HTTPS 用)。
 //! - `TRUST_PROXY`(既定 `0`): `1` でリバースプロキシの `X-Forwarded-For` から利用者の IP を取る。
 //! - `ALLOWED_ORIGINS`: ログイン付きの WebSocket を受け付けるほかのオリジン(カンマ区切り)。
@@ -18,6 +19,12 @@
 //! - `SLACK_WEBHOOK_PREFIXES`(既定 `https://hooks.slack.com/`): Slack 通知を送ってよい URL の先頭(カンマ区切り)。
 //! - `PLUGIN_DIR`: ここにある `*.wasm` をサーバーのプラグインとして読み込む(全員が使える)。
 //! - `USER_PLUGINS`(既定 `1`): `0` で各自がプラグインを入れるのを禁止する。
+//! - `PLUGIN_NETWORK`(既定 `1`): `0` でプラグインの外部への通信を全部止める。
+//! - `PLUGIN_NETWORK_HOSTS`: プラグインが接続してよい先の上限(`api.github.com,*.example.com` のようにカンマ区切り)。
+//!   設定しなければ、プラグインが宣言し実行する人が許可した公開の HTTPS の先ならどこでも。
+//! - `PLUGIN_NETWORK_INSECURE`(既定 `0`): `1` で http:// と内部のアドレスへの接続も許す(開発用。本番では使わない)。
+//! - `PLUGIN_STORAGE`(既定 `1`): `0` でプラグインの保存領域を使えなくする。
+//! - `MEETING_HOSTS`: ボードに紐づける会議の URL として、Zoom・Meet・Teams のほかに受け付けるドメイン(カンマ区切り、例 `webex.com,whereby.com`)。
 //! - `GITHUB_TOKEN` / `GITHUB_API_URL`: 課題カードで GitHub を引くとき(トークンなしでも公開リポジトリは読める)。
 //! - `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN`: 課題カードで Jira を引くとき。
 //! - `ICE_SERVERS`: 音声通話で使う STUN / TURN サーバー(`RTCIceServer` の JSON 配列)。
@@ -31,10 +38,29 @@
 //!   `OIDC_ALLOWED_DOMAINS`(ログインできるメールのドメイン、`,` 区切り)も設定できる。
 //! - `STORAGE_LOCATIONS`: チームが選べるデータの保存場所(S3 互換・ディレクトリ)。書き方は
 //!   [`board_server::storage`] を参照。
+//! - 料金プラン: `BILLING=mock`(テスト決済)か、`STRIPE_SECRET_KEY`・`STRIPE_WEBHOOK_SECRET`・
+//!   `STRIPE_PRICE_PRO` で Stripe。上限は `FREE_BOARDS` などで変えられる。
+//!   [`board_server::billing::BillingConfig::from_env`] と docs/billing.md を参照。
 //! - `PASSWORD_LOGIN`(既定 `1`): `0` でパスワードのログインとアカウント作成を止める(SSO のみ)。
+//! - `SMTP_URL`・`MAIL_FROM`: そろえるとメンション・期限などをメールでも知らせる
+//!   (例 `SMTP_URL=smtps://user:pass@smtp.example.com`、`MAIL_FROM=グラボード <noreply@example.com>`)。
+//! - `PUSH_NOTIFICATIONS`(既定 `1`): `0` でスマホ・PC へのプッシュ通知(Web Push)を止める。
+//!   `VAPID_PRIVATE_KEY`・`VAPID_SUBJECT`・`PUSH_ALLOWED_HOSTS` も設定できる([`board_server::notify`])。
+//! - `DUE_REMIND_HOURS`(既定 `24`): コメントの期限の何時間前に知らせるか。
+//! - `NOTIFY_UTC_OFFSET`(既定 `+09:00`): 通知メールに書く時刻のタイムゾーン。
 //! - `RUST_LOG`(既定 `info`)
+//! - `LOG_FORMAT`(既定 `text`): `gcp` で Cloud Logging の構造化ログ(ERROR は Error Reporting に載る)、
+//!   `json` で一般的な JSON。
+//! - `SENTRY_DSN`・`SENTRY_ENVIRONMENT`: エラーを Sentry に送る。`ERROR_SLACK_WEBHOOK`: 新しいエラーを Slack に知らせる。
+//!   詳しくは [`board_server::errors`]。
+//! - `BACKUP_LOCATION`・`BACKUP_INTERVAL_HOURS`(既定 24)・`BACKUP_KEEP`(既定 14): 定期バックアップ。
+//!   詳しくは [`board_server::backup`]。
 //!
-//! `board-server healthcheck` は自分の `/healthz` を確かめて終了コードで返す(コンテナの死活監視用)。
+//! サブコマンド:
+//! - `board-server healthcheck`: 自分の `/healthz` を確かめて終了コードで返す(コンテナの死活監視用)。
+//! - `board-server backup`: 今すぐバックアップを取る(サーバーを止めているとき。動いているなら運用の画面から)。
+//! - `board-server restore <ファイルかバックアップ ID> --yes`: バックアップで全データを置き換える
+//!   (サーバーを止めてから。今のデータは `boards.redb.before-restore-…` として残す)。
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -42,8 +68,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use board_server::backup::{BackupConfig, Backups};
+use board_server::errors::{LogFormat, MonitorConfig};
 use board_server::{Config, Hub, Store, has_embedded_client, router, spawn_flusher};
-use tracing_subscriber::EnvFilter;
 
 fn port() -> u16 {
     std::env::var("PORT")
@@ -71,14 +98,18 @@ fn healthcheck() -> bool {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    if std::env::args().nth(1).as_deref() == Some("healthcheck") {
+    let command = std::env::args().nth(1);
+    if command.as_deref() == Some("healthcheck") {
         std::process::exit(if healthcheck() { 0 } else { 1 });
     }
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    let monitor_config = MonitorConfig::from_env();
+    board_server::errors::init_logging(monitor_config.log_format.unwrap_or(LogFormat::Text));
+    board_server::errors::install_panic_hook();
+    match command.as_deref() {
+        Some("backup") => return offline_backup(),
+        Some("restore") => return offline_restore(),
+        _ => {}
+    }
 
     let port = port();
     let data_dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "data".into());
@@ -131,10 +162,51 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     store.set_locations(locations);
     let hub = Arc::new(Hub::new(Arc::new(store)));
     let flusher = spawn_flusher(hub.clone());
+    let monitor = board_server::errors::global();
+    if monitor_config.sentry.is_some() {
+        tracing::info!("エラー監視: Sentry に送ります");
+    }
+    if monitor_config.slack_webhook.is_some() {
+        tracing::info!("エラー監視: 新しいエラーを Slack に知らせます");
+    }
+    let monitor_task =
+        board_server::errors::spawn(monitor.clone(), hub.store().clone(), monitor_config);
+    let data_path = (!data_dir.is_empty()).then(|| PathBuf::from(&data_dir));
+    let backups = BackupConfig::from_env(data_path.as_deref(), |k| {
+        std::env::var(k).ok().filter(|v| !v.is_empty())
+    })?
+    .map(|c| Arc::new(Backups::new(c, hub.clone())));
+    if backups.is_none() {
+        tracing::warn!("バックアップ: 無効(DATA_DIR が空で BACKUP_LOCATION もありません)");
+    }
+    let backup_task = backups.clone().and_then(|b| b.spawn());
+    let notifier = Arc::new(board_server::notify::Notifier::new(
+        board_server::notify::NotifyConfig::from_env(),
+        hub.store(),
+    )?);
+    tracing::info!(
+        "通知: メール {}・プッシュ通知 {}",
+        if notifier.email_available() {
+            "有効"
+        } else {
+            "無効(SMTP_URL と MAIL_FROM で有効)"
+        },
+        if notifier.push_key().is_some() {
+            "有効"
+        } else {
+            "無効"
+        },
+    );
+    let due_checker = board_server::notify::spawn_due_checker(
+        hub.store().clone(),
+        notifier.clone(),
+        flag("ANONYMOUS_BOARDS", true),
+    );
     let config = Config {
         static_dir,
         max_message_bytes,
         anonymous_boards: flag("ANONYMOUS_BOARDS", true),
+        e2e_boards: flag("E2E_BOARDS", true),
         secure_cookies: flag("COOKIE_SECURE", false),
         ice_servers: board_server::ice_servers_from_env(std::env::var("ICE_SERVERS").ok()),
         ai: board_server::ai::AiConfig::from_env().map(|c| {
@@ -144,6 +216,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         slack: board_server::slack::SlackConfig::from_env(),
         plugins: board_server::plugins::PluginConfig::from_env(),
         issues: board_server::issues::IssuesConfig::from_env(),
+        meeting_hosts: board_server::meeting_link::hosts_from_env(),
         embed_origins: std::env::var("EMBED_ALLOWED_ORIGINS")
             .ok()
             .map(|v| v.replace(',', " ").trim().to_string())
@@ -162,6 +235,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }),
         password_login: flag("PASSWORD_LOGIN", true),
         limits: board_server::guard::Limits::from_env(flag("COOKIE_SECURE", false)),
+        p2p: flag("P2P_ENABLED", true),
+        monitor: monitor.clone(),
+        backups,
+        notifier,
+        billing: {
+            let b = board_server::billing::BillingConfig::from_env();
+            match b.mode.name() {
+                "off" => {}
+                "mock" => tracing::warn!(
+                    "料金プラン: テスト決済(BILLING=mock)。本番では使わないでください"
+                ),
+                _ => tracing::info!("料金プラン: Stripe で支払い"),
+            }
+            b
+        },
     };
     if !config.password_login && config.oidc.is_none() {
         tracing::warn!(
@@ -198,8 +286,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     flusher.abort();
     pruner.abort();
-    // 終了前に未保存の変更を書き出す。
-    tokio::task::spawn_blocking(move || hub.flush()).await?;
+    monitor_task.abort();
+    due_checker.abort();
+    if let Some(t) = backup_task {
+        t.abort();
+    }
+    // 終了前に未保存の変更とエラーの記録を書き出す。
+    let store = hub.store().clone();
+    tokio::task::spawn_blocking(move || {
+        hub.flush();
+        let _ = monitor.flush(&store);
+    })
+    .await?;
     tracing::info!("停止しました");
     Ok(())
 }
@@ -225,4 +323,123 @@ async fn shutdown_signal() {
         _ = term => {}
     }
     tracing::info!("停止します");
+}
+
+type CliResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+
+fn data_dir_for_cli() -> Result<PathBuf, String> {
+    let dir = std::env::var("DATA_DIR").unwrap_or_else(|_| "data".into());
+    if dir.is_empty() {
+        return Err("DATA_DIR が空です(保存していないサーバーにはバックアップがありません)".into());
+    }
+    Ok(PathBuf::from(dir))
+}
+
+fn storage_locations() -> Result<Vec<board_server::storage::Location>, String> {
+    board_server::storage::parse_locations(
+        &std::env::var("STORAGE_LOCATIONS").unwrap_or_default(),
+        |k| std::env::var(k).ok().filter(|v| !v.is_empty()),
+    )
+}
+
+fn backup_config(dir: &std::path::Path) -> Result<BackupConfig, String> {
+    BackupConfig::from_env(Some(dir), |k| {
+        std::env::var(k).ok().filter(|v| !v.is_empty())
+    })?
+    .ok_or_else(|| "バックアップ先がありません".to_string())
+}
+
+/// サーバーのデータベースを開く。サーバーが動いていれば開けない(redb がファイルをロックする)。
+fn open_offline(path: &std::path::Path) -> Result<Store, String> {
+    Store::open(path).map_err(|e| {
+        format!(
+            "{} を開けません: {e}\nサーバーが動いているなら止めてから実行してください(動かしたままなら運用の画面からバックアップを取れます)",
+            path.display()
+        )
+    })
+}
+
+/// `board-server backup`
+fn offline_backup() -> CliResult {
+    let dir = data_dir_for_cli()?;
+    let store = open_offline(&dir.join("boards.redb"))?;
+    store.set_locations(storage_locations()?);
+    let backups = Backups::new(backup_config(&dir)?, Arc::new(Hub::new(Arc::new(store))));
+    let info = backups.create("manual", None)?;
+    println!(
+        "バックアップを取りました: ID {}(ボード {} 件・{} バイト、{})",
+        info.id,
+        info.boards,
+        info.bytes,
+        backups.config().description
+    );
+    Ok(())
+}
+
+/// `board-server restore <ファイルか ID> --yes`
+fn offline_restore() -> CliResult {
+    let args: Vec<String> = std::env::args().skip(2).collect();
+    let yes = args.iter().any(|a| a == "--yes" || a == "-y");
+    let Some(what) = args.iter().find(|a| !a.starts_with('-')) else {
+        eprintln!("使い方: board-server restore <バックアップのファイルか ID> --yes");
+        std::process::exit(2);
+    };
+    let dir = data_dir_for_cli()?;
+    let bytes = if std::path::Path::new(what).is_file() {
+        std::fs::read(what)?
+    } else if let Ok(id) = what.parse::<u64>() {
+        let config = backup_config(&dir)?;
+        config
+            .target
+            .get(&format!("backups/{id}.grabak.gz"))?
+            .ok_or_else(|| format!("バックアップ {id} が {} にありません", config.description))?
+    } else {
+        return Err(format!("{what} というファイルはありません").into());
+    };
+    let data = board_server::backup::parse(&bytes)?;
+    let created = board_server::errors::rfc3339(data.header.created);
+    let boards = data.boards().iter().filter(|b| !b.deleted).count();
+    let db = dir.join("boards.redb");
+    println!(
+        "{created}(UTC)のバックアップ: ボード {boards} 件、記録 {} 件",
+        data.records.len()
+    );
+    if !data.header.skipped.is_empty() {
+        println!("入っていないテーブル: {}", data.header.skipped.join(", "));
+    }
+    if !yes {
+        println!(
+            "{} の中身をこのバックアップで置き換えます。よければ --yes を付けて実行してください",
+            db.display()
+        );
+        std::process::exit(2);
+    }
+    // 動いているサーバーがあれば、ここで開けずに止まる。
+    if db.exists() {
+        drop(open_offline(&db)?);
+    }
+    let tmp = dir.join("boards.redb.restoring");
+    let _ = std::fs::remove_file(&tmp);
+    {
+        let store = Store::open(&tmp)?;
+        store.set_locations(storage_locations()?);
+        let stats = board_server::backup::restore_all(&store, &data)?;
+        if stats.blobs_kept_local > 0 {
+            println!(
+                "保存場所が設定されていないので、{} 件の中身をこのサーバーに置きました(STORAGE_LOCATIONS を確かめてください)",
+                stats.blobs_kept_local
+            );
+        }
+    }
+    if db.exists() {
+        let aside = dir.join(format!(
+            "boards.redb.before-restore-{}",
+            board_server::auth::now_ms() / 1000
+        ));
+        std::fs::rename(&db, &aside)?;
+        println!("今のデータは {} に残しました", aside.display());
+    }
+    std::fs::rename(&tmp, &db)?;
+    println!("戻しました。サーバーを起動してください");
+    Ok(())
 }

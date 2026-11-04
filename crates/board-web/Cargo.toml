@@ -10,6 +10,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 board-core.workspace = true
 board-render.workspace = true
+board-e2e.workspace = true
+base64 = "0.22"
 glam.workspace = true
 log.workspace = true
 wasm-bindgen = "0.2"
@@ -99,6 +101,13 @@ web-sys = { version = "0.3", features = [
     "RtcTrackEvent",
     "RtcRtpSender",
     "RtcPeerConnectionState",
+    "RtcDataChannel",
+    "RtcDataChannelInit",
+    "RtcDataChannelEvent",
+    "RtcDataChannelState",
+    "RtcDataChannelType",
+    "RtcIceGatheringState",
+    "RtcSessionDescription",
     "MutationObserver",
     "MutationObserverInit",
     "MutationRecord",
@@ -108,7 +117,10 @@ web-sys = { version = "0.3", features = [
     "BlobEvent",
     "CanvasRenderingContext2d",
     "CanvasGradient",
+    "Crypto",
 ] }
 # 画像の縮小だけを使う(PDF・表計算の読み取りは Worker 側の別の wasm)。
 board-files = { path = "../board-files", default-features = false }
 encoding_rs = "0.8.44"
+# 直接接続(P2P)の招待リンクを QR コード(SVG)にする。
+qrcode = { version = "0.14", default-features = false, features = ["svg"] }

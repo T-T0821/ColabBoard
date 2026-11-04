@@ -86,11 +86,6 @@ impl Cursors {
         }
     }
 
-    /// 自分以外の参加者数(カーソルを一度でも送ってきた人)。
-    pub fn len(&self) -> usize {
-        self.peers.len()
-    }
-
     pub fn get(&self, peer: u32) -> Option<&Presence> {
         self.peers.get(&peer).map(|p| &p.presence)
     }
@@ -148,6 +143,25 @@ impl Cursors {
         for (_, p) in self.peers.drain() {
             p.el.remove();
         }
+    }
+
+    /// サーバー経由の参加者のカーソルだけを消す(直接つないだ相手のものは残す)。
+    pub fn clear_server(&mut self) {
+        self.peers.retain(|id, p| {
+            let keep = *id >= board_core::p2p::PEER_ID_BASE;
+            if !keep {
+                p.el.remove();
+            }
+            keep
+        });
+    }
+
+    /// サーバー経由の参加者の数。
+    pub fn server_len(&self) -> usize {
+        self.peers
+            .keys()
+            .filter(|id| **id < board_core::p2p::PEER_ID_BASE)
+            .count()
     }
 
     fn create_element(&self) -> Option<HtmlElement> {

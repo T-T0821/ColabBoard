@@ -24,3 +24,8 @@ test = true
 name = "board_stats"
 crate-type = ["cdylib"]
 test = true
+
+[[example]]
+name = "github_issues"
+crate-type = ["cdylib"]
+test = true

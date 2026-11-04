@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
-use board_core::protocol::{Message, Presence, TOPIC_COMMENTS, TOPIC_VERSIONS};
+use board_core::protocol::{Message, Presence, TOPIC_COMMENTS, TOPIC_MEETING_LINK, TOPIC_VERSIONS};
 use board_core::{
     Board, Camera, Editor, Element as BoardElement, ElementId, Modifiers, Navigator, Tool, Vec2,
 };
@@ -30,8 +30,11 @@ mod imports;
 mod ink_ui;
 mod issues;
 mod media;
+mod meeting_link_ui;
+mod meeting_ui;
 mod mindmap_ui;
 mod offline;
+mod p2p_ui;
 mod plugins_ui;
 mod prefs;
 mod reactions;
@@ -54,6 +57,7 @@ const PRESENCE_INTERVAL_MS: f64 = 40.0;
 
 mod ai_ui;
 mod diagram_ui;
+mod e2e_ui;
 
 struct App {
     window: Window,
@@ -93,7 +97,7 @@ struct App {
     cursor_world: Option<Vec2>,
     presence_sent: Option<Option<Vec2>>,
     presence_sent_at: f64,
-    last_status: Option<(Status, usize, bool)>,
+    last_status: Option<(Status, usize, bool, usize)>,
     /// `?bench` の計測。
     bench: Option<Bench>,
     bench_done_at: Option<f64>,
@@ -113,6 +117,8 @@ struct App {
     /// 音声通話(サーバーにつながるボードだけ)。
     voice: Option<crate::voice::VoiceCall>,
     call_ui: call_ui::CallUi,
+    /// 会議パネル(AI ファシリテーター・リアルタイム議事録・文字起こし)。
+    meeting: meeting_ui::MeetingUi,
     video: video_memo::VideoMemo,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
     live_board: Option<Board>,
@@ -130,6 +136,16 @@ struct App {
     touch: touch::Touch,
     /// Web に公開したページから開いた(`&public`)。見るだけで、カーソルも送らない。
     public_view: bool,
+    /// エンドツーエンド暗号化ボードなら、暗号化・復号に使う鍵。
+    e2e: Option<crate::e2e::Sealer>,
+    /// 暗号化ボードのログの状態(まとめるときに使う)。
+    sealed: e2e_ui::SealedState,
+    e2e_ui: e2e_ui::E2eUi,
+    /// サーバーを通さない直接接続(共同編集のボードだけ)。
+    p2p: Option<crate::p2p::P2p>,
+    p2p_ui: p2p_ui::P2pUi,
+    /// ギャラリーから開いたときに、空のボードへ置くテンプレート(`&template=`)。
+    pending_template: Option<templates_ui::Pending>,
 }
 
 struct Hud {
@@ -288,6 +304,7 @@ pub async fn run() -> Result<(), String> {
     }
     let mut me = None;
     let mut info = None;
+    let mut sealer = None;
     if collaborative {
         let room = ensure_room(&window, &params);
         match session::check_access(&room, key.as_deref()).await {
@@ -296,7 +313,21 @@ pub async fn run() -> Result<(), String> {
                 session::show_denied(&document, me.is_some(), false);
                 return Ok(());
             }
+            Access::Suspended => {
+                session::show_suspended(&document);
+                return Ok(());
+            }
             Access::Granted(i) => {
+                // 暗号化ボード: 鍵(リンクの # 以降か、この端末に覚えたもの)がなければ開けない。
+                if let Some(e2e) = &i.e2e {
+                    match crate::e2e::resolve_key(&window, &room, e2e) {
+                        Ok(k) => sealer = Some(crate::e2e::Sealer::new(&room, k)),
+                        Err(problem) => {
+                            crate::e2e::show_key_prompt(&document, &i, problem, false);
+                            return Ok(());
+                        }
+                    }
+                }
                 info = Some(i);
                 me = session::fetch_me().await;
             }
@@ -376,6 +407,11 @@ pub async fn run() -> Result<(), String> {
         _ => None,
     };
 
+    if let (Some(chrome), Some(sealer)) = (&chrome, &sealer) {
+        chrome.borrow_mut().e2e_key = Some(sealer.key().to_link());
+    }
+    // 公開ページ・埋め込み・暗号化ボードでは直接接続を出さない。
+    let p2p_room = room.is_some() && !public_view && !params.has("embed") && sealer.is_none();
     let app = Rc::new(RefCell::new(App {
         window: window.clone(),
         document: document.clone(),
@@ -432,6 +468,7 @@ pub async fn run() -> Result<(), String> {
         history: history::History::new(&document)?,
         voice,
         call_ui: call_ui::CallUi::new(&document)?,
+        meeting: meeting_ui::MeetingUi::new(&document)?,
         video: video_memo::VideoMemo::new(&document)?,
         live_board: None,
         show_authors: true,
@@ -441,6 +478,12 @@ pub async fn run() -> Result<(), String> {
         syncs: 0,
         touch: touch::Touch::default(),
         public_view,
+        e2e: sealer,
+        sealed: e2e_ui::SealedState::default(),
+        e2e_ui: e2e_ui::E2eUi::new(&document)?,
+        p2p: p2p_room.then(crate::p2p::P2p::new),
+        p2p_ui: p2p_ui::P2pUi::new(key.clone()),
+        pending_template: None,
     }));
     {
         let mut a = app.borrow_mut();
@@ -485,9 +528,14 @@ pub async fn run() -> Result<(), String> {
     reactions::install(&app)?;
     media::install(&app)?;
     templates_ui::install(&app)?;
+    if collaborative && !public_view {
+        templates_ui::start_pending(&app, params.get("template"));
+    }
     search_ui::install(&app)?;
     a11y::install(&app)?;
     issues::install(&app)?;
+    e2e_ui::install(&app)?;
+    p2p_ui::install(&app, &document)?;
     start_loop(app);
     Ok(())
 }
@@ -599,6 +647,9 @@ impl App {
         if let Some(net) = self.net.as_mut() {
             net.disable();
         }
+        if let Some(p) = &self.p2p {
+            p.close_all();
+        }
         self.cursors.clear();
         self.board = board;
         self.editor.clear_selection();
@@ -671,6 +722,37 @@ impl App {
         };
         match access {
             Access::Granted(info) => {
+                // 暗号化ボードの鍵が作り直され、手元の鍵では読めなくなった。
+                if let (Some(sealer), Some(e2e)) = (&self.e2e, &info.e2e)
+                    && sealer.key().key_id() != e2e.key_id
+                {
+                    let fresh = self
+                        .chrome
+                        .as_ref()
+                        .map(|c| c.borrow().room.clone())
+                        .and_then(|room| crate::e2e::stored_key(&self.window, &room))
+                        .filter(|k| k.key_id() == e2e.key_id);
+                    match fresh {
+                        // 自分で作り直したときは、新しい鍵をもう覚えている。
+                        Some(k) => {
+                            if let Some(s) = self.e2e.as_mut() {
+                                s.set_key(k);
+                            }
+                        }
+                        None => {
+                            if let Some(net) = self.net.as_mut() {
+                                net.disable();
+                            }
+                            crate::e2e::show_key_prompt(
+                                &self.document,
+                                &info,
+                                crate::e2e::KeyProblem::Wrong,
+                                true,
+                            );
+                            return;
+                        }
+                    }
+                }
                 chrome.borrow_mut().set_info(info);
                 if !self.can_edit() {
                     // 編集できなくなった: 途中の操作をやめる。
@@ -690,7 +772,77 @@ impl App {
                 let logged_in = chrome.borrow().me.is_some();
                 session::show_denied(&self.document, logged_in, true);
             }
+            Access::Suspended => {
+                if let Some(net) = self.net.as_mut() {
+                    net.disable();
+                }
+                session::show_suspended(&self.document);
+            }
             Access::Unavailable => {}
+        }
+    }
+
+    /// 初回同期(つなぎ直しを含む)。`state` はボード全体(暗号化ボードなら復号してまとめたもの)。
+    fn on_synced(&mut self, state: Vec<u8>, _now: f64) {
+        self.syncs += 1;
+        if self.syncs > 1 {
+            self.recheck_access();
+            self.fetch_comments();
+        }
+        let before = self.live_state_vector();
+        if !state.is_empty()
+            && let Err(e) = self.live_board_mut().apply_remote(&state)
+        {
+            log::error!("初回同期に失敗: {e}");
+        }
+        let new_info = self.live_state_vector() != before;
+        if self.e2e.is_none() {
+            self.p2p_forward(board_core::p2p::Source::Server, new_info, &state);
+        }
+        self.p2p_flush_log();
+        if self.timings.synced.is_none() {
+            self.timings.synced = Some(now_ms(&self.window));
+            self.publish_timings();
+        }
+        // 切断中・オフライン中の変更のうち、サーバーにないものだけを送る
+        // (CRDT なので、その間の他の人の変更ともマージされる)。
+        let _ = self.live_board_mut().take_outgoing();
+        let live = self.live_board.as_ref().unwrap_or(&self.board);
+        let missing = if state.is_empty() {
+            live.encode_diff(None)
+        } else {
+            live.encode_missing_from(&state)
+                .or_else(|_| live.encode_diff(None))
+        };
+        // 暗号化ボードで、手元に何もなければ送らない(空の更新を暗号化して積まない)。
+        let empty = live.is_empty() && self.e2e.is_some();
+        if let Ok(missing) = missing
+            && !empty
+        {
+            let msg = self.wire_update(missing);
+            if let Some(net) = self.net.as_ref() {
+                net.send(&msg);
+            }
+        }
+        self.cursors.clear_server();
+        self.presence_sent = None;
+        self.presence_sent_at = 0.0;
+        if !self.view_initialized {
+            self.initial_view();
+        }
+        self.editor.prune_selection(&self.board);
+        self.apply_pending_template();
+        self.dirty = true;
+    }
+
+    /// 送る形にする(暗号化ボードなら暗号化する)。
+    fn wire_update(&self, update: Vec<u8>) -> Message {
+        match &self.e2e {
+            Some(sealer) => Message::Sealed {
+                seq: 0,
+                blob: sealer.seal_update(&update),
+            },
+            None => Message::Update(update),
         }
     }
 
@@ -705,41 +857,30 @@ impl App {
                 NetEvent::Open => {}
                 NetEvent::Message(Message::Sync { you, state }) => {
                     log::info!("同期しました(参加者番号 {you})");
-                    self.syncs += 1;
-                    if self.syncs > 1 {
-                        self.recheck_access();
-                        self.fetch_comments();
-                    }
-                    if let Err(e) = self.live_board_mut().apply_remote(&state) {
-                        log::error!("初回同期に失敗: {e}");
-                    }
-                    if self.timings.synced.is_none() {
-                        self.timings.synced = Some(now_ms(&self.window));
-                        self.publish_timings();
-                    }
-                    // 切断中・オフライン中の変更のうち、サーバーにないものだけを送る
-                    // (CRDT なので、その間の他の人の変更ともマージされる)。
-                    let _ = self.live_board_mut().take_outgoing();
-                    let live = self.live_board.as_ref().unwrap_or(&self.board);
-                    let missing = live
-                        .encode_missing_from(&state)
-                        .or_else(|_| live.encode_diff(None));
-                    if let (Some(net), Ok(missing)) = (self.net.as_ref(), missing) {
-                        net.send(&Message::Update(missing));
-                    }
-                    self.cursors.clear();
-                    self.presence_sent = None;
-                    self.presence_sent_at = 0.0;
-                    if !self.view_initialized {
-                        self.initial_view();
-                    }
-                    self.editor.prune_selection(&self.board);
-                    self.dirty = true;
+                    self.on_synced(state, now);
                 }
+                NetEvent::Message(Message::SealedSync { you, base, blobs }) => {
+                    let Some(state) = self.open_sealed_log(base, &blobs) else {
+                        continue;
+                    };
+                    log::info!(
+                        "暗号化ボードを同期しました(参加者番号 {you}、{} 件)",
+                        blobs.len()
+                    );
+                    self.on_synced(state, now);
+                    self.maybe_compact(blobs.len() >= crate::e2e::COMPACT_AT);
+                }
+                NetEvent::Message(Message::Sealed { seq, blob }) => {
+                    self.on_sealed(seq, &blob);
+                }
+                NetEvent::Message(Message::Compact { .. }) => {}
                 NetEvent::Message(Message::Update(u)) => {
+                    let before = self.live_state_vector();
                     if let Err(e) = self.live_board_mut().apply_remote(&u) {
                         log::warn!("更新を取り込めません: {e}");
                     }
+                    let new_info = self.live_state_vector() != before;
+                    self.p2p_forward(board_core::p2p::Source::Server, new_info, &u);
                     self.editor.prune_selection(&self.board);
                     self.dirty = true;
                 }
@@ -755,11 +896,14 @@ impl App {
                 NetEvent::Message(Message::Reaction(r)) => self.on_reaction(r),
                 NetEvent::Message(Message::Refresh(TOPIC_COMMENTS)) => self.fetch_comments(),
                 NetEvent::Message(Message::Refresh(TOPIC_VERSIONS)) => self.versions_changed(),
+                NetEvent::Message(Message::Refresh(TOPIC_MEETING_LINK)) => {
+                    meeting_link_ui::reload()
+                }
                 NetEvent::Message(Message::Refresh(_)) => {}
                 // 通話のメッセージは voice が先に受け取っている。
                 NetEvent::Message(Message::Voice(_) | Message::Signal(_)) => {}
                 NetEvent::Closed => {
-                    self.cursors.clear();
+                    self.cursors.clear_server();
                     self.follow_reset();
                     if self.net.as_ref().map(|n| n.status) == Some(Status::Reconnecting) {
                         self.recheck_access();
@@ -785,34 +929,32 @@ impl App {
         let Some(net) = self.net.as_ref() else {
             return;
         };
-        if net.status == Status::Online && net.is_open() {
-            for u in self.board.take_outgoing() {
-                net.send(&Message::Update(u));
-            }
-            if !self.public_view
-                && self.presence_sent != Some(self.cursor_world)
-                && now - self.presence_sent_at >= PRESENCE_INTERVAL_MS
-            {
-                let (x, y) = self
-                    .cursor_world
-                    .map_or((f32::NAN, f32::NAN), |w| (w.x, w.y));
-                net.send(&Message::Presence(Presence {
-                    peer: 0,
-                    x,
-                    y,
-                    color: self.identity.color,
-                    name: self.identity.name.clone(),
-                }));
-                self.presence_sent = Some(self.cursor_world);
-                self.presence_sent_at = now;
-            }
+        if net.status == Status::Online
+            && net.is_open()
+            && !self.public_view
+            && self.presence_sent != Some(self.cursor_world)
+            && now - self.presence_sent_at >= PRESENCE_INTERVAL_MS
+        {
+            let (x, y) = self
+                .cursor_world
+                .map_or((f32::NAN, f32::NAN), |w| (w.x, w.y));
+            net.send(&Message::Presence(Presence {
+                peer: 0,
+                x,
+                y,
+                color: self.identity.color,
+                name: self.identity.name.clone(),
+            }));
+            self.presence_sent = Some(self.cursor_world);
+            self.presence_sent_at = now;
         }
 
         let local = self.saves_locally();
-        let status = (net.status, self.cursors.len(), local);
+        let direct = self.p2p.as_ref().map_or(0, |p| p.open_count());
+        let status = (net.status, self.cursors.server_len(), local, direct);
         if self.last_status != Some(status) {
             self.last_status = Some(status);
-            let text = match (status.0, local) {
+            let mut text = match (status.0, local) {
                 (Status::Connecting, _) => "接続中…".to_string(),
                 (Status::Online, _) => format!("オンライン · {}人", status.1 + 1),
                 (Status::Reconnecting, true) => "再接続中 · この端末に保存".to_string(),
@@ -821,8 +963,12 @@ impl App {
                 (Status::Offline, false) => "オフライン(保存されません)".to_string(),
                 (Status::Disabled, _) => "ダミー表示中(同期なし)".to_string(),
             };
+            if direct > 0 {
+                text.push_str(&format!(" · 直接 {direct}台"));
+            }
             self.hud.net.set_text_content(Some(&text));
             let state = match status.0 {
+                _ if direct > 0 && status.0 != Status::Online => "direct",
                 Status::Online => "online",
                 Status::Connecting | Status::Reconnecting => "connecting",
                 Status::Offline | Status::Disabled => "offline",
@@ -849,9 +995,16 @@ impl App {
 
     /// 招待用に今の URL をコピーする。
     fn copy_link(&self) {
-        let Ok(href) = self.window.location().href() else {
+        let Ok(mut href) = self.window.location().href() else {
             return;
         };
+        // 暗号化ボードは鍵をアドレスバーから消しているので、コピーするリンクに付け直す。
+        if let Some(sealer) = &self.e2e {
+            if let Some((base, _)) = href.split_once('#') {
+                href = base.to_string();
+            }
+            href.push_str(&format!("#k={}", sealer.key().to_link()));
+        }
         let _ = self.window.navigator().clipboard().write_text(&href);
         if let Some(el) = self.document.get_element_by_id("share") {
             el.set_text_content(Some("コピーしました"));
@@ -968,6 +1121,8 @@ impl App {
         export::pump(self);
         self.save_prefs();
         self.pump_net(now);
+        self.pump_p2p(now);
+        self.flush_outgoing();
         self.save_local(now, false);
         self.collab_frame();
         self.workshop_frame();
@@ -978,6 +1133,8 @@ impl App {
         self.a11y_frame(now);
         self.touch_frame(now);
         self.call_frame();
+        self.p2p_frame();
+        self.meeting_frame(now);
         self.mind_frame();
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
@@ -1815,6 +1972,8 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     history::install(app)?;
     plugins_ui::install(app, doc)?;
     call_ui::install(app, doc)?;
+    meeting_ui::install(app, doc)?;
+    meeting_link_ui::install(app, doc)?;
     video_memo::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
@@ -1857,6 +2016,7 @@ fn start_loop(app: Rc<RefCell<App>>) {
     *tick2.borrow_mut() = Some(Closure::new(move |now: f64| {
         app.borrow_mut().frame(now);
         touch::open_pending_menu(&app);
+        meeting_ui::pump(&app);
         if let Some(cb) = tick.borrow().as_ref() {
             let _ = window2.request_animation_frame(cb.as_ref().unchecked_ref());
         }
