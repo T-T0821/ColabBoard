@@ -109,7 +109,7 @@ pub fn describe(board: &Board) -> String {
 }
 
 /// このリクエストの元の URL(`https://host`)。OGP の URL は絶対 URL が必要。
-fn origin(state: &AppState, headers: &HeaderMap) -> String {
+pub(crate) fn origin(state: &AppState, headers: &HeaderMap) -> String {
     let host = headers
         .get("x-forwarded-host")
         .or_else(|| headers.get(HOST))
@@ -127,7 +127,7 @@ fn origin(state: &AppState, headers: &HeaderMap) -> String {
     format!("{}://{host}", if https { "https" } else { "http" })
 }
 
-fn page_shell(title: &str, body: &str, head: &str) -> String {
+pub(crate) fn page_shell(title: &str, body: &str, head: &str) -> String {
     format!(
         r#"<!doctype html>
 <html lang="ja">

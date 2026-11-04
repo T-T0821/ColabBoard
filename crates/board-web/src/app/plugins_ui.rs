@@ -5,18 +5,125 @@
 //! ボードへの変更は WebSocket でいつもどおり届く。結果のメッセージを出し、
 //! プラグインが選んでほしいと返した要素を選択する。
 //! プラグインを入れる・消すのはボード一覧の「開発者向け」から([`crate::developer`])。
+//!
+//! 権限: 各プラグインが求める権限と接続先を出す。通信・保存のように許可の要る権限を
+//! まだ決めていなければ、許可するかどうかを選ぶ欄を出し、決めるまで実行できない。
+//! 決めたあとも「権限の設定」から変えられる(`PUT /api/v1/plugins/{id}/grant`)。
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use board_core::api::Role;
 use board_core::ops::{id_string, parse_id};
-use board_core::plugin::{Permission, PluginInfo, RunRequest, RunResult};
+use board_core::plugin::{
+    FetchRecord, GrantRequest, Permission, PluginGrant, PluginInfo, RunRequest, RunResult,
+};
 use wasm_bindgen::JsCast;
 use web_sys::{Document, Element, HtmlElement};
 
 use super::{App, by_id, listen};
 use crate::http::{self, escape};
+
+/// 権限の欄(許可の確認と設定で共有する)。
+fn permission_form(p: &PluginInfo, busy: bool) -> String {
+    let m = &p.manifest;
+    let grant = p.grant.clone().unwrap_or_default();
+    let first = !p.pending.is_empty();
+    let mut h = format!(
+        r#"<form class="plugin-grant" data-plugin="{}" onsubmit="return false">"#,
+        escape(&m.id)
+    );
+    for perm in Permission::ALL {
+        if !m.can(perm) {
+            continue;
+        }
+        let denied = p.denied.permissions.contains(&perm);
+        // 初めての確認では、求められているものに印を付けておく(外せば許可しない)。
+        let checked = !denied && (grant.allows(perm) || p.pending.permissions.contains(&perm));
+        h.push_str(&format!(
+            r#"<label class="plugin-perm"><input type="checkbox" name="perm" value="{v}" {c} {d} /><span><strong>{label}</strong><span class="muted small">{detail}</span>{note}</span></label>"#,
+            v = perm.as_str(),
+            c = if checked { "checked" } else { "" },
+            d = if denied { "disabled" } else { "" },
+            label = perm.label(),
+            detail = perm.detail(),
+            note = if denied {
+                r#"<span class="muted small">(サーバーの設定で使えません)</span>"#
+            } else {
+                ""
+            },
+        ));
+        if perm == Permission::Network && !denied {
+            h.push_str(r#"<div class="plugin-hosts">"#);
+            for host in &m.hosts {
+                let blocked = p.denied.hosts.contains(host);
+                let checked =
+                    !blocked && (grant.allows_host(host) || p.pending.hosts.contains(host));
+                h.push_str(&format!(
+                    r#"<label class="small"><input type="checkbox" name="host" value="{v}" {c} {d} /><code translate="no">{v}</code>{note}</label>"#,
+                    v = escape(host),
+                    c = if checked { "checked" } else { "" },
+                    d = if blocked { "disabled" } else { "" },
+                    note = if blocked { r#" <span class="muted">(サーバーの設定で使えません)</span>"# } else { "" },
+                ));
+            }
+            h.push_str("</div>");
+        }
+    }
+    let dis = if busy { "disabled" } else { "" };
+    h.push_str(r#"<div class="row plugin-grant-actions">"#);
+    if first {
+        h.push_str(&format!(
+            r#"<button type="button" class="primary" data-action="save-grant" data-plugin="{id}" {dis}>選んだ権限を許可</button><button type="button" class="quiet" data-action="deny-grant" data-plugin="{id}" {dis}>許可しない</button>"#,
+            id = escape(&m.id),
+        ));
+    } else {
+        h.push_str(&format!(
+            r#"<button type="button" data-action="save-grant" data-plugin="{id}" {dis}>保存</button><button type="button" class="quiet" data-action="reset-grant" data-plugin="{id}" {dis} title="ボードの読み書き以外の許可を取り消し、次の実行でまた確認します">最初に戻す</button>"#,
+            id = escape(&m.id),
+        ));
+        if let Some(bytes) = p.storage_bytes.filter(|b| *b > 0) {
+            h.push_str(&format!(
+                r#"<button type="button" class="quiet" data-action="clear-storage" data-plugin="{id}" {dis}>保存したデータを消す({kb} KB)</button>"#,
+                id = escape(&m.id),
+                kb = bytes.div_ceil(1024),
+            ));
+        }
+    }
+    h.push_str("</div></form>");
+    h
+}
+
+/// 権限の短い一覧(「ボードを読む・外部と通信する(api.github.com)」)。
+fn permission_summary(p: &PluginInfo) -> String {
+    let m = &p.manifest;
+    let grant = p.grant.clone().unwrap_or_default();
+    let parts: Vec<String> = m
+        .permissions
+        .iter()
+        .map(|perm| {
+            let mut s = escape(perm.label());
+            if *perm == Permission::Network {
+                s.push_str(&format!(
+                    r#"(<span translate="no">{}</span>)"#,
+                    escape(&m.hosts.join(", "))
+                ));
+            }
+            let off = p.denied.permissions.contains(perm)
+                || (p.pending.is_empty() && p.grant.is_some() && !grant.allows(*perm));
+            if off {
+                format!(r#"<s title="許可していません">{s}</s>"#)
+            } else {
+                s
+            }
+        })
+        .collect();
+    if parts.is_empty() {
+        "権限なし".into()
+    } else {
+        parts.join("・")
+    }
+}
 
 #[derive(Default)]
 struct State {
@@ -26,6 +133,7 @@ struct State {
     /// (メッセージ, エラーか)
     status: Option<(String, bool)>,
     logs: Vec<String>,
+    fetches: Vec<FetchRecord>,
 }
 
 #[derive(Clone)]
@@ -82,6 +190,17 @@ impl Ui {
             )),
             None => {}
         }
+        if !st.fetches.is_empty() {
+            html.push_str(&format!(
+                r#"<details class="plugin-logs"><summary class="muted small">外部との通信 {} 件</summary><pre translate="no">"#,
+                st.fetches.len()
+            ));
+            for f in &st.fetches {
+                let status = f.status.map_or("失敗".to_string(), |s| s.to_string());
+                html.push_str(&escape(&format!("{} {} → {}\n", f.method, f.url, status)));
+            }
+            html.push_str("</pre></details>");
+        }
         if !st.logs.is_empty() {
             html.push_str(
                 r#"<details class="plugin-logs"><summary class="muted small">ログ</summary><pre>"#,
@@ -95,18 +214,24 @@ impl Ui {
         if !st.loaded {
             html.push_str(r#"<p class="muted small">読み込み中…</p>"#);
         } else if st.plugins.is_empty() {
-            html.push_str(
-                r#"<p class="muted small">使えるプラグインはまだありません。ボード一覧の「開発者向け」から自分のプラグイン(.wasm)を入れるか、サーバーの管理者に PLUGIN_DIR を設定してもらってください。</p>"#,
-            );
+            html.push_str(&format!(
+                r#"<p class="muted small">使えるプラグインはまだありません。{}</p>"#,
+                crate::hint::html(
+                    "ボード一覧の「開発者向け」から自分のプラグイン(.wasm)を入れるか、サーバーの管理者に PLUGIN_DIR を設定してもらってください。"
+                )
+            ));
         }
         html.push_str(r#"<ul class="plugins">"#);
         for p in &st.plugins {
             let m = &p.manifest;
-            let writes = m.can(Permission::BoardWrite);
+            let grant = p.grant.clone().unwrap_or_default();
+            let writes = m.can(Permission::BoardWrite)
+                && grant.allows(Permission::BoardWrite)
+                && p.pending.is_empty();
             let blocked = writes && !role.can_edit();
-            let perms: Vec<&str> = m.permissions.iter().map(|p| p.label()).collect();
+            let needs = !p.pending.is_empty();
             html.push_str(&format!(
-                r#"<li class="plugin"><div class="row"><strong class="grow" translate="no">{name}</strong><span class="badge">{src}</span></div>{desc}<p class="muted small">{perms}{ver}</p><div class="plugin-commands">"#,
+                r#"<li class="plugin"><div class="row"><strong class="grow" translate="no">{name}</strong><span class="badge">{src}</span></div>{desc}<p class="muted small">{perms}{ver}</p>"#,
                 name = escape(&m.name),
                 src = if p.source == "server" { "サーバー" } else { "自分" },
                 desc = if m.description.is_empty() {
@@ -114,25 +239,39 @@ impl Ui {
                 } else {
                     format!(r#"<p class="small" translate="no">{}</p>"#, escape(&m.description))
                 },
-                perms = if perms.is_empty() {
-                    "権限なし".to_string()
-                } else {
-                    perms.join("・")
-                },
+                perms = permission_summary(p),
                 ver = if m.version.is_empty() {
                     String::new()
                 } else {
                     format!(" · v{}", escape(&m.version))
                 },
             ));
+            if needs && p.grant.is_none() {
+                html.push_str(
+                    r#"<p class="plugin-consent small" role="note">このプラグインは外部との通信やデータの保存を求めています。ログインすると、許可してから実行できます。</p>"#,
+                );
+            } else if needs {
+                html.push_str(
+                    r#"<div class="plugin-consent" role="group" aria-label="権限の確認"><p class="small"><strong>このプラグインは次の権限を求めています。</strong>許可するものを選んでください。許可しなかった権限は、プラグインからは使えません。</p>"#,
+                );
+                html.push_str(&permission_form(p, st.busy));
+                html.push_str("</div>");
+            } else if p.grant.is_some() && !m.permissions.is_empty() {
+                html.push_str(r#"<details class="plugin-settings"><summary class="muted small">権限の設定</summary>"#);
+                html.push_str(&permission_form(p, st.busy));
+                html.push_str("</details>");
+            }
+            html.push_str(r#"<div class="plugin-commands">"#);
             for c in &m.commands {
                 html.push_str(&format!(
                     r#"<button data-action="run-plugin" data-plugin="{pid}" data-command="{cid}" {dis} title="{tip}" translate="no">{title}</button>"#,
                     pid = escape(&m.id),
                     cid = escape(&c.id),
-                    dis = if st.busy || blocked { "disabled" } else { "" },
+                    dis = if st.busy || blocked || needs { "disabled" } else { "" },
                     tip = escape(if blocked {
                         "このプラグインはボードを編集するので、編集権限が必要です"
+                    } else if needs {
+                        "先に権限を許可するかどうか決めてください"
                     } else if c.description.is_empty() {
                         "選択中の要素(なければボード全体)に実行"
                     } else {
@@ -183,6 +322,7 @@ fn run(app: Rc<RefCell<App>>, ui: Ui, plugin: String, command: String) {
         st.busy = true;
         st.status = Some(("実行中…".into(), false));
         st.logs.clear();
+        st.fetches.clear();
     }
     ui.render(role);
     wasm_bindgen_futures::spawn_local(async move {
@@ -208,6 +348,7 @@ fn run(app: Rc<RefCell<App>>, ui: Ui, plugin: String, command: String) {
                     });
                     st.status = Some((msg, false));
                     st.logs = r.logs;
+                    st.fetches = r.fetches;
                     if let Some(ids) = r.output.select {
                         let ids = ids.iter().filter_map(|s| parse_id(s)).collect();
                         let mut a = app.borrow_mut();
@@ -219,6 +360,80 @@ fn run(app: Rc<RefCell<App>>, ui: Ui, plugin: String, command: String) {
             }
         }
         ui.render(role);
+        // 許可が変わっているかもしれないので読み直す。
+        load(app, ui);
+    });
+}
+
+/// 権限の欄で選ばれているもの。
+fn checked(form: &Element, name: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Ok(list) = form.query_selector_all(&format!("input[name={name}]:checked")) {
+        for i in 0..list.length() {
+            if let Some(v) = list
+                .item(i)
+                .and_then(|n| n.dyn_into::<Element>().ok())
+                .and_then(|e| e.get_attribute("value"))
+            {
+                out.push(v);
+            }
+        }
+    }
+    out
+}
+
+/// 許可を保存する・取り消す・保存領域を消す。
+fn change_grant(app: Rc<RefCell<App>>, ui: Ui, el: Element, action: String) {
+    let Some(pid) = el.get_attribute("data-plugin") else {
+        return;
+    };
+    let base = format!("/v1/plugins/{}", http::encode(&pid));
+    let req = match action.as_str() {
+        "save-grant" => {
+            let Some(form) = el.closest("form").ok().flatten() else {
+                return;
+            };
+            let allowed: Vec<Permission> = checked(&form, "perm")
+                .iter()
+                .filter_map(|v| Permission::ALL.into_iter().find(|p| p.as_str() == v))
+                .collect();
+            Some(GrantRequest {
+                allowed,
+                hosts: checked(&form, "host"),
+            })
+        }
+        // 許可しない: ボードの読み書きだけ残す。
+        "deny-grant" => Some(GrantRequest {
+            allowed: vec![Permission::BoardRead, Permission::BoardWrite],
+            hosts: Vec::new(),
+        }),
+        _ => None,
+    };
+    let role = context(&app).map_or(Role::Viewer, |c| c.2);
+    ui.state.borrow_mut().busy = true;
+    ui.render(role);
+    wasm_bindgen_futures::spawn_local(async move {
+        let res: Result<String, http::HttpError> = match (action.as_str(), req) {
+            (_, Some(req)) => http::send::<_, PluginGrant>("PUT", &format!("{base}/grant"), &req)
+                .await
+                .map(|_| "権限の設定を保存しました".to_string()),
+            ("reset-grant", None) => http::send_empty("DELETE", &format!("{base}/grant"))
+                .await
+                .map(|_| "権限の設定を最初に戻しました".to_string()),
+            ("clear-storage", None) => http::send_empty("DELETE", &format!("{base}/storage"))
+                .await
+                .map(|_| "保存したデータを消しました".to_string()),
+            _ => return,
+        };
+        {
+            let mut st = ui.state.borrow_mut();
+            st.busy = false;
+            st.status = Some(match res {
+                Ok(m) => (m, false),
+                Err(e) => (e.message(), true),
+            });
+        }
+        load(app, ui);
     });
 }
 
@@ -279,6 +494,9 @@ pub(super) fn install(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), Stri
                             return;
                         };
                         run(app.clone(), ui2.clone(), p, c);
+                    }
+                    Some(a @ ("save-grant" | "deny-grant" | "reset-grant" | "clear-storage")) => {
+                        change_grant(app.clone(), ui2.clone(), el.clone(), a.to_string());
                     }
                     _ => {}
                 }

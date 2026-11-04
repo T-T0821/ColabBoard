@@ -25,6 +25,12 @@
 //! | `DELETE` | `/api/boards/{id}/comments/{cid}?key=` | 削除(本人かオーナー。スレッドの先頭なら返信ごと) |
 //! | `GET` | `/api/notifications` | 自分宛ての通知([`Notification`] の配列、新しい順) |
 //! | `POST` | `/api/notifications/read` | 既読にする([`MarkRead`]) |
+//! | `GET` | `/api/notify/settings` | メール・プッシュ通知の設定([`NotifyStatus`]) |
+//! | `PUT` | `/api/notify/settings` | メール・プッシュ通知の設定を変える([`SetNotify`] → [`NotifyStatus`]。メールアドレスを変えると確認のメールを送る) |
+//! | `GET` | `/api/notify/verify?token=` | メールアドレスの確認(メールのリンク。終わるとボード一覧へ戻る) |
+//! | `POST` | `/api/notify/push` | このブラウザでプッシュ通知を受け取る([`PushSubscribe`]) |
+//! | `DELETE` | `/api/notify/push` | このブラウザのプッシュ通知をやめる([`PushUnsubscribe`]) |
+//! | `POST` | `/api/notify/test` | 自分にテストの通知を送る(メールとプッシュ) |
 //! | `GET` | `/api/boards/{id}/versions?key=` | バージョン履歴([`VersionInfo`] の配列、新しい順、閲覧者以上) |
 //! | `POST` | `/api/boards/{id}/versions?key=` | 今の状態に名前を付けて保存([`NewVersion`] → [`VersionInfo`]、編集者以上) |
 //! | `GET` | `/api/boards/{id}/versions/{vid}?key=` | そのバージョンの状態(yrs v1 更新のバイナリ) |
@@ -33,7 +39,15 @@
 //! | `GET` | `/api/boards/{id}/slack` | Slack 通知の設定([`SlackSettings`]、オーナーのみ) |
 //! | `PUT` | `/api/boards/{id}/slack` | Slack 通知の設定を変える([`SetSlack`] → [`SlackSettings`]、オーナーのみ) |
 //! | `POST` | `/api/boards/{id}/slack/test` | Slack にテストのメッセージを送る(オーナーのみ) |
+//! | `GET` | `/api/boards/{id}/github?key=` | GitHub のリポジトリとのつながり([`GithubLink`] か `null`、編集者以上) |
+//! | `PUT` | `/api/boards/{id}/github` | リポジトリにつなぐ([`SetGithub`] → [`GithubLink`]、オーナーのみ) |
+//! | `DELETE` | `/api/boards/{id}/github` | つながりを外す(オーナーのみ。リポジトリのファイルはそのまま) |
+//! | `GET` | `/api/boards/{id}/github/status?key=` | ボードとリポジトリのどちらが変わったか([`GithubStatus`]、編集者以上) |
+//! | `POST` | `/api/boards/{id}/github/sync?key=` | 同期・コミット・プルリクエスト・読み込み([`GithubSyncRequest`] → [`GithubSyncResult`]、編集者以上) |
+//! | `POST` | `/api/github/webhook` | GitHub の push を受けて、自動取り込みのボードにマージする(`GITHUB_WEBHOOK_SECRET` の署名つき) |
 //! | `POST` | `/api/boards/{id}/issues?key=` | GitHub・Jira の課題の状態を引く([`IssueQuery`] → [`IssueLookup`] の配列、編集者以上) |
+//! | `GET` | `/api/boards/{id}/meeting-link?key=` | 紐づけた会議と予定([`MeetingLink`](crate::meeting_link::MeetingLink)、閲覧者以上) |
+//! | `PUT` | `/api/boards/{id}/meeting-link?key=` | 会議と予定を紐づける・外す([`SetMeetingLink`](crate::meeting_link::SetMeetingLink) → `MeetingLink`、編集者以上・要ログイン) |
 //! | `PUT` | `/api/boards/{id}/team` | チームへ移す・チームから外す([`SetBoardTeam`] → [`BoardInfo`]、オーナーのみ) |
 //! | `GET` | `/api/teams` | 自分の入っているチーム([`TeamInfo`] の配列) |
 //! | `POST` | `/api/teams` | チームを作る([`NewTeam`] → [`Team`]、作った人がオーナー) |
@@ -44,12 +58,30 @@
 //! | `PUT` | `/api/teams/{tid}/sso` | SSO 自動参加ドメインの設定([`TeamSso`] → [`Team`]、サーバー管理者のみ) |
 //! | `GET` | `/api/storage` | 選べるデータの保存場所([`StorageLocation`] の配列、要ログイン) |
 //! | `PUT` | `/api/teams/{tid}/storage` | チームのボードの保存場所を変え、中身を移す([`SetTeamStorage`] → [`Team`]、チームのオーナーのみ) |
+//! | `PUT` | `/api/teams/{tid}/p2p` | チームのボードで直接接続(P2P)を許すか([`SetTeamP2p`] → [`Team`]、チームの管理者以上) |
+//! | `GET` | `/api/boards/{id}/p2p?key=` | このボードで直接接続を使えるか([`P2pPolicy`]、閲覧者以上) |
+//! | `POST` | `/api/boards/{id}/p2p/events?key=` | 直接接続を使った記録([`P2pEvent`] の配列。中身は送らない。操作ログに残る) |
+//! | `POST` | `/api/boards/{id}/p2p/report?key=` | 直接つないだ相手を通報([`P2pReport`]。操作ログに残る) |
+//! | `GET` | `/api/templates` | 使える自作テンプレート(自分の + 入っているチームに公開されたもの。[`UserTemplate`] の配列、よく使われる順) |
+//! | `POST` | `/api/templates` | 自作テンプレートを保存する([`NewUserTemplate`] → [`UserTemplate`]。`team` を付けるとそのチームに公開) |
+//! | `PATCH` | `/api/templates/{id}` | 名前・説明・分類・公開先の変更([`EditUserTemplate`] → [`UserTemplate`]、作った人かチームの管理者) |
+//! | `DELETE` | `/api/templates/{id}` | 削除(作った人かチームの管理者) |
+//! | `POST` | `/api/templates/{id}/use` | 中身を受け取り、使われた回数を数える([`UserTemplateData`]) |
 //! | `GET` | `/api/sso` | ログイン方法([`SsoStatus`]、ログイン不要) |
 //! | `GET` | `/api/sso/oidc/start?next=` | OpenID Connect でログインを始める(IdP へリダイレクト) |
 //! | `GET` | `/api/audit?team=&before=&limit=&action=` | 操作ログ([`AuditEvent`] の配列、新しい順。`team` 指定はチームの管理者、なしはサーバー管理者) |
 //! | `GET` | `/api/audit/export?team=&format=csv\|jsonl` | 操作ログの書き出し(CSV か JSON Lines) |
+//! | `GET` | `/api/billing` | 自分の料金プランと今月の利用状況([`Billing`]、要ログイン) |
+//! | `POST` | `/api/billing/checkout` | 有料プランの申し込みを始める([`BillingRedirect`]、Stripe Checkout の URL) |
+//! | `POST` | `/api/billing/portal` | 支払い方法の変更・解約の画面([`BillingRedirect`]、Stripe カスタマーポータルの URL) |
+//! | `POST` | `/api/billing/webhook` | Stripe からの通知(署名を確かめる) |
+//!
+//!
+//! エラー監視とバックアップ(サーバー管理者向け)は [`ops`] を参照。
 //!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
+
+pub mod ops;
 
 use std::collections::BTreeMap;
 
@@ -152,6 +184,123 @@ pub struct BoardInfo {
     /// 自分だけの整理(お気に入り・タグ・フォルダ・最後に開いた時刻)。
     #[serde(flatten, default)]
     pub labels: BoardLabels,
+    /// エンドツーエンド暗号化ボードなら、その鍵の指紋。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2e: Option<E2eInfo>,
+}
+
+/// エンドツーエンド暗号化ボードの情報。鍵そのものはサーバーに置かない。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct E2eInfo {
+    /// 鍵の指紋(`board_e2e::BoardKey::key_id`)。手元の鍵が合っているかの確認に使う。
+    pub key_id: String,
+    /// 最後に鍵を作り直した時刻(UNIX ミリ秒。作ったときは 0)。
+    #[serde(default)]
+    pub rotated: u64,
+}
+
+/// 鍵を作り直す(オーナーだけ)。`snapshot` は新しい鍵で暗号化したボード全体(base64)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RotateE2e {
+    pub key_id: String,
+    pub snapshot: String,
+}
+
+/// このサーバーで暗号化ボードを作れるか。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct E2ePolicy {
+    /// サーバー全体で使えるか(`E2E_BOARDS=0` で止められる)。
+    pub enabled: bool,
+    /// チームのボードとして作れるチーム(チームの管理者が許可したもの)。
+    #[serde(default)]
+    pub teams: Vec<String>,
+}
+
+/// チームで暗号化ボードを許可するか(チームの管理者・オーナー)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SetTeamE2e {
+    pub allowed: bool,
+}
+
+/// 通報の理由。
+pub const REPORT_REASONS: &[(&str, &str)] = &[
+    ("illegal", "違法な内容"),
+    ("leak", "情報の持ち出し・漏えい"),
+    ("harassment", "嫌がらせ・差別"),
+    ("spam", "スパム・詐欺"),
+    ("other", "その他"),
+];
+
+/// 通報の理由の表示名(知らないものはそのまま)。
+pub fn report_reason_label(id: &str) -> &str {
+    REPORT_REASONS
+        .iter()
+        .find(|(k, _)| *k == id)
+        .map_or(id, |(_, v)| v)
+}
+
+/// ボードを通報する。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct NewReport {
+    /// [`REPORT_REASONS`] のどれか。
+    pub reason: String,
+    #[serde(default)]
+    pub comment: String,
+    /// 通報した人が自分の判断で添えた、ボードの文字(暗号化ボードではサーバーが中身を読めないため)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<String>,
+}
+
+/// 通報の対応状況。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReportStatus {
+    #[default]
+    Open,
+    /// 対応した(利用停止など)。
+    Resolved,
+    /// 問題なしとした。
+    Dismissed,
+}
+
+/// 届いた通報。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Report {
+    pub id: u64,
+    pub at: u64,
+    pub board: String,
+    pub board_title: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    /// 通報した人のログイン名(共有リンクから匿名で開いた人は `None`)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reporter: Option<String>,
+    pub reason: String,
+    #[serde(default)]
+    pub comment: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<String>,
+    /// 暗号化ボードへの通報か。
+    #[serde(default)]
+    pub e2e: bool,
+    #[serde(default)]
+    pub status: ReportStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handled_by: Option<String>,
+    #[serde(default)]
+    pub handled_at: u64,
+    /// 今そのボードが利用停止中か(一覧を返すときに埋める)。
+    #[serde(default)]
+    pub suspended: bool,
+}
+
+/// 通報に対応する(サーバー管理者か、チームのボードならチームの管理者)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HandleReport {
+    pub status: ReportStatus,
+    /// ボードを利用停止にする(`Some(false)` で解除)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub suspend: Option<bool>,
 }
 
 /// ボードに自分で付ける整理の印。ほかの人には見えない。
@@ -168,8 +317,8 @@ pub struct BoardLabels {
     pub opened: u64,
 }
 
-fn is_zero(v: &u64) -> bool {
-    *v == 0
+fn is_zero<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
 }
 
 /// タグの数と長さの上限。
@@ -273,6 +422,9 @@ pub struct NewBoard {
     /// チームのボードとして作るなら、そのチームの ID(メンバーである必要がある)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
+    /// エンドツーエンド暗号化ボードとして作るなら、ブラウザで作った鍵の指紋。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub e2e: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -410,6 +562,12 @@ pub struct Team {
     /// チームのボードの中身を置く場所の ID([`StorageLocation`])。`None` はこのサーバー。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
+    /// チームのボードを暗号化ボードとして作れるか(チームの管理者が決める。既定は不可)。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub e2e: bool,
+    /// チームのボードでサーバーを通さない直接接続(P2P)を止めているか。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub p2p_disabled: bool,
 }
 
 /// サーバーの管理者が用意したデータの保存場所。
@@ -434,6 +592,123 @@ pub struct SetTeamStorage {
 pub struct TeamSso {
     pub domains: Vec<String>,
 }
+
+/// チームのボードで直接接続(P2P)を許すか(チームの管理者以上)。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SetTeamP2p {
+    pub allowed: bool,
+}
+
+/// このボードで直接接続(P2P)を使えるか。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct P2pPolicy {
+    pub allowed: bool,
+    /// 使えないときの理由(画面に出す)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// 直接接続を使った記録の種類。ボードの中身は送らない。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum P2pEventKind {
+    /// 招待コードを作った。
+    Invite,
+    /// 招待コードで参加した。
+    Join,
+    /// 相手とつながった。
+    Connect,
+    /// 相手との接続が切れた(切った)。
+    Disconnect,
+}
+
+impl P2pEventKind {
+    pub fn action(self) -> &'static str {
+        match self {
+            Self::Invite => "p2p.invite",
+            Self::Join => "p2p.join",
+            Self::Connect => "p2p.connect",
+            Self::Disconnect => "p2p.disconnect",
+        }
+    }
+}
+
+/// 直接接続を使った記録(`POST /api/boards/{id}/p2p/events`)。
+///
+/// サーバーにつながっていない間の記録は端末にためておき、つながったときにまとめて送る。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct P2pEvent {
+    pub kind: P2pEventKind,
+    /// 端末での時刻(UNIX ミリ秒)。後からまとめて送ったときに、いつのことか分かるように。
+    pub at: u64,
+    /// 相手の表示名(分かれば)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub peer: Option<String>,
+}
+
+/// 通報の理由。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReportReason {
+    /// 嫌がらせ・迷惑な行為。
+    Harassment,
+    /// 違法・有害な内容。
+    Illegal,
+    /// 情報の持ち出し・なりすまし。
+    Leak,
+    /// 宣伝・スパム。
+    Spam,
+    Other,
+}
+
+impl ReportReason {
+    pub const ALL: [Self; 5] = [
+        Self::Harassment,
+        Self::Illegal,
+        Self::Leak,
+        Self::Spam,
+        Self::Other,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Harassment => "嫌がらせ・迷惑な行為",
+            Self::Illegal => "違法・有害な内容",
+            Self::Leak => "情報の持ち出し・なりすまし",
+            Self::Spam => "宣伝・スパム",
+            Self::Other => "その他",
+        }
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::Harassment => "harassment",
+            Self::Illegal => "illegal",
+            Self::Leak => "leak",
+            Self::Spam => "spam",
+            Self::Other => "other",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|r| r.id() == s)
+    }
+}
+
+/// 直接つないだ相手の通報(`POST /api/boards/{id}/p2p/report`)。操作ログに残り、管理者が見る。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct P2pReport {
+    pub reason: ReportReason,
+    /// 通報する相手の表示名。
+    pub peer: String,
+    /// 補足(任意。[`MAX_REPORT_NOTE_CHARS`] 文字まで)。
+    #[serde(default)]
+    pub note: String,
+    /// 端末での時刻(UNIX ミリ秒)。
+    pub at: u64,
+}
+
+pub const MAX_REPORT_NOTE_CHARS: usize = 500;
 
 /// サーバーが受け付けるログイン方法。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -478,6 +753,78 @@ pub struct SetBoardTeam {
     pub access: Option<Role>,
 }
 
+/// 自作テンプレートの概要(ギャラリーに出す)。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UserTemplate {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    /// 分類(「振り返り」など、自由に付ける)。
+    #[serde(default)]
+    pub category: String,
+    /// 作った人のログイン名。
+    pub owner: String,
+    /// 作った人の表示名。
+    #[serde(default)]
+    pub owner_name: String,
+    /// 公開先のチーム。`None` なら作った人だけが使える。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_name: Option<String>,
+    pub created: u64,
+    pub updated: u64,
+    /// 使われた回数。
+    #[serde(default)]
+    pub uses: u64,
+    /// 要素の数。
+    #[serde(default)]
+    pub elements: usize,
+    /// 縮小図(SVG)。数値と色だけでできている。
+    #[serde(default)]
+    pub preview: String,
+    /// 自分が名前の変更・公開先の変更・削除をできるか。
+    #[serde(default)]
+    pub can_edit: bool,
+}
+
+/// 自作テンプレートを保存する。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NewUserTemplate {
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub category: String,
+    /// 公開するチーム(メンバーである必要がある)。`None` なら自分だけ。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    /// 中身(クリップボードと同じ `colabboard/v1:` 形式)。
+    pub data: String,
+}
+
+/// 自作テンプレートの変更。省いた項目はそのまま。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct EditUserTemplate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// 公開先。チーム ID ならそのチームに公開、空文字なら自分だけに戻す。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+}
+
+/// 自作テンプレートの中身。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UserTemplateData {
+    pub template: UserTemplate,
+    pub data: String,
+}
+
 /// 操作ログの 1 件。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditEvent {
@@ -520,14 +867,34 @@ impl AuditEvent {
             "board.link" => "共有リンクの変更",
             "board.team" => "ボードのチーム変更",
             "board.restore" => "バージョンの復元",
+            "backup.create" => "バックアップ作成",
+            "backup.restore" => "バックアップから復元",
             "team.create" => "チーム作成",
             "team.rename" => "チーム名の変更",
             "team.delete" => "チーム削除",
             "team.member" => "チームのメンバー変更",
             "team.settings" => "チームの設定変更",
             "team.storage" => "保存場所の変更",
+            "team.p2p" => "直接接続(P2P)の設定変更",
+            "p2p.invite" => "直接接続の招待",
+            "p2p.join" => "直接接続で参加",
+            "p2p.connect" => "直接接続でつながった",
+            "p2p.disconnect" => "直接接続の切断",
+            "p2p.report" => "直接接続の相手を通報",
+            "billing.plan" => "料金プランの変更",
             "token.create" => "API トークン作成",
             "token.revoke" => "API トークン失効",
+            "board.e2e.create" => "暗号化ボード作成",
+            "board.e2e.open" => "暗号化ボードに参加",
+            "board.e2e.rotate" => "暗号化ボードの鍵の作り直し",
+            "board.report" => "ボードの通報",
+            "board.suspend" => "ボードの利用停止",
+            "board.unsuspend" => "ボードの利用停止を解除",
+            "report.handle" => "通報への対応",
+            "server.settings" => "サーバーの設定変更",
+            "template.create" => "テンプレート作成",
+            "template.update" => "テンプレートの変更",
+            "template.delete" => "テンプレート削除",
             other => other,
         }
     }
@@ -571,6 +938,12 @@ pub struct Comment {
     /// 通知したメンション(ログイン名)。
     #[serde(default)]
     pub mentions: Vec<String>,
+    /// 期限(UNIX ミリ秒。スレッドの先頭だけが持つ)。近づくと・過ぎるとメンションした人と書いた人に知らせる。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due: Option<u64>,
+    /// 期限の知らせをどこまで送ったか(サーバーが使う。0: まだ、1: 近づいた、2: 過ぎた)。
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub due_stage: u8,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -585,6 +958,9 @@ pub struct NewComment {
     /// 返信先(スレッドの先頭でも返信でもよい)。
     #[serde(default)]
     pub parent: Option<u64>,
+    /// 期限(UNIX ミリ秒)。新しいスレッドのときだけ使う。
+    #[serde(default)]
+    pub due: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -593,6 +969,9 @@ pub struct EditComment {
     pub body: Option<String>,
     #[serde(default)]
     pub resolved: Option<bool>,
+    /// 期限を変える(UNIX ミリ秒、`0` で外す。スレッドの先頭だけ、コメント可以上)。
+    #[serde(default)]
+    pub due: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -609,6 +988,28 @@ pub enum NotificationKind {
     Mention,
     /// 参加しているスレッドに返信があった。
     Reply,
+    /// 担当している(メンションされた・書いた)スレッドの期限が近づいた。
+    Due,
+    /// 担当しているスレッドの期限が過ぎた(まだ解決していない)。
+    Overdue,
+}
+
+impl NotificationKind {
+    /// メール・プッシュ通知の設定でどの種類に入るか。
+    pub fn group(self) -> NotifyGroup {
+        match self {
+            Self::Mention => NotifyGroup::Mention,
+            Self::Reply => NotifyGroup::Reply,
+            Self::Due | Self::Overdue => NotifyGroup::Due,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotifyGroup {
+    Mention,
+    Reply,
+    Due,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -630,6 +1031,100 @@ pub struct Notification {
     /// 共有リンクで開いているボードなら、その鍵。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
+    /// 期限の通知なら、その期限(UNIX ミリ秒)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due: Option<u64>,
+}
+
+impl Notification {
+    /// 一文での説明(「〜が〜しました」)。画面・メール・プッシュ通知で使う。
+    pub fn headline(&self) -> String {
+        match self.kind {
+            NotificationKind::Mention => format!("{} があなたをメンションしました", self.from_name),
+            NotificationKind::Reply => format!("{} がスレッドに返信しました", self.from_name),
+            NotificationKind::Due => "コメントの期限が近づいています".to_string(),
+            NotificationKind::Overdue => "コメントの期限を過ぎました".to_string(),
+        }
+    }
+}
+
+/// メール・プッシュ通知で知らせる種類。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotifyKinds {
+    /// メンションされた。
+    #[serde(default)]
+    pub mention: bool,
+    /// 参加しているスレッドに返信があった。
+    #[serde(default)]
+    pub reply: bool,
+    /// 期限が近づいた・過ぎた。
+    #[serde(default)]
+    pub due: bool,
+}
+
+impl NotifyKinds {
+    pub const ALL: Self = Self {
+        mention: true,
+        reply: true,
+        due: true,
+    };
+
+    pub fn allows(self, kind: NotificationKind) -> bool {
+        match kind.group() {
+            NotifyGroup::Mention => self.mention,
+            NotifyGroup::Reply => self.reply,
+            NotifyGroup::Due => self.due,
+        }
+    }
+}
+
+/// `PUT /api/notify/settings` で送る、メール・プッシュ通知の設定。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SetNotify {
+    /// 送り先のメールアドレス(空で外す)。変えると確認のメールを送り、リンクを開くまで使わない。
+    #[serde(default)]
+    pub email: String,
+    pub email_on: NotifyKinds,
+    pub push_on: NotifyKinds,
+}
+
+/// `GET /api/notify/settings` の結果。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NotifyStatus {
+    pub email: String,
+    /// 確認のリンクを開いたか(開くまでメールは送らない)。
+    pub email_verified: bool,
+    pub email_on: NotifyKinds,
+    pub push_on: NotifyKinds,
+    /// サーバーでメールを送れるか(`SMTP_URL` が設定されているか)。
+    pub email_available: bool,
+    /// プッシュ通知の購読に使う公開鍵(VAPID、base64url)。`None` ならプッシュ通知は使えない。
+    #[serde(default)]
+    pub push_key: Option<String>,
+    /// プッシュ通知を受け取る端末(ブラウザ)の数。
+    pub push_devices: u32,
+}
+
+/// ブラウザの `PushSubscription.toJSON()` の形。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PushSubscribe {
+    pub endpoint: String,
+    #[serde(default)]
+    pub keys: Option<PushKeys>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PushKeys {
+    #[serde(default)]
+    pub p256dh: String,
+    #[serde(default)]
+    pub auth: String,
+}
+
+/// `DELETE /api/notify/push` で送る。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PushUnsubscribe {
+    pub endpoint: String,
 }
 
 /// `ids` が `None` ならすべて既読にする。
@@ -707,6 +1202,121 @@ pub struct SetSlack {
     pub webhook: Option<String>,
     #[serde(default)]
     pub events: SlackEvents,
+}
+
+/// ボードと GitHub のリポジトリのつながり。トークンは返さない。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GithubLink {
+    /// `owner/name`。
+    pub repo: String,
+    pub branch: String,
+    /// リポジトリの中のボードのファイル(例 `boards/plan.graboard.json`)。
+    pub path: String,
+    /// ボードにトークンを保存してあるか(`false` ならサーバーのトークンを使う)。
+    pub has_token: bool,
+    /// 書き込みに使えるトークンがあるか(ボードのもの・サーバーのもの)。
+    pub writable: bool,
+    /// GitHub への push を受けて自動で取り込む(サーバーに Webhook の設定が要る)。
+    pub auto_pull: bool,
+    /// ファイルを GitHub で開く URL。
+    pub url: String,
+    /// 最後に同期した時点。
+    #[serde(default)]
+    pub last: Option<GithubSyncPoint>,
+}
+
+/// 最後に同期した時点。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GithubSyncPoint {
+    /// コミットの SHA。
+    pub commit: String,
+    pub at: u64,
+    #[serde(default)]
+    pub by: Option<String>,
+    /// コミットを GitHub で開く URL。
+    pub url: String,
+}
+
+/// リポジトリにつなぐ。`token` が `None` ならそのまま、空文字なら消す。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SetGithub {
+    /// `owner/name` か `https://github.com/owner/name`。
+    pub repo: String,
+    /// 省略時はリポジトリの既定のブランチ。
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// 省略時は `boards/{ボードID}.graboard.json`。
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub token: Option<String>,
+    #[serde(default)]
+    pub auto_pull: bool,
+}
+
+/// ボードとリポジトリのどちらが、最後の同期から変わったか。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GithubStatus {
+    pub link: GithubLink,
+    /// リポジトリにファイルがあるか。
+    pub remote_exists: bool,
+    /// ボードが最後の同期から変わった(初めてなら、リポジトリのファイルと違う)。
+    pub board_changed: bool,
+    /// リポジトリのファイルが最後の同期から変わった。
+    pub repo_changed: bool,
+}
+
+/// 同期のしかた。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GithubSyncMode {
+    /// 両方の変更をマージし、ボードとリポジトリを同じにする。
+    #[default]
+    Sync,
+    /// ボードの今の状態でリポジトリのファイルを上書きする。
+    Push,
+    /// リポジトリのファイルでボードを上書きする(前の状態は版の履歴に残す)。
+    Pull,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct GithubSyncRequest {
+    #[serde(default)]
+    pub mode: GithubSyncMode,
+    /// コミットメッセージ(省略時は自動)。
+    #[serde(default)]
+    pub message: Option<String>,
+    /// ブランチに直接コミットせず、新しいブランチからプルリクエストを出す。
+    #[serde(default)]
+    pub pull_request: bool,
+}
+
+/// 要素の追加・変更・削除の数。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChangeCount {
+    pub added: usize,
+    pub updated: usize,
+    pub removed: usize,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct GithubSyncResult {
+    /// ボードに加えた変更(リポジトリから取り込んだもの)。
+    pub board: ChangeCount,
+    /// リポジトリに加えた変更(コミットしたもの)。
+    pub repo: ChangeCount,
+    /// 両方で違う変更があった要素(ボード側を残した)の説明。
+    #[serde(default)]
+    pub conflicts: Vec<String>,
+    /// 作ったコミット。
+    #[serde(default)]
+    pub commit: Option<String>,
+    #[serde(default)]
+    pub commit_url: Option<String>,
+    /// 出したプルリクエスト。
+    #[serde(default)]
+    pub pull_request_url: Option<String>,
+    pub link: GithubLink,
 }
 
 /// 課題の置き場所。
@@ -808,6 +1418,84 @@ pub fn valid_login(s: &str) -> bool {
     (3..=32).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+}
+
+/// 料金プラン。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlanId {
+    #[default]
+    Free,
+    Pro,
+}
+
+impl PlanId {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PlanId::Free => "free",
+            PlanId::Pro => "pro",
+        }
+    }
+}
+
+/// プランごとの上限。`0` は無制限。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanLimits {
+    /// 自分が持てるボードの数。
+    pub boards: u32,
+    /// AI 機能を呼べる回数(1 か月あたり)。
+    pub ai_per_month: u32,
+    /// 1 つのボードに招待できるメンバーの数(オーナーを除く)。
+    pub members_per_board: u32,
+    /// 1 つのボードに置ける動画メモの合計(MB)。
+    pub media_mb_per_board: u32,
+}
+
+/// 選べるプラン(料金画面の表示用)。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanOffer {
+    pub id: PlanId,
+    pub name: String,
+    /// 表示用の値段(`¥1,200 / 月` など)。
+    pub price: String,
+    pub limits: PlanLimits,
+}
+
+/// 今月の利用状況。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Usage {
+    pub boards: u32,
+    pub ai_this_month: u32,
+}
+
+/// 自分の料金プラン。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Billing {
+    /// `off`(このサーバーでは料金プランを使わない)・`mock`(テスト用の決済)・`stripe`。
+    pub mode: String,
+    pub plan: PlanId,
+    /// Stripe のサブスクリプションの状態(`active`・`past_due`・`canceled` など)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// 今の請求期間の終わり(UNIX ミリ秒)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub period_end: Option<u64>,
+    /// 期間の終わりで解約する予定か。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cancel_at_period_end: bool,
+    /// 支払いの管理(カスタマーポータル)を開けるか。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_manage: bool,
+    pub limits: PlanLimits,
+    pub usage: Usage,
+    #[serde(default)]
+    pub plans: Vec<PlanOffer>,
+}
+
+/// 決済・ポータルの画面へ移る先。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BillingRedirect {
+    pub url: String,
 }
 
 #[cfg(test)]

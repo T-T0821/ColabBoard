@@ -1,0 +1,25 @@
+# グラボードのイメージを Cloud Build で作り、Artifact Registry に push する。
+# deploy.sh build から使う(_IMAGE と _TAG はそこで渡す)。
+steps:
+  - name: gcr.io/cloud-builders/docker
+    env:
+      - DOCKER_BUILDKIT=1 # Dockerfile の RUN --mount=type=cache に要る
+    args:
+      - build
+      - --tag=${_IMAGE}:${_TAG}
+      - --tag=${_IMAGE}:latest
+      - .
+
+images:
+  - ${_IMAGE}:${_TAG}
+  - ${_IMAGE}:latest
+
+substitutions:
+  _IMAGE: ""
+  _TAG: manual
+
+options:
+  machineType: E2_HIGHCPU_8 # Rust のビルドが速くなる(既定の 1 vCPU だと 30 分以上)
+  logging: CLOUD_LOGGING_ONLY # 専用のサービスアカウントで動かすときに要る
+
+timeout: 3600s

@@ -107,9 +107,6 @@ impl Dev {
     fn render(&self) {
         let st = self.state.borrow();
         let mut h = String::new();
-        h.push_str(
-            r#"<p class="muted small">外部のスクリプトや連携から <code>/api/v1</code> の REST API でボードを操作するためのトークンと、ボードに機能を足す WASM プラグインを管理します。使い方は docs/api.md と docs/plugins.md にあります。</p>"#,
-        );
         if let Some((m, err)) = &st.message {
             h.push_str(&format!(
                 r#"<p class="dev-message" {kind} role="status">{m}</p>"#,
@@ -124,7 +121,12 @@ impl Dev {
         }
 
         // ---- トークン ----
-        h.push_str(r#"<h3>API トークン</h3>"#);
+        h.push_str(&format!(
+            "<h3>API トークン{}</h3>",
+            crate::hint::html(
+                "外部のスクリプトや連携から <code>/api/v1</code> の REST API でボードを操作するためのトークンです。使い方は docs/api.md にあります。"
+            )
+        ));
         if let Some(t) = &st.fresh {
             h.push_str(&format!(
                 r#"<div class="token-fresh"><p><strong>「{name}」を作りました。</strong>このトークンは今しか表示されません。安全な場所に控えてください。</p><div class="row"><input class="grow" readonly value="{token}" data-select-all translate="no" aria-label="作ったトークン" /><button type="button" data-action="copy-token" data-token="{token}">コピー</button><button type="button" class="quiet" data-action="hide-token">閉じる</button></div></div>"#,
@@ -175,9 +177,14 @@ impl Dev {
         }
 
         // ---- プラグイン ----
-        h.push_str(r#"<h3>プラグイン</h3>"#);
+        h.push_str(&format!(
+            "<h3>プラグイン{}</h3>",
+            crate::hint::html(
+                "ボードに機能を足す WASM プラグインです。入れたプラグインは自分だけが使えます。ボードを開き、右上の「プラグイン」から実行します。作り方は docs/plugins.md にあります。"
+            )
+        ));
         h.push_str(
-            r#"<label class="dev-upload"><span>プラグイン(.wasm)を入れる</span><input type="file" accept=".wasm,application/wasm" data-action-change="upload" /></label><p class="muted small">入れたプラグインは自分だけが使えます。ボードを開き、右上の「プラグイン」から実行します。</p>"#,
+            r#"<label class="dev-upload"><span>プラグイン(.wasm)を入れる</span><input type="file" accept=".wasm,application/wasm" data-action-change="upload" /></label>"#,
         );
         if st.plugins.is_empty() {
             h.push_str(r#"<p class="muted small">まだプラグインはありません。</p>"#);
@@ -185,7 +192,21 @@ impl Dev {
             h.push_str(r#"<ul class="dev-list">"#);
             for p in &st.plugins {
                 let m = &p.manifest;
-                let perms: Vec<&str> = m.permissions.iter().map(|p| p.label()).collect();
+                let perms: Vec<String> = m
+                    .permissions
+                    .iter()
+                    .map(|p| {
+                        if *p == board_core::plugin::Permission::Network {
+                            format!(
+                                r#"{}(<span translate="no">{}</span>)"#,
+                                p.label(),
+                                escape(&m.hosts.join(", "))
+                            )
+                        } else {
+                            p.label().to_string()
+                        }
+                    })
+                    .collect();
                 let actions = if p.source == "user" {
                     format!(
                         r#"<button type="button" class="quiet" data-action="uninstall" data-id="{}">消す</button>"#,

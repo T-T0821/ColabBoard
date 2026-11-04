@@ -12,12 +12,21 @@
 //! | `0x05` Reaction | 双方向 | 参加者番号 `u32`, x `f32`, y `f32`, 絵文字(UTF-8) |
 //! | `0x06` Voice | 双方向 | 参加者番号 `u32`, フラグ `u8`(bit 0 通話中, bit 1 ミュート, bit 2 発話中) |
 //! | `0x07` Signal | 双方向 | 送り主 `u32`, 宛先 `u32`, 種類 `u8`, 中身(UTF-8。SDP か ICE 候補の JSON) |
+//! | `0x08` Sealed | 双方向 | 通し番号 `u64` + 暗号化した更新(エンドツーエンド暗号化ボード) |
+//! | `0x09` SealedSync | サーバー → クライアント | 自分の参加者番号 `u32` + 先頭の通し番号 `u64` + 件数 `u32` + (長さ `u32` + 暗号文) × 件数 |
+//! | `0x0a` Compact | クライアント → サーバー | 先頭の通し番号 `u64` + ここまで `u64` + 暗号化したボード全体 |
 //! | `0x10` Refresh | サーバー → クライアント | 話題 `u8`([`TOPIC_COMMENTS`] など)。HTTP API で取り直す合図 |
 //!
 //! Voice と Signal は音声通話(WebRTC の P2P メッシュ)に使う。Voice は通話の参加状態で、
 //! サーバーが覚えておき途中参加の人にも送る。Signal は WebRTC の接続手順(offer / answer / ICE 候補)
 //! の中継で、サーバーは送り主の番号を書き換えて宛先の 1 人にだけ届ける。音声そのものは
 //! サーバーを通らない。
+//!
+//! Sealed / SealedSync / Compact はエンドツーエンド暗号化ボード(`board-e2e`)用。サーバーは鍵を
+//! 持たないので中身(yrs の更新)を読めず、暗号文を順に並べたログとして保存・中継するだけ。
+//! ログの各暗号文には通し番号が付く。クライアントは Sealed の通し番号を 0 で送り、サーバーが付けて配る。
+//! ログが長くなったら、編集できるクライアントが全部を 1 つにまとめた暗号文を Compact で送り、
+//! サーバーは `先頭..ここまで` の範囲をそれと置き換える(先頭が合わなければ何もしない)。
 //!
 //! Reaction はその場で浮かんで消える絵文字リアクション(保存しない)。
 //!
@@ -35,6 +44,9 @@ const VIEW: u8 = 0x04;
 const REACTION: u8 = 0x05;
 const VOICE: u8 = 0x06;
 const SIGNAL: u8 = 0x07;
+const SEALED: u8 = 0x08;
+const SEALED_SYNC: u8 = 0x09;
+const COMPACT: u8 = 0x0a;
 
 /// Signal の中身の最大バイト数(SDP は数 KB に収まる)。
 pub const MAX_SIGNAL_BYTES: usize = 16 * 1024;
@@ -48,6 +60,8 @@ const REFRESH: u8 = 0x10;
 pub const TOPIC_COMMENTS: u8 = 1;
 /// [`Message::Refresh`] の話題: バージョン履歴が変わった。
 pub const TOPIC_VERSIONS: u8 = 2;
+/// [`Message::Refresh`] の話題: ボードに紐づけた会議・予定が変わった。
+pub const TOPIC_MEETING_LINK: u8 = 3;
 
 /// 名前の最大バイト数(超えた分は切り詰める)。
 pub const MAX_NAME_BYTES: usize = 64;
@@ -177,6 +191,23 @@ pub enum Message {
     Signal(Signal),
     /// サーバーの持つ情報(コメントなど)が変わったので取り直してほしい。
     Refresh(u8),
+    /// 暗号化した更新。`seq` はサーバーが付ける通し番号(クライアントからは 0)。
+    Sealed {
+        seq: u64,
+        blob: Vec<u8>,
+    },
+    /// 暗号化ボードの初回同期: ログ全体。`blobs[i]` の通し番号は `base + i`。
+    SealedSync {
+        you: u32,
+        base: u64,
+        blobs: Vec<Vec<u8>>,
+    },
+    /// ログの `base..upto` を、全体をまとめた暗号文 `blob` に置き換えてほしい。
+    Compact {
+        base: u64,
+        upto: u64,
+        blob: Vec<u8>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -267,6 +298,34 @@ impl Message {
                 out
             }
             Self::Refresh(topic) => vec![REFRESH, *topic],
+            Self::Sealed { seq, blob } => {
+                let mut out = Vec::with_capacity(9 + blob.len());
+                out.push(SEALED);
+                out.extend_from_slice(&seq.to_le_bytes());
+                out.extend_from_slice(blob);
+                out
+            }
+            Self::SealedSync { you, base, blobs } => {
+                let total: usize = blobs.iter().map(|b| 4 + b.len()).sum();
+                let mut out = Vec::with_capacity(17 + total);
+                out.push(SEALED_SYNC);
+                out.extend_from_slice(&you.to_le_bytes());
+                out.extend_from_slice(&base.to_le_bytes());
+                out.extend_from_slice(&(blobs.len() as u32).to_le_bytes());
+                for b in blobs {
+                    out.extend_from_slice(&(b.len() as u32).to_le_bytes());
+                    out.extend_from_slice(b);
+                }
+                out
+            }
+            Self::Compact { base, upto, blob } => {
+                let mut out = Vec::with_capacity(17 + blob.len());
+                out.push(COMPACT);
+                out.extend_from_slice(&base.to_le_bytes());
+                out.extend_from_slice(&upto.to_le_bytes());
+                out.extend_from_slice(blob);
+                out
+            }
         }
     }
 
@@ -344,6 +403,31 @@ impl Message {
                 }))
             }
             REFRESH => Ok(Self::Refresh(*body.first().ok_or(DecodeError::Truncated)?)),
+            SEALED => Ok(Self::Sealed {
+                seq: read_u64(body, 0)?,
+                blob: body[8..].to_vec(),
+            }),
+            SEALED_SYNC => {
+                let you = read_u32(body, 0)?;
+                let base = read_u64(body, 4)?;
+                let count = read_u32(body, 12)? as usize;
+                let mut at = 16;
+                // 件数は信用せず、実際に読めた分だけ確保する。
+                let mut blobs = Vec::with_capacity(count.min(body.len() / 4));
+                for _ in 0..count {
+                    let len = read_u32(body, at)? as usize;
+                    at += 4;
+                    let b = body.get(at..at + len).ok_or(DecodeError::Truncated)?;
+                    blobs.push(b.to_vec());
+                    at += len;
+                }
+                Ok(Self::SealedSync { you, base, blobs })
+            }
+            COMPACT => Ok(Self::Compact {
+                base: read_u64(body, 0)?,
+                upto: read_u64(body, 8)?,
+                blob: body[16..].to_vec(),
+            }),
             k => Err(DecodeError::UnknownKind(k)),
         }
     }
@@ -352,6 +436,11 @@ impl Message {
 fn read_u32(b: &[u8], at: usize) -> Result<u32, DecodeError> {
     let s = b.get(at..at + 4).ok_or(DecodeError::Truncated)?;
     Ok(u32::from_le_bytes(s.try_into().unwrap()))
+}
+
+fn read_u64(b: &[u8], at: usize) -> Result<u64, DecodeError> {
+    let s = b.get(at..at + 8).ok_or(DecodeError::Truncated)?;
+    Ok(u64::from_le_bytes(s.try_into().unwrap()))
 }
 
 fn truncate_utf8(s: &str, max: usize) -> &str {
@@ -427,6 +516,46 @@ mod tests {
             max_y: 1100.0,
             presenting: true,
         }));
+    }
+
+    #[test]
+    fn sealed_roundtrips() {
+        roundtrip(Message::Sealed {
+            seq: 0,
+            blob: vec![1, 2, 3],
+        });
+        roundtrip(Message::Sealed {
+            seq: u64::MAX,
+            blob: vec![],
+        });
+        roundtrip(Message::SealedSync {
+            you: 9,
+            base: 41,
+            blobs: vec![vec![1; 300], vec![], vec![2, 3]],
+        });
+        roundtrip(Message::SealedSync {
+            you: 1,
+            base: 0,
+            blobs: vec![],
+        });
+        roundtrip(Message::Compact {
+            base: 3,
+            upto: 10,
+            blob: vec![5; 40],
+        });
+        // 件数が多すぎる・長さが足りないものは弾く。
+        let mut bad = Message::SealedSync {
+            you: 1,
+            base: 0,
+            blobs: vec![vec![1, 2]],
+        }
+        .encode();
+        bad[13] = 0xff;
+        assert_eq!(Message::decode(&bad), Err(DecodeError::Truncated));
+        assert_eq!(
+            Message::decode(&[SEALED, 1, 2, 3]),
+            Err(DecodeError::Truncated)
+        );
     }
 
     #[test]

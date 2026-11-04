@@ -1,0 +1,132 @@
+#cloud-config
+# Container-Optimized OS の起動時設定(Terraform の templatefile で埋める)。
+# COS では /etc が起動ごとに作り直されるので、この設定は毎回の起動で適用される。
+
+bootcmd:
+  # データディスクを /mnt/disks/data に載せる。ファイルシステムがないとき(初回)だけ作る。
+  - mkdir -p /mnt/disks/data
+  - blkid /dev/disk/by-id/google-data >/dev/null 2>&1 || mkfs.ext4 -m 0 -E lazy_itable_init=0,lazy_journal_init=0,discard /dev/disk/by-id/google-data
+  - mountpoint -q /mnt/disks/data || mount -o discard,defaults /dev/disk/by-id/google-data /mnt/disks/data
+  - mkdir -p /mnt/disks/data/graboard /mnt/disks/data/caddy/data /mnt/disks/data/caddy/config
+  # コンテナは uid 65532(distroless の nonroot)で動く。
+  - chown 65532:65532 /mnt/disks/data/graboard
+
+write_files:
+  - path: /etc/graboard/env
+    permissions: "0644"
+    owner: root
+    content: |
+%{ for k, v in env ~}
+      ${k}=${v}
+%{ endfor ~}
+
+  - path: /etc/graboard/Caddyfile
+    permissions: "0644"
+    owner: root
+    content: |
+%{ if acme_email != "" ~}
+      {
+        email ${acme_email}
+      }
+
+%{ endif ~}
+      ${domain} {
+        # http → https の転送と証明書の取得・更新は Caddy が自動で行う。
+        # WebSocket(/ws/…)もそのまま通る。X-Forwarded-For には利用者の IP が入る(TRUST_PROXY=1)。
+        reverse_proxy graboard:8080
+      }
+
+  - path: /etc/graboard/fetch-secrets.sh
+    permissions: "0755"
+    owner: root
+    content: |
+      #!/bin/bash
+      # Secret Manager の最新の版を読み、docker の env-file に書く(tmpfs の /run に置き、ディスクに残さない)。
+      set -euo pipefail
+      out=/run/graboard/secrets.env
+      mkdir -p /run/graboard
+      umask 077
+      : > "$out"
+      token=$(curl -fsS --retry 10 --retry-connrefused --retry-delay 2 \
+        -H 'Metadata-Flavor: Google' \
+        http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token \
+        | sed -n 's/.*"access_token" *: *"\([^"]*\)".*/\1/p')
+      for name in ${join(" ", secret_names)}; do
+        resp=$(curl -sS --retry 5 -w '\n%%{http_code}' -H "Authorization: Bearer $token" \
+          "https://secretmanager.googleapis.com/v1/projects/${project_id}/secrets/${secret_prefix}-$name/versions/latest:access")
+        code=$${resp##*$'\n'}
+        body=$${resp%$'\n'*}
+        if [ "$code" = 200 ]; then
+          value=$(printf '%s' "$body" | tr -d ' \n' | sed -n 's/.*"data":"\([^"]*\)".*/\1/p' | base64 -d)
+          printf '%s=%s\n' "$name" "$value" >> "$out"
+          echo "secret $name: loaded"
+        else
+          echo "secret $name: skipped (HTTP $code; 値が未登録なら gcloud secrets versions add で入れる)"
+        fi
+      done
+
+  - path: /etc/systemd/system/graboard.service
+    permissions: "0644"
+    owner: root
+    content: |
+      [Unit]
+      Description=Graboard (board-server)
+      Wants=network-online.target
+      After=network-online.target docker.service
+      Requires=docker.service
+
+      [Service]
+      Environment=HOME=/home/graboard
+      ExecStartPre=/bin/mkdir -p /home/graboard
+      ExecStartPre=/usr/bin/docker-credential-gcr configure-docker --registries=${registry_host}
+      ExecStartPre=/bin/bash /etc/graboard/fetch-secrets.sh
+      ExecStartPre=-/usr/bin/docker network create graboard
+      # 取得に失敗しても、手元にあるイメージで起動する。
+      ExecStartPre=-/usr/bin/docker pull ${image}
+      ExecStartPre=-/usr/bin/docker rm -f graboard
+      ExecStart=/usr/bin/docker run --rm --name graboard --network graboard \
+        --env-file /etc/graboard/env --env-file /run/graboard/secrets.env \
+        -v /mnt/disks/data/graboard:/data \
+        ${image}
+      # SIGTERM で未保存の変更を書き出してから終わる。
+      ExecStop=/usr/bin/docker stop -t 60 graboard
+      TimeoutStopSec=90
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /etc/systemd/system/caddy.service
+    permissions: "0644"
+    owner: root
+    content: |
+      [Unit]
+      Description=Caddy (HTTPS reverse proxy for Graboard)
+      Wants=network-online.target
+      After=network-online.target docker.service
+      Requires=docker.service
+
+      [Service]
+      ExecStartPre=-/usr/bin/docker network create graboard
+      ExecStartPre=-/usr/bin/docker rm -f caddy
+      ExecStart=/usr/bin/docker run --rm --name caddy --network graboard \
+        -p 80:80 -p 443:443 -p 443:443/udp \
+        -v /etc/graboard/Caddyfile:/etc/caddy/Caddyfile:ro \
+        -v /mnt/disks/data/caddy/data:/data \
+        -v /mnt/disks/data/caddy/config:/config \
+        ${caddy_image}
+      ExecStop=/usr/bin/docker stop -t 30 caddy
+      Restart=always
+      RestartSec=5
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # COS のホストのファイアウォールは既定で SSH 以外を閉じている。
+  - iptables -w -A INPUT -p tcp --dport 80 -j ACCEPT
+  - iptables -w -A INPUT -p tcp --dport 443 -j ACCEPT
+  - iptables -w -A INPUT -p udp --dport 443 -j ACCEPT
+  - systemctl daemon-reload
+  - systemctl start graboard.service caddy.service

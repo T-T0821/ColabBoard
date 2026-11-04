@@ -1,0 +1,23 @@
+[package]
+name = "board-ai"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+description = "ブラウザ内で動く音声認識(Whisper、candle)。使うときだけ読み込む別の wasm を Web Worker で動かす"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+candle-core = { version = "0.11", default-features = false }
+candle-nn = { version = "0.11", default-features = false }
+candle-transformers = { version = "0.11", default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rustfft = "6"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+js-sys = "0.3"
+getrandom = { version = "0.3", features = ["wasm_js"] }
+web-sys = { version = "0.3", features = ["DedicatedWorkerGlobalScope", "MessageEvent"] }
