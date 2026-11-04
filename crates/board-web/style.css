@@ -1891,6 +1891,15 @@ body.embed-mode .history-panel { display: none !important; }
 .plugin-commands { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .plugin-status { font-size: 13px; }
 .plugin-logs pre { margin: 4px 0 0; font-size: 11.5px; white-space: pre-wrap; max-height: 120px; overflow: auto; }
+.plugin-consent { border: 1px solid var(--accent, #4f6bed); border-radius: 8px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: color-mix(in srgb, var(--accent, #4f6bed) 6%, transparent); }
+.plugin-settings > summary { cursor: pointer; }
+.plugin-grant { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
+.plugin-perm { display: flex; gap: 8px; align-items: flex-start; }
+.plugin-perm > span { display: flex; flex-direction: column; }
+.plugin-perm input { margin-top: 3px; }
+.plugin-hosts { display: flex; flex-direction: column; gap: 2px; margin: -2px 0 2px 26px; }
+.plugin-hosts code { font-size: 12px; overflow-wrap: anywhere; }
+.plugin-grant-actions { flex-wrap: wrap; gap: 6px; }
 
 /* ---- 操作ログ ---- */
 .audit-panel { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin: 0 0 16px; display: flex; flex-direction: column; gap: 10px; }

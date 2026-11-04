@@ -70,6 +70,12 @@ pub(crate) const USER_TOKENS: TableDefinition<(&str, &str), &[u8]> =
 pub(crate) const PLUGINS: TableDefinition<(&str, &str), &[u8]> = TableDefinition::new("plugins");
 pub(crate) const PLUGIN_WASM: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("plugin_wasm");
+/// (ログイン名, プラグイン ID) → 実行する人が与えた許可。
+pub(crate) const PLUGIN_GRANTS: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("plugin_grants");
+/// (ログイン名, プラグイン ID) → プラグインの保存領域。
+pub(crate) const PLUGIN_DATA: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("plugin_data");
 pub(crate) const TEAMS: TableDefinition<&str, &[u8]> = TableDefinition::new("teams");
 pub(crate) const USER_TEAMS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("user_teams");
@@ -173,6 +179,8 @@ impl Store {
         txn.open_table(USER_TOKENS)?;
         txn.open_table(PLUGINS)?;
         txn.open_table(PLUGIN_WASM)?;
+        txn.open_table(PLUGIN_GRANTS)?;
+        txn.open_table(PLUGIN_DATA)?;
         txn.open_table(TEAMS)?;
         txn.open_table(USER_TEAMS)?;
         txn.open_table(TEAM_BOARDS)?;
