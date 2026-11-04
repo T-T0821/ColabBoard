@@ -1196,6 +1196,126 @@ async fn security_headers_and_csp() {
 }
 
 #[tokio::test]
+async fn search_labels_and_folders() {
+    use board_core::api::SearchHit;
+    let s = start(Config::default()).await;
+    let alice = s.signup("alice").await;
+    let bob = s.signup("bob").await;
+    let create = |title: &'static str| {
+        let s = &s;
+        let alice = alice.clone();
+        async move {
+            let (_, b, _) = s
+                .call(
+                    "POST",
+                    "/api/boards",
+                    Some(&alice),
+                    Some(json!({ "title": title })),
+                )
+                .await;
+            serde_json::from_value::<BoardInfo>(b).unwrap()
+        }
+    };
+    let plan = create("新規企画").await;
+    let weekly = create("定例ミーティング").await;
+
+    // 中身に「リリース手順」と書いた付箋を置く。
+    let (mut ws, mut board) = s.connect(&weekly.id, Some(&alice), None).await.unwrap();
+    let id = board.alloc_id();
+    let mut sticky = Shape::sticky(id, Vec2::ZERO, Rgba8::WHITE);
+    sticky.text = "来週のリリース手順を決める".into();
+    board.push(sticky);
+    for u in board.take_outgoing() {
+        ws.send(WsMessage::Binary(Message::Update(u).encode().into()))
+            .await
+            .unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let search = |q: &'static str, who: String| {
+        let s = &s;
+        async move {
+            let (status, v, _) = s
+                .call("GET", &format!("/api/search?q={q}"), Some(&who), None)
+                .await;
+            assert_eq!(status, StatusCode::OK, "{v}");
+            serde_json::from_value::<Vec<SearchHit>>(v).unwrap()
+        }
+    };
+    // 中身の文字で見つかり、要素の ID が付く(カタカナはひらがなでも探せる)。
+    let hits = search("%E3%82%8A%E3%82%8A%E3%83%BC%E3%81%99", alice.clone()).await; // りりーす
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].board.id, weekly.id);
+    assert_eq!(hits[0].matches[0].element, Some(format!("{:x}", id.0)));
+    // 開けない人には出ない。
+    assert!(search("%E4%BC%81%E7%94%BB", bob.clone()).await.is_empty()); // 企画
+
+    // タグ・お気に入り・フォルダ。
+    let (status, info, _) = s
+        .call(
+            "PUT",
+            &format!("/api/boards/{}/labels", plan.id),
+            Some(&alice),
+            Some(json!({"favorite": true, "tags": ["#営業", "営業", " Q3 "], "folder": "2026年"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{info}");
+    let info: BoardInfo = serde_json::from_value(info).unwrap();
+    assert!(info.labels.favorite);
+    assert_eq!(info.labels.tags, vec!["営業", "Q3"]);
+    assert_eq!(info.labels.folder.as_deref(), Some("2026年"));
+    let hits = search("%23q3", alice.clone()).await; // #q3
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].board.id, plan.id);
+    // bob は開けないボードに印を付けられない。
+    let (status, _, _) = s
+        .call(
+            "PUT",
+            &format!("/api/boards/{}/labels", plan.id),
+            Some(&bob),
+            Some(json!({"favorite": true})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // 開き直しても印は消えず、最後に開いた時刻が付く。
+    s.call(
+        "GET",
+        &format!("/api/boards/{}", plan.id),
+        Some(&alice),
+        None,
+    )
+    .await;
+    let (_, list, _) = s.call("GET", "/api/boards", Some(&alice), None).await;
+    let list: Vec<BoardInfo> = serde_json::from_value(list).unwrap();
+    let p = list.iter().find(|b| b.id == plan.id).unwrap();
+    assert!(p.labels.favorite && p.labels.opened > 0);
+    assert_eq!(p.labels.folder.as_deref(), Some("2026年"));
+
+    // フォルダの名前を変える・なくす。
+    let (status, v, _) = s
+        .call(
+            "POST",
+            "/api/folders/rename",
+            Some(&alice),
+            Some(json!({"from": "2026年", "to": "アーカイブ"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["changed"], 1);
+    s.call(
+        "POST",
+        "/api/folders/rename",
+        Some(&alice),
+        Some(json!({"from": "アーカイブ", "to": ""})),
+    )
+    .await;
+    let (_, list, _) = s.call("GET", "/api/boards", Some(&alice), None).await;
+    let list: Vec<BoardInfo> = serde_json::from_value(list).unwrap();
+    assert!(list.iter().all(|b| b.labels.folder.is_none()));
+}
+
+#[tokio::test]
 async fn templates_published_to_team() {
     let s = start(Config::default()).await;
     let alice = s.signup("alice").await;

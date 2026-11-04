@@ -120,7 +120,7 @@ impl App {
     }
 
     /// 議事録のマークダウンをボードの右側に並べる。置いた要素の数を返す。
-    fn place_minutes(&mut self, md: &str) -> usize {
+    pub(super) fn place_minutes(&mut self, md: &str) -> usize {
         let before = self.board.bounds();
         let center = self.camera.screen_to_world(self.camera.viewport * 0.5);
         let sticky = self.editor.sticky_color;

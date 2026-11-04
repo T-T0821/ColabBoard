@@ -26,6 +26,15 @@
 //! | `user_templates` | (ログイン名, テンプレート ID) | なし(自分のテンプレートの索引) |
 //! | `team_templates` | (チーム ID, テンプレート ID) | なし(チームに公開されたテンプレートの索引) |
 //! | `audit` | (`*` か `team:{id}`, 記録 ID) | [`AuditEvent`](board_core::api::AuditEvent)(JSON) |
+//! | `due_comments` | (ボード ID, コメント ID) | 期限(UNIX ミリ秒、JSON)。期限の知らせを送る前のスレッドの索引 |
+//! | `notify_settings` | ログイン名 | [`NotifyRecord`](crate::notify::NotifyRecord)(JSON) |
+//! | `notify_verify` | 確認トークン | [`VerifyRecord`](crate::notify::VerifyRecord)(JSON) |
+//! | `push_subs` | (ログイン名, 送り先 URL のハッシュ) | [`PushRecord`](crate::notify::PushRecord)(JSON) |
+//! | `server_keys` | 名前(`vapid`) | サーバーが作った鍵(JSON) |
+//! | `billing` | ログイン名 | [`BillingRecord`](crate::billing::BillingRecord)(JSON) |
+//! | `billing_customers` | Stripe の顧客 ID | ログイン名(JSON) |
+//! | `billing_events` | Stripe のイベント ID | 受け取った時刻(JSON。同じ通知を二度処理しないため) |
+//! | `usage` | `{ログイン名}\n{年-月}` | その月に AI 機能を呼んだ回数(JSON) |
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -75,6 +84,21 @@ pub(crate) const USER_TEMPLATES: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("user_templates");
 pub(crate) const TEAM_TEMPLATES: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("team_templates");
+pub(crate) const DUE_COMMENTS: TableDefinition<(&str, u64), &[u8]> =
+    TableDefinition::new("due_comments");
+pub(crate) const NOTIFY_SETTINGS: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("notify_settings");
+pub(crate) const NOTIFY_VERIFY: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("notify_verify");
+pub(crate) const PUSH_SUBS: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("push_subs");
+pub(crate) const SERVER_KEYS: TableDefinition<&str, &[u8]> = TableDefinition::new("server_keys");
+pub(crate) const BILLING: TableDefinition<&str, &[u8]> = TableDefinition::new("billing");
+pub(crate) const BILLING_CUSTOMERS: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("billing_customers");
+pub(crate) const BILLING_EVENTS: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("billing_events");
+pub(crate) const USAGE: TableDefinition<&str, &[u8]> = TableDefinition::new("usage");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
 pub fn next_id() -> u64 {
@@ -156,6 +180,15 @@ impl Store {
         txn.open_table(TEMPLATE_DATA)?;
         txn.open_table(USER_TEMPLATES)?;
         txn.open_table(TEAM_TEMPLATES)?;
+        txn.open_table(DUE_COMMENTS)?;
+        txn.open_table(NOTIFY_SETTINGS)?;
+        txn.open_table(NOTIFY_VERIFY)?;
+        txn.open_table(PUSH_SUBS)?;
+        txn.open_table(SERVER_KEYS)?;
+        txn.open_table(BILLING)?;
+        txn.open_table(BILLING_CUSTOMERS)?;
+        txn.open_table(BILLING_EVENTS)?;
+        txn.open_table(USAGE)?;
         txn.commit()?;
         Ok(Self {
             db,
@@ -445,6 +478,32 @@ impl Store {
         Ok(true)
     }
 
+    /// 数を 1 増やす(読んで書くまでを 1 つのトランザクションで)。`max` が 0 でなく、
+    /// すでに `max` 以上なら増やさずに `None`。
+    pub(crate) fn increment(
+        &self,
+        table: TableDefinition<&str, &[u8]>,
+        key: &str,
+        max: u64,
+    ) -> Result<Option<u64>, StoreError> {
+        let txn = self.db.begin_write()?;
+        let next = {
+            let mut t = txn.open_table(table)?;
+            let current: u64 = match t.get(key)? {
+                Some(v) => serde_json::from_slice(v.value())?,
+                None => 0,
+            };
+            if max > 0 && current >= max {
+                return Ok(None);
+            }
+            let next = current + 1;
+            t.insert(key, serde_json::to_vec(&next)?.as_slice())?;
+            next
+        };
+        txn.commit()?;
+        Ok(Some(next))
+    }
+
     /// 表の件数。
     pub(crate) fn count(&self, table: TableDefinition<&str, &[u8]>) -> Result<u64, StoreError> {
         let txn = self.db.begin_read()?;
@@ -617,6 +676,22 @@ impl Store {
         for entry in t.range((a, 0)..=(a, u64::MAX))? {
             let (k, v) = entry?;
             out.push((k.value().1, serde_json::from_slice(v.value())?));
+        }
+        Ok(out)
+    }
+
+    /// テーブルの中身を(1 つ目のキーにかかわらず)全部読む。
+    pub(crate) fn scan_seq_all<T: DeserializeOwned>(
+        &self,
+        table: SeqTable,
+    ) -> Result<Vec<(String, u64, T)>, StoreError> {
+        let txn = self.db.begin_read()?;
+        let t = txn.open_table(table)?;
+        let mut out = Vec::new();
+        for entry in t.iter()? {
+            let (k, v) = entry?;
+            let (a, id) = k.value();
+            out.push((a.to_string(), id, serde_json::from_slice(v.value())?));
         }
         Ok(out)
     }

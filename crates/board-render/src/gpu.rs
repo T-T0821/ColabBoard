@@ -674,7 +674,7 @@ impl Capture {
             }
             buf.unmap();
             if bgra {
-                for px in out.as_chunks_mut::<4>().0.iter_mut() {
+                for px in out.as_chunks_mut::<4>().0 {
                     px.swap(0, 2);
                 }
             }

@@ -9,6 +9,9 @@
 //! | `GET` | `/api/boards` | 自分のボード一覧([`BoardInfo`] の配列) |
 //! | `POST` | `/api/boards` | ボード作成([`NewBoard`] → [`BoardInfo`]) |
 //! | `GET` | `/api/boards/{id}?key=` | ボードの情報と自分の権限([`BoardInfo`]) |
+//! | `PUT` | `/api/boards/{id}/labels` | 自分用のお気に入り・タグ・フォルダ([`SetLabels`] → [`BoardInfo`]、開けるボードなら誰でも) |
+//! | `POST` | `/api/folders/rename` | フォルダの名前を変える・なくす([`RenameFolder`]) |
+//! | `GET` | `/api/search?q=` | 開けるボードすべてを名前・タグ・フォルダ・中身の文字で探す([`SearchHit`] の配列) |
 //! | `PATCH` | `/api/boards/{id}` | 名前の変更([`RenameBoard`]、編集者以上) |
 //! | `DELETE` | `/api/boards/{id}` | 削除(オーナーのみ) |
 //! | `GET` | `/api/boards/{id}/sharing` | 共有設定([`Sharing`]、オーナーのみ) |
@@ -22,6 +25,12 @@
 //! | `DELETE` | `/api/boards/{id}/comments/{cid}?key=` | 削除(本人かオーナー。スレッドの先頭なら返信ごと) |
 //! | `GET` | `/api/notifications` | 自分宛ての通知([`Notification`] の配列、新しい順) |
 //! | `POST` | `/api/notifications/read` | 既読にする([`MarkRead`]) |
+//! | `GET` | `/api/notify/settings` | メール・プッシュ通知の設定([`NotifyStatus`]) |
+//! | `PUT` | `/api/notify/settings` | メール・プッシュ通知の設定を変える([`SetNotify`] → [`NotifyStatus`]。メールアドレスを変えると確認のメールを送る) |
+//! | `GET` | `/api/notify/verify?token=` | メールアドレスの確認(メールのリンク。終わるとボード一覧へ戻る) |
+//! | `POST` | `/api/notify/push` | このブラウザでプッシュ通知を受け取る([`PushSubscribe`]) |
+//! | `DELETE` | `/api/notify/push` | このブラウザのプッシュ通知をやめる([`PushUnsubscribe`]) |
+//! | `POST` | `/api/notify/test` | 自分にテストの通知を送る(メールとプッシュ) |
 //! | `GET` | `/api/boards/{id}/versions?key=` | バージョン履歴([`VersionInfo`] の配列、新しい順、閲覧者以上) |
 //! | `POST` | `/api/boards/{id}/versions?key=` | 今の状態に名前を付けて保存([`NewVersion`] → [`VersionInfo`]、編集者以上) |
 //! | `GET` | `/api/boards/{id}/versions/{vid}?key=` | そのバージョンの状態(yrs v1 更新のバイナリ) |
@@ -31,6 +40,8 @@
 //! | `PUT` | `/api/boards/{id}/slack` | Slack 通知の設定を変える([`SetSlack`] → [`SlackSettings`]、オーナーのみ) |
 //! | `POST` | `/api/boards/{id}/slack/test` | Slack にテストのメッセージを送る(オーナーのみ) |
 //! | `POST` | `/api/boards/{id}/issues?key=` | GitHub・Jira の課題の状態を引く([`IssueQuery`] → [`IssueLookup`] の配列、編集者以上) |
+//! | `GET` | `/api/boards/{id}/meeting-link?key=` | 紐づけた会議と予定([`MeetingLink`](crate::meeting_link::MeetingLink)、閲覧者以上) |
+//! | `PUT` | `/api/boards/{id}/meeting-link?key=` | 会議と予定を紐づける・外す([`SetMeetingLink`](crate::meeting_link::SetMeetingLink) → `MeetingLink`、編集者以上・要ログイン) |
 //! | `PUT` | `/api/boards/{id}/team` | チームへ移す・チームから外す([`SetBoardTeam`] → [`BoardInfo`]、オーナーのみ) |
 //! | `GET` | `/api/teams` | 自分の入っているチーム([`TeamInfo`] の配列) |
 //! | `POST` | `/api/teams` | チームを作る([`NewTeam`] → [`Team`]、作った人がオーナー) |
@@ -50,6 +61,10 @@
 //! | `GET` | `/api/sso/oidc/start?next=` | OpenID Connect でログインを始める(IdP へリダイレクト) |
 //! | `GET` | `/api/audit?team=&before=&limit=&action=` | 操作ログ([`AuditEvent`] の配列、新しい順。`team` 指定はチームの管理者、なしはサーバー管理者) |
 //! | `GET` | `/api/audit/export?team=&format=csv\|jsonl` | 操作ログの書き出し(CSV か JSON Lines) |
+//! | `GET` | `/api/billing` | 自分の料金プランと今月の利用状況([`Billing`]、要ログイン) |
+//! | `POST` | `/api/billing/checkout` | 有料プランの申し込みを始める([`BillingRedirect`]、Stripe Checkout の URL) |
+//! | `POST` | `/api/billing/portal` | 支払い方法の変更・解約の画面([`BillingRedirect`]、Stripe カスタマーポータルの URL) |
+//! | `POST` | `/api/billing/webhook` | Stripe からの通知(署名を確かめる) |
 //!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
 
@@ -151,6 +166,122 @@ pub struct BoardInfo {
     /// 属しているチームの ID。個人のボードなら `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
+    /// 自分だけの整理(お気に入り・タグ・フォルダ・最後に開いた時刻)。
+    #[serde(flatten, default)]
+    pub labels: BoardLabels,
+}
+
+/// ボードに自分で付ける整理の印。ほかの人には見えない。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoardLabels {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub favorite: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    /// 自分が最後に開いた時刻(UNIX ミリ秒)。開いたことがなければ 0。
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub opened: u64,
+}
+
+fn is_zero<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
+/// タグの数と長さの上限。
+pub const MAX_TAGS: usize = 10;
+pub const MAX_TAG_CHARS: usize = 20;
+/// フォルダ名の長さの上限。
+pub const MAX_FOLDER_CHARS: usize = 40;
+
+/// タグを整える: 前後の空白と先頭の `#` を取り、重複と空を除き、上限で切る。
+pub fn clean_tags<S: AsRef<str>>(tags: &[S]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in tags {
+        let t: String = t
+            .as_ref()
+            .trim()
+            .trim_start_matches(['#', '＃'])
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(MAX_TAG_CHARS)
+            .collect();
+        if t.is_empty() || out.iter().any(|o| o.to_lowercase() == t.to_lowercase()) {
+            continue;
+        }
+        out.push(t);
+        if out.len() == MAX_TAGS {
+            break;
+        }
+    }
+    out
+}
+
+/// フォルダ名を整える。空なら `None`(フォルダに入れない)。
+pub fn clean_folder(name: &str) -> Option<String> {
+    let f: String = name
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control() && *c != '/')
+        .take(MAX_FOLDER_CHARS)
+        .collect();
+    let f = f.trim().to_string();
+    (!f.is_empty()).then_some(f)
+}
+
+/// `PUT /api/boards/{id}/labels`。指定したものだけ変える。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SetLabels {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favorite: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    /// フォルダに入れる。空文字ならフォルダから出す。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+}
+
+/// `POST /api/folders/rename`。`to` が空ならフォルダをなくす(ボードはフォルダの外へ)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RenameFolder {
+    pub from: String,
+    pub to: String,
+}
+
+/// 検索で一致した場所。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchKind {
+    Title,
+    Tag,
+    Folder,
+    /// ボードの中の要素(付箋・図形・テキスト・コネクタのラベルなど)。
+    Content,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchMatch {
+    pub kind: MatchKind,
+    /// 一致した部分の前後を含む抜き出し。
+    pub text: String,
+    /// `text` の中で一致した部分(文字位置, 文字数)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub highlight: Option<[usize; 2]>,
+    /// 要素の ID(16 進)。`?room=…&focus=…` で開くとそこへ移動する。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub element: Option<String>,
+}
+
+/// `GET /api/search?q=` の 1 件。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SearchHit {
+    pub board: BoardInfo,
+    pub matches: Vec<SearchMatch>,
+    /// 中身で一致した要素の数(`matches` に入れたのは先頭の数件だけ)。
+    #[serde(default)]
+    pub content_count: usize,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -484,6 +615,7 @@ impl AuditEvent {
             "team.member" => "チームのメンバー変更",
             "team.settings" => "チームの設定変更",
             "team.storage" => "保存場所の変更",
+            "billing.plan" => "料金プランの変更",
             "token.create" => "API トークン作成",
             "token.revoke" => "API トークン失効",
             "template.create" => "テンプレート作成",
@@ -532,6 +664,12 @@ pub struct Comment {
     /// 通知したメンション(ログイン名)。
     #[serde(default)]
     pub mentions: Vec<String>,
+    /// 期限(UNIX ミリ秒。スレッドの先頭だけが持つ)。近づくと・過ぎるとメンションした人と書いた人に知らせる。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due: Option<u64>,
+    /// 期限の知らせをどこまで送ったか(サーバーが使う。0: まだ、1: 近づいた、2: 過ぎた)。
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub due_stage: u8,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -546,6 +684,9 @@ pub struct NewComment {
     /// 返信先(スレッドの先頭でも返信でもよい)。
     #[serde(default)]
     pub parent: Option<u64>,
+    /// 期限(UNIX ミリ秒)。新しいスレッドのときだけ使う。
+    #[serde(default)]
+    pub due: Option<u64>,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -554,6 +695,9 @@ pub struct EditComment {
     pub body: Option<String>,
     #[serde(default)]
     pub resolved: Option<bool>,
+    /// 期限を変える(UNIX ミリ秒、`0` で外す。スレッドの先頭だけ、コメント可以上)。
+    #[serde(default)]
+    pub due: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -570,6 +714,28 @@ pub enum NotificationKind {
     Mention,
     /// 参加しているスレッドに返信があった。
     Reply,
+    /// 担当している(メンションされた・書いた)スレッドの期限が近づいた。
+    Due,
+    /// 担当しているスレッドの期限が過ぎた(まだ解決していない)。
+    Overdue,
+}
+
+impl NotificationKind {
+    /// メール・プッシュ通知の設定でどの種類に入るか。
+    pub fn group(self) -> NotifyGroup {
+        match self {
+            Self::Mention => NotifyGroup::Mention,
+            Self::Reply => NotifyGroup::Reply,
+            Self::Due | Self::Overdue => NotifyGroup::Due,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NotifyGroup {
+    Mention,
+    Reply,
+    Due,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -591,6 +757,100 @@ pub struct Notification {
     /// 共有リンクで開いているボードなら、その鍵。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub key: Option<String>,
+    /// 期限の通知なら、その期限(UNIX ミリ秒)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due: Option<u64>,
+}
+
+impl Notification {
+    /// 一文での説明(「〜が〜しました」)。画面・メール・プッシュ通知で使う。
+    pub fn headline(&self) -> String {
+        match self.kind {
+            NotificationKind::Mention => format!("{} があなたをメンションしました", self.from_name),
+            NotificationKind::Reply => format!("{} がスレッドに返信しました", self.from_name),
+            NotificationKind::Due => "コメントの期限が近づいています".to_string(),
+            NotificationKind::Overdue => "コメントの期限を過ぎました".to_string(),
+        }
+    }
+}
+
+/// メール・プッシュ通知で知らせる種類。
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotifyKinds {
+    /// メンションされた。
+    #[serde(default)]
+    pub mention: bool,
+    /// 参加しているスレッドに返信があった。
+    #[serde(default)]
+    pub reply: bool,
+    /// 期限が近づいた・過ぎた。
+    #[serde(default)]
+    pub due: bool,
+}
+
+impl NotifyKinds {
+    pub const ALL: Self = Self {
+        mention: true,
+        reply: true,
+        due: true,
+    };
+
+    pub fn allows(self, kind: NotificationKind) -> bool {
+        match kind.group() {
+            NotifyGroup::Mention => self.mention,
+            NotifyGroup::Reply => self.reply,
+            NotifyGroup::Due => self.due,
+        }
+    }
+}
+
+/// `PUT /api/notify/settings` で送る、メール・プッシュ通知の設定。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SetNotify {
+    /// 送り先のメールアドレス(空で外す)。変えると確認のメールを送り、リンクを開くまで使わない。
+    #[serde(default)]
+    pub email: String,
+    pub email_on: NotifyKinds,
+    pub push_on: NotifyKinds,
+}
+
+/// `GET /api/notify/settings` の結果。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NotifyStatus {
+    pub email: String,
+    /// 確認のリンクを開いたか(開くまでメールは送らない)。
+    pub email_verified: bool,
+    pub email_on: NotifyKinds,
+    pub push_on: NotifyKinds,
+    /// サーバーでメールを送れるか(`SMTP_URL` が設定されているか)。
+    pub email_available: bool,
+    /// プッシュ通知の購読に使う公開鍵(VAPID、base64url)。`None` ならプッシュ通知は使えない。
+    #[serde(default)]
+    pub push_key: Option<String>,
+    /// プッシュ通知を受け取る端末(ブラウザ)の数。
+    pub push_devices: u32,
+}
+
+/// ブラウザの `PushSubscription.toJSON()` の形。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PushSubscribe {
+    pub endpoint: String,
+    #[serde(default)]
+    pub keys: Option<PushKeys>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PushKeys {
+    #[serde(default)]
+    pub p256dh: String,
+    #[serde(default)]
+    pub auth: String,
+}
+
+/// `DELETE /api/notify/push` で送る。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PushUnsubscribe {
+    pub endpoint: String,
 }
 
 /// `ids` が `None` ならすべて既読にする。
@@ -769,6 +1029,84 @@ pub fn valid_login(s: &str) -> bool {
     (3..=32).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+}
+
+/// 料金プラン。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlanId {
+    #[default]
+    Free,
+    Pro,
+}
+
+impl PlanId {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PlanId::Free => "free",
+            PlanId::Pro => "pro",
+        }
+    }
+}
+
+/// プランごとの上限。`0` は無制限。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanLimits {
+    /// 自分が持てるボードの数。
+    pub boards: u32,
+    /// AI 機能を呼べる回数(1 か月あたり)。
+    pub ai_per_month: u32,
+    /// 1 つのボードに招待できるメンバーの数(オーナーを除く)。
+    pub members_per_board: u32,
+    /// 1 つのボードに置ける動画メモの合計(MB)。
+    pub media_mb_per_board: u32,
+}
+
+/// 選べるプラン(料金画面の表示用)。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanOffer {
+    pub id: PlanId,
+    pub name: String,
+    /// 表示用の値段(`¥1,200 / 月` など)。
+    pub price: String,
+    pub limits: PlanLimits,
+}
+
+/// 今月の利用状況。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Usage {
+    pub boards: u32,
+    pub ai_this_month: u32,
+}
+
+/// 自分の料金プラン。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Billing {
+    /// `off`(このサーバーでは料金プランを使わない)・`mock`(テスト用の決済)・`stripe`。
+    pub mode: String,
+    pub plan: PlanId,
+    /// Stripe のサブスクリプションの状態(`active`・`past_due`・`canceled` など)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// 今の請求期間の終わり(UNIX ミリ秒)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub period_end: Option<u64>,
+    /// 期間の終わりで解約する予定か。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cancel_at_period_end: bool,
+    /// 支払いの管理(カスタマーポータル)を開けるか。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_manage: bool,
+    pub limits: PlanLimits,
+    pub usage: Usage,
+    #[serde(default)]
+    pub plans: Vec<PlanOffer>,
+}
+
+/// 決済・ポータルの画面へ移る先。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BillingRedirect {
+    pub url: String,
 }
 
 #[cfg(test)]

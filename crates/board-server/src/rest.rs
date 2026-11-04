@@ -331,6 +331,7 @@ async fn board_info(
             updated: 0,
             key: None,
             team: None,
+            labels: Default::default(),
         },
     }))
 }
@@ -552,7 +553,7 @@ async fn post_comment(
     let (meta, role) = access(&state, &actor, &id, q.key.as_deref())?;
     // 読むだけのトークンでもコメントはできない(閲覧者扱い)。
     need(role, Role::Commenter)?;
-    let posted = comments::post(
+    let (posted, sent) = comments::post(
         state.store(),
         meta.as_ref(),
         &id,
@@ -560,6 +561,7 @@ async fn post_comment(
         req,
         state.config.anonymous_boards,
     )?;
+    state.config.notifier.deliver(state.store(), sent);
     state.hub.refresh(&id, TOPIC_COMMENTS);
     Ok((StatusCode::CREATED, Json(posted)))
 }
