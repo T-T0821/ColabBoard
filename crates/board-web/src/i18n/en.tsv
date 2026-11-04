@@ -1042,3 +1042,56 @@ AI が議論を整理しています…	AI is organizing the discussion…
 会議が終わったので文字起こしを止めました	The meeting ended, so transcription stopped
 文字起こしは共同編集のボードで、編集できる人だけ使えます	Transcription is available on shared boards to people who can edit
 文字起こしを全員の画面から消します。よろしいですか?	Delete the transcript for everyone?
+プラン: 無料	Plan: Free
+プラン: プロ	Plan: Pro
+料金プラン	Plans
+今月の AI 機能	AI this month
+利用中	Current
+今のプラン	Current plan
+プロにアップグレード	Upgrade to Pro
+お支払いの管理	Manage billing
+無料	Free
+プロ	Pro
+{n} / 無制限	{n} / unlimited
+ボード {n} 個	{n} boards
+ボード 無制限	Unlimited boards
+AI 機能 月 {n} 回	AI {n} times / month
+AI 機能 無制限	Unlimited AI
+ボードのメンバー {n} 人まで	Up to {n} members per board
+ボードのメンバー 無制限	Unlimited members per board
+動画メモ {n} MB まで	Video memos up to {n} MB per board
+動画メモ 無制限	Unlimited video memos
+次の更新日: {n}年{n}月{n}日	Renews on {2}/{3}/{1}
+{n}年{n}月{n}日 に無料プランに戻ります(解約の予定)。	Returns to the Free plan on {2}/{3}/{1} (cancellation scheduled).
+お支払いを確認できていません。「お支払いの管理」から支払い方法を更新してください。	We couldn't confirm your payment. Update your payment method in "Manage billing".
+テストモードです。申し込んでも実際の請求は発生しません。	Test mode: you won't actually be charged.
+プランはボードのオーナーに付きます。メンバー数・動画メモはボードごと、AI 機能はオーナーの月ごとの回数で数えます。プランを下げても、今あるボードはそのまま残ります。	Plans belong to the board owner. Members and video memos are counted per board, AI per owner per month. Downgrading keeps your existing boards.
+お申し込みありがとうございます。プロプランになりました。	Thanks! You're now on the Pro plan.
+申し込みを取りやめました。プランは変わっていません。	Checkout canceled. Your plan hasn't changed.
+解約しました。無料プランに戻りました。	Subscription canceled. You're back on the Free plan.
+無料プランで持てるボードは {n} 個までです。ホーム画面の「プラン」からプロにすると増やせます	The Free plan allows up to {n} boards. Upgrade to Pro from "Plan" on the home screen for more.
+無料プランで 1 つのボードに招待できるのは {n} 人までです。ホーム画面の「プラン」からプロにすると増やせます	The Free plan allows up to {n} members per board. Upgrade to Pro from "Plan" on the home screen for more.
+無料プランで 1 つのボードに置ける動画メモは合計 {n} MB までです。ホーム画面の「プラン」からプロにすると増やせます	The Free plan allows up to {n} MB of video memos per board. Upgrade to Pro from "Plan" on the home screen for more.
+無料プランの AI 機能は 1 か月 {n} 回までです(今月の分を使い切りました)。ホーム画面の「プラン」からプロにすると増やせます	The Free plan includes {n} AI uses per month, and you've used them all. Upgrade to Pro from "Plan" on the home screen for more.
+このボードで AI 機能を使うにはログインしてください	Log in to use AI on this board
+料金プランの変更	Plan changed
+タグ・フォルダ	Tags & folder
+タグとフォルダを変える	Edit tags and folder
+お気に入りにする	Add to favorites
+お気に入りから外す	Remove from favorites
+★ お気に入り	★ Favorites
+タグ	Tags
+フォルダ	Folder
+例: 企画, 営業, Q3(カンマ区切り)	e.g. planning, sales, Q3 (comma-separated)
+最近見たボード	Recently viewed
+フォルダの名前を変える	Rename folder
+名前を変える	Rename
+フォルダをなくす	Remove folder
+ボードは消えず、フォルダの外に出ます	The boards stay; they just leave the folder
+すべてのボードを検索(名前・タグ・付箋の文字)	Search all boards (titles, tags, text on the board)
+ボードを検索	Search boards
+この場所を開く	Open at this spot
+ほかに {n} か所	{n} more
+一致するボードはありません	No matching boards
+お気に入りはまだありません。ボードの ☆ を押すとここに集まります。	No favorites yet. Press ☆ on a board to collect it here.
+フォルダの名前を入れてください	Enter a folder name

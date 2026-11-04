@@ -528,6 +528,7 @@ pub async fn minutes(
     if !ai.try_acquire(&room) {
         return Err(AiError::Busy);
     }
+    crate::billing::charge_ai(&state, &headers, &room).map_err(AiError::Api)?;
     let mut prompt = content.prompt();
     if let Some(t) = &transcript {
         prompt.push_str("\n\n");
@@ -663,6 +664,7 @@ pub async fn mindmap(
     if !ai.try_acquire(&room) {
         return Err(AiError::Busy);
     }
+    crate::billing::charge_ai(&state, &headers, &room).map_err(AiError::Api)?;
     let out = ai
         .call(MINDMAP_SYSTEM, content.prompt(), mindmap_schema())
         .await?;
@@ -769,6 +771,7 @@ pub async fn ask(
     if !ai.try_acquire(&room) {
         return Err(AiError::Busy);
     }
+    crate::billing::charge_ai(&state, &headers, &room).map_err(AiError::Api)?;
     let out = ai
         .call(
             ASK_SYSTEM,

@@ -31,6 +31,9 @@
 //!   `OIDC_ALLOWED_DOMAINS`(ログインできるメールのドメイン、`,` 区切り)も設定できる。
 //! - `STORAGE_LOCATIONS`: チームが選べるデータの保存場所(S3 互換・ディレクトリ)。書き方は
 //!   [`board_server::storage`] を参照。
+//! - 料金プラン: `BILLING=mock`(テスト決済)か、`STRIPE_SECRET_KEY`・`STRIPE_WEBHOOK_SECRET`・
+//!   `STRIPE_PRICE_PRO` で Stripe。上限は `FREE_BOARDS` などで変えられる。
+//!   [`board_server::billing::BillingConfig::from_env`] と docs/billing.md を参照。
 //! - `PASSWORD_LOGIN`(既定 `1`): `0` でパスワードのログインとアカウント作成を止める(SSO のみ)。
 //! - `RUST_LOG`(既定 `info`)
 //!
@@ -162,6 +165,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }),
         password_login: flag("PASSWORD_LOGIN", true),
         limits: board_server::guard::Limits::from_env(flag("COOKIE_SECURE", false)),
+        billing: {
+            let b = board_server::billing::BillingConfig::from_env();
+            match b.mode.name() {
+                "off" => {}
+                "mock" => tracing::warn!(
+                    "料金プラン: テスト決済(BILLING=mock)。本番では使わないでください"
+                ),
+                _ => tracing::info!("料金プラン: Stripe で支払い"),
+            }
+            b
+        },
     };
     if !config.password_login && config.oidc.is_none() {
         tracing::warn!(
