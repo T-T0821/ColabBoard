@@ -400,6 +400,7 @@ fn prepare(
     if !ai.try_acquire(room) {
         return Err(AiError::Busy);
     }
+    crate::billing::charge_ai(state, headers, room).map_err(AiError::Api)?;
     Ok((ai, notes))
 }
 

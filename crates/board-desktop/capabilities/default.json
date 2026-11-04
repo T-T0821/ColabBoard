@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "connect",
+  "description": "接続先の設定画面(アプリに同梱したページだけ)。ボードの画面(http://127.0.0.1 やサーバーの URL)には何の権限も渡さない。",
+  "windows": ["connect"],
+  "permissions": ["core:default"]
+}

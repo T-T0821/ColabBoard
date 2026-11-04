@@ -4,8 +4,10 @@
 //! - `GET /p/{board}/{slug}`: Web に公開したボードのページと OGP 画像([`public`])。
 //! - `/api/boards/{id}/media`: 動画メモの保存と配信([`media`])。
 //! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
+//! - `/api/billing/...`: 料金プランと Stripe での支払い([`billing`])。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
+//! - `/api/errors`・`/api/admin/...`: エラー監視([`errors`])と定期バックアップ・復元([`backup`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])・会議の進行役([`ai_meeting`])、Slack 通知([`slack`])、メール・プッシュ通知([`notify`])、会議・カレンダーの紐づけ([`meeting_link`])、GitHub・Jira の課題カード([`issues`])、自作テンプレートのギャラリー([`templates`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -16,19 +18,27 @@ pub mod ai;
 pub mod ai_board;
 pub mod ai_diagram;
 pub mod ai_ink;
+pub mod ai_meeting;
 pub mod api;
 pub mod audit;
 pub mod auth;
+pub mod backup;
+pub mod billing;
 pub mod boards;
 pub mod comments;
 pub mod e2e;
 #[cfg(feature = "embed")]
 mod embedded;
+pub mod errors;
 pub mod guard;
 pub mod issues;
 pub mod media;
+pub mod meeting_link;
+pub mod notify;
 pub mod og;
+
 pub mod oidc;
+pub mod p2p;
 pub mod plugins;
 pub mod public;
 pub mod rest;
@@ -39,7 +49,9 @@ pub mod slack;
 pub mod storage;
 pub mod store;
 pub mod teams;
+pub mod templates;
 pub mod tokens;
+pub mod transfer;
 pub mod versions;
 
 use std::path::PathBuf;
@@ -86,6 +98,8 @@ pub struct Config {
     pub issues: issues::IssuesConfig,
     /// 音声通話の ICE サーバー(`RTCIceServer` の配列)。`GET /api/rtc` で配る。
     pub ice_servers: serde_json::Value,
+    /// 会議の URL として受け付ける、Zoom・Meet・Teams 以外のドメイン(`MEETING_HOSTS`)。
+    pub meeting_hosts: Vec<String>,
     /// `?embed=1` のページを iframe で埋め込んでよいサイト(CSP の `frame-ancestors` の値)。
     /// それ以外のページは同じサイトからしか埋め込めない。
     pub embed_origins: String,
@@ -101,6 +115,16 @@ pub struct Config {
     pub limits: guard::Limits,
     /// エンドツーエンド暗号化ボードを作れるか(既定値。サーバー管理者が画面から変えるとそちらが優先)。
     pub e2e_boards: bool,
+    /// サーバーを通さない直接接続(P2P)を許すか。チームごとにも止められる。
+    pub p2p: bool,
+    /// エラー監視(集めたエラーの置き場)。
+    pub monitor: Arc<errors::Monitor>,
+    /// 定期バックアップ。`None` なら無効。
+    pub backups: Option<Arc<backup::Backups>>,
+    /// メール・プッシュ通知(既定はどちらも使わない)。
+    pub notifier: Arc<notify::Notifier>,
+    /// 料金プランと支払い(Stripe)。既定は使わない。
+    pub billing: billing::BillingConfig,
 }
 
 impl Config {
@@ -141,6 +165,7 @@ impl Default for Config {
             plugins: plugins::PluginConfig::default(),
             issues: issues::IssuesConfig::default(),
             ice_servers: default_ice_servers(),
+            meeting_hosts: Vec::new(),
             embed_origins: "*".into(),
             admins: Vec::new(),
             trust_proxy: false,
@@ -148,6 +173,11 @@ impl Default for Config {
             password_login: true,
             limits: guard::Limits::default(),
             e2e_boards: true,
+            p2p: true,
+            monitor: Arc::new(errors::Monitor::new()),
+            backups: None,
+            notifier: Arc::new(notify::Notifier::default()),
+            billing: billing::BillingConfig::default(),
         }
     }
 }
@@ -163,6 +193,8 @@ pub struct AppState {
     pub guard: Arc<guard::Guard>,
     /// 暗号化ボードへの参加の記録を間引く。
     pub e2e_opens: e2e::OpenLog,
+    /// テスト決済の申し込み(`BILLING=mock` のとき)。
+    pub billing_mock: billing::MockSessions,
 }
 
 impl AppState {
@@ -182,6 +214,7 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         font,
         guard,
         e2e_opens: e2e::OpenLog::default(),
+        billing_mock: billing::MockSessions::default(),
     });
     let app = Router::new()
         .route("/ws/{room}", get(ws_handler))
@@ -193,9 +226,20 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         .route("/api/boards/{id}/ai/minutes", post(ai_board::minutes))
         .route("/api/boards/{id}/ai/ask", post(ai_board::ask))
         .route("/api/boards/{id}/ai/mindmap", post(ai_board::mindmap))
+        .route(
+            "/api/boards/{id}/ai/facilitate",
+            post(ai_meeting::facilitate),
+        )
         .route("/api/ai/status", get(ai_diagram::status))
         .route("/api/boards/{id}/issues", post(issues::lookup))
         .route("/api/rtc", get(rtc_config))
+        .route("/api/boards/{id}/p2p", get(p2p::get_policy))
+        .route("/api/boards/{id}/p2p/events", post(p2p::post_events))
+        .route("/api/boards/{id}/p2p/report", post(p2p::post_report))
+        .route(
+            "/api/teams/{tid}/p2p",
+            axum::routing::put(p2p::set_team_p2p),
+        )
         .route("/p/{id}/{slug}", get(public::page))
         .route("/p/{id}/{slug}/og.png", get(public::image))
         .route(
@@ -209,10 +253,15 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
             api::routes()
                 .merge(rest::token_routes())
                 .merge(teams::routes())
+                .merge(templates::routes())
                 .merge(audit::routes())
+                .merge(errors::routes())
+                .merge(backup::routes())
                 .merge(oidc::routes())
-                .merge(search::routes())
-                .merge(e2e::routes()),
+                .merge(e2e::routes())
+                .merge(notify::routes())
+                .merge(billing::routes())
+                .merge(search::routes()),
         )
         .layer(axum::middleware::from_fn_with_state(
             state.clone(),

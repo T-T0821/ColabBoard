@@ -80,6 +80,15 @@ pub fn get(
     Ok(store.get_seq_raw(MEDIA, board, id)?.map(|d| (info, d)))
 }
 
+/// ボードに置いた動画メモの合計(バイト)。
+pub fn total_bytes(store: &Store, board: &str) -> Result<usize, StoreError> {
+    Ok(store
+        .scan_seq::<MediaInfo>(MEDIA_INFO, board)?
+        .iter()
+        .map(|(_, m)| m.bytes)
+        .sum())
+}
+
 pub fn delete_all(store: &Store, board: &str) -> Result<(), StoreError> {
     store.clear_seq(MEDIA, board)?;
     store.clear_seq(MEDIA_INFO, board)
@@ -143,6 +152,7 @@ pub async fn upload(
             format!("動画は {} MB までです", MAX_MEDIA_BYTES / 1024 / 1024),
         ));
     }
+    crate::billing::check_media(&state, &id, body.len())?;
     let store = state.store().clone();
     let board = id.clone();
     let login = login.map(String::from);

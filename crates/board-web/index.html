@@ -11,6 +11,10 @@
   <link data-trunk rel="copy-dir" href="assets/fonts" />
   <link data-trunk rel="copy-dir" href="assets/cloud-icons" />
   <link data-trunk rel="copy-file" href="sw.js" />
+  <link data-trunk rel="copy-file" href="manifest.webmanifest" />
+  <!-- ホーム画面に追加したとき(iPhone・iPad のプッシュ通知はここから有効にする)の名前と表示 -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="apple-mobile-web-app-title" content="グラボード" />
   <script>
     // アプリ本体を端末に置いて、オフラインでも開けるようにする(https か localhost のときだけ動く)。
     // 他のサイトに埋め込まれたとき(?embed=1)は登録しない。
@@ -46,7 +50,9 @@
     <span id="hud-net" data-status="connecting" role="status">接続中…</span>
     <button id="share" title="このボードを共有">リンクをコピー</button>
     <button id="slides-start" title="フレームを 1 枚ずつスライドとして全画面で表示 (← → で移動、Esc で終了)">スライド</button>
+    <button id="p2p-toggle" title="サーバーを通さず、同じネットワークの端末と直接つないで編集する" aria-pressed="false" hidden>直接つなぐ</button>
     <button id="call-toggle" title="ボードを開いたまま、参加者と音声で話す" aria-pressed="false">通話</button>
+    <button id="meeting-toggle" title="AI ファシリテーターとリアルタイム議事録" aria-pressed="false" aria-controls="meeting-panel" data-live="off">会議</button>
     <button id="comments-toggle" title="コメント" aria-pressed="false">コメント</button>
     <button id="history-toggle" title="バージョン履歴" aria-pressed="false" hidden>履歴</button>
     <button id="plugins-toggle" title="プラグイン(選択中の要素に実行)" aria-pressed="false" hidden>プラグイン</button>
@@ -60,9 +66,61 @@
 
   <div id="comment-pins" aria-label="コメント"></div>
   <section id="comment-popover" class="panel comment-popover" aria-label="コメント" hidden></section>
+  <section id="meeting-panel" class="panel meeting-panel" aria-label="会議" hidden>
+    <div class="meeting-head">
+      <strong>会議</strong>
+      <span id="meeting-clock" class="meeting-clock" role="timer" translate="no"></span>
+      <button id="meeting-close" class="icon" title="閉じる" aria-label="閉じる">✕</button>
+    </div>
+    <div class="meeting-tabs" role="tablist" aria-label="会議の機能">
+      <button role="tab" data-mtab="facil" aria-selected="true">進行</button>
+      <button role="tab" data-mtab="minutes" aria-selected="false">議事録</button>
+      <button role="tab" data-mtab="transcript" aria-selected="false">文字起こし</button>
+      <button role="tab" data-mtab="link" aria-selected="false" title="Zoom・Meet・Teams の会議とカレンダーの予定">予定・参加</button>
+    </div>
+    <div class="meeting-body" data-mtab="facil" role="tabpanel">
+      <div class="meeting-setup">
+        <label class="meeting-field">目的 <input id="meeting-goal" type="text" maxlength="500" placeholder="例: 来期の重点施策を 3 つに絞る" autocomplete="off"></label>
+        <label class="meeting-field meeting-len">時間 <input id="meeting-length" type="number" min="5" max="480" step="5" value="30"> 分</label>
+        <textarea id="meeting-notes" rows="2" maxlength="3000" placeholder="話したいこと(1 行に 1 つ、任意)" aria-label="話したいこと"></textarea>
+        <button id="meeting-plan" class="primary" title="目的・時間・メモとボードの内容から、議題と時間配分を提案します">AI で進行案を作る</button>
+      </div>
+      <ol id="meeting-agenda" class="meeting-agenda" aria-label="議題"></ol>
+      <div class="meeting-actions">
+        <button id="meeting-start" class="primary" title="最初の議題から始め、全員に見えるタイマーを動かします" hidden>会議を始める</button>
+        <button id="meeting-next" hidden>次の議題へ</button>
+        <button id="meeting-advice" title="今の議題の発言とボードから、論点の整理と次の一手を提案します" hidden>AI に助言をもらう</button>
+        <button id="meeting-end" title="文字起こしとボードから、決定事項とアクションをまとめてボードに置きます" hidden>会議を終えてまとめる</button>
+        <button id="meeting-reset" title="議題を片付ける" hidden>議題を片付ける</button>
+      </div>
+      <div id="meeting-advice-box" class="meeting-advice" aria-live="polite" hidden></div>
+    </div>
+    <div class="meeting-body" data-mtab="minutes" role="tabpanel" hidden>
+      <div class="meeting-row">
+        <label title="発言が増えていれば、1 分ごとに AI が議事録を書き直します"><input id="minutes-auto" type="checkbox"> 自動で更新</label>
+        <button id="minutes-refresh">今すぐ更新</button>
+        <button id="minutes-place" title="今の議事録をボードの右に並べます">ボードに置く</button>
+      </div>
+      <p id="minutes-status" class="collab-status"></p>
+      <div id="minutes-view" class="minutes-view" aria-live="polite"></div>
+    </div>
+    <div class="meeting-body" data-mtab="link" role="tabpanel" hidden>
+      <div id="meeting-link" class="meeting-link"></div>
+    </div>
+    <div class="meeting-body" data-mtab="transcript" role="tabpanel" hidden>
+      <div class="meeting-row">
+        <button id="transcribe-toggle" class="transcribe-toggle" aria-pressed="false">● 文字起こしを始める</button>
+        <button id="transcript-clear" title="文字起こしを全員の画面から消す">消す</button>
+      </div>
+      <p id="transcribe-status" class="collab-status"></p>
+      <ol id="transcript-list" class="transcript-list" aria-label="文字起こし"></ol>
+      <p class="meeting-note">ブラウザの音声認識を使い、各自のマイクの声だけを文字にします(Chrome・Edge では音声がブラウザの提供元のサーバーで認識されます)。文字にした発言はボードと一緒に保存され、参加者全員に見えます。</p>
+    </div>
+  </section>
   <section id="comments-panel" class="panel comments-panel" aria-label="コメント一覧" hidden></section>
   <section id="notif-menu" class="panel notif-menu" aria-label="通知" hidden></section>
   <section id="history-panel" class="panel history-panel" aria-label="バージョン履歴" hidden></section>
+  <section id="p2p-panel" class="panel history-panel p2p-panel" aria-label="直接つなぐ" hidden></section>
   <section id="plugins-panel" class="panel history-panel plugins-panel" aria-label="プラグイン" hidden></section>
   <div id="preview-banner" class="panel preview-banner" role="status" hidden></div>
 

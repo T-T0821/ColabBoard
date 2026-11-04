@@ -11,9 +11,13 @@ members = [
     "crates/board-plugin",
     "crates/board-pdf",
     "crates/board-e2e",
+    "crates/board-export",
+    "crates/board-cli",
     "tools/cloud-icons",
     "tools/precompress",
 ]
+# デスクトップアプリ(Tauri)は OS の WebView の開発用ライブラリが要るので、別のワークスペースにする。
+exclude = ["crates/board-desktop"]
 
 [workspace.package]
 edition = "2024"
@@ -25,6 +29,7 @@ board-core = { path = "crates/board-core" }
 board-types = { path = "crates/board-types" }
 board-render = { path = "crates/board-render" }
 board-e2e = { path = "crates/board-e2e" }
+board-export = { path = "crates/board-export" }
 glam = { version = "0.30", features = ["bytemuck"] }
 bytemuck = { version = "1", features = ["derive"] }
 wgpu = { version = "30", default-features = false, features = ["wgsl", "webgpu", "webgl", "std"] }

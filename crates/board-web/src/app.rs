@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::rc::Rc;
 
-use board_core::protocol::{Message, Presence, TOPIC_COMMENTS, TOPIC_VERSIONS};
+use board_core::protocol::{Message, Presence, TOPIC_COMMENTS, TOPIC_MEETING_LINK, TOPIC_VERSIONS};
 use board_core::{
     Board, Camera, Editor, Element as BoardElement, ElementId, Modifiers, Navigator, Tool, Vec2,
 };
@@ -29,8 +29,11 @@ mod imports;
 mod ink_ui;
 mod issues;
 mod media;
+mod meeting_link_ui;
+mod meeting_ui;
 mod mindmap_ui;
 mod offline;
+mod p2p_ui;
 mod plugins_ui;
 mod prefs;
 mod reactions;
@@ -93,7 +96,7 @@ struct App {
     cursor_world: Option<Vec2>,
     presence_sent: Option<Option<Vec2>>,
     presence_sent_at: f64,
-    last_status: Option<(Status, usize, bool)>,
+    last_status: Option<(Status, usize, bool, usize)>,
     /// `?bench` の計測。
     bench: Option<Bench>,
     bench_done_at: Option<f64>,
@@ -113,6 +116,8 @@ struct App {
     /// 音声通話(サーバーにつながるボードだけ)。
     voice: Option<crate::voice::VoiceCall>,
     call_ui: call_ui::CallUi,
+    /// 会議パネル(AI ファシリテーター・リアルタイム議事録・文字起こし)。
+    meeting: meeting_ui::MeetingUi,
     video: video_memo::VideoMemo,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
     live_board: Option<Board>,
@@ -135,6 +140,11 @@ struct App {
     /// 暗号化ボードのログの状態(まとめるときに使う)。
     sealed: e2e_ui::SealedState,
     e2e_ui: e2e_ui::E2eUi,
+    /// サーバーを通さない直接接続(共同編集のボードだけ)。
+    p2p: Option<crate::p2p::P2p>,
+    p2p_ui: p2p_ui::P2pUi,
+    /// ギャラリーから開いたときに、空のボードへ置くテンプレート(`&template=`)。
+    pending_template: Option<templates_ui::Pending>,
 }
 
 struct Hud {
@@ -393,6 +403,8 @@ pub async fn run() -> Result<(), String> {
     if let (Some(chrome), Some(sealer)) = (&chrome, &sealer) {
         chrome.borrow_mut().e2e_key = Some(sealer.key().to_link());
     }
+    // 公開ページ・埋め込み・暗号化ボードでは直接接続を出さない。
+    let p2p_room = room.is_some() && !public_view && !params.has("embed") && sealer.is_none();
     let app = Rc::new(RefCell::new(App {
         window: window.clone(),
         document: document.clone(),
@@ -449,6 +461,7 @@ pub async fn run() -> Result<(), String> {
         history: history::History::new(&document)?,
         voice,
         call_ui: call_ui::CallUi::new(&document)?,
+        meeting: meeting_ui::MeetingUi::new(&document)?,
         video: video_memo::VideoMemo::new(&document)?,
         live_board: None,
         show_authors: true,
@@ -461,6 +474,9 @@ pub async fn run() -> Result<(), String> {
         e2e: sealer,
         sealed: e2e_ui::SealedState::default(),
         e2e_ui: e2e_ui::E2eUi::new(&document)?,
+        p2p: p2p_room.then(crate::p2p::P2p::new),
+        p2p_ui: p2p_ui::P2pUi::new(key.clone()),
+        pending_template: None,
     }));
     {
         let mut a = app.borrow_mut();
@@ -505,10 +521,14 @@ pub async fn run() -> Result<(), String> {
     reactions::install(&app)?;
     media::install(&app)?;
     templates_ui::install(&app)?;
+    if collaborative && !public_view {
+        templates_ui::start_pending(&app, params.get("template"));
+    }
     search_ui::install(&app)?;
     a11y::install(&app)?;
     issues::install(&app)?;
     e2e_ui::install(&app)?;
+    p2p_ui::install(&app, &document)?;
     start_loop(app);
     Ok(())
 }
@@ -619,6 +639,9 @@ impl App {
         // ダミー表示に切り替えたら共同編集はやめる。
         if let Some(net) = self.net.as_mut() {
             net.disable();
+        }
+        if let Some(p) = &self.p2p {
+            p.close_all();
         }
         self.cursors.clear();
         self.board = board;
@@ -759,11 +782,17 @@ impl App {
             self.recheck_access();
             self.fetch_comments();
         }
+        let before = self.live_state_vector();
         if !state.is_empty()
             && let Err(e) = self.live_board_mut().apply_remote(&state)
         {
             log::error!("初回同期に失敗: {e}");
         }
+        let new_info = self.live_state_vector() != before;
+        if self.e2e.is_none() {
+            self.p2p_forward(board_core::p2p::Source::Server, new_info, &state);
+        }
+        self.p2p_flush_log();
         if self.timings.synced.is_none() {
             self.timings.synced = Some(now_ms(&self.window));
             self.publish_timings();
@@ -788,13 +817,14 @@ impl App {
                 net.send(&msg);
             }
         }
-        self.cursors.clear();
+        self.cursors.clear_server();
         self.presence_sent = None;
         self.presence_sent_at = 0.0;
         if !self.view_initialized {
             self.initial_view();
         }
         self.editor.prune_selection(&self.board);
+        self.apply_pending_template();
         self.dirty = true;
     }
 
@@ -838,9 +868,12 @@ impl App {
                 }
                 NetEvent::Message(Message::Compact { .. }) => {}
                 NetEvent::Message(Message::Update(u)) => {
+                    let before = self.live_state_vector();
                     if let Err(e) = self.live_board_mut().apply_remote(&u) {
                         log::warn!("更新を取り込めません: {e}");
                     }
+                    let new_info = self.live_state_vector() != before;
+                    self.p2p_forward(board_core::p2p::Source::Server, new_info, &u);
                     self.editor.prune_selection(&self.board);
                     self.dirty = true;
                 }
@@ -856,11 +889,14 @@ impl App {
                 NetEvent::Message(Message::Reaction(r)) => self.on_reaction(r),
                 NetEvent::Message(Message::Refresh(TOPIC_COMMENTS)) => self.fetch_comments(),
                 NetEvent::Message(Message::Refresh(TOPIC_VERSIONS)) => self.versions_changed(),
+                NetEvent::Message(Message::Refresh(TOPIC_MEETING_LINK)) => {
+                    meeting_link_ui::reload()
+                }
                 NetEvent::Message(Message::Refresh(_)) => {}
                 // 通話のメッセージは voice が先に受け取っている。
                 NetEvent::Message(Message::Voice(_) | Message::Signal(_)) => {}
                 NetEvent::Closed => {
-                    self.cursors.clear();
+                    self.cursors.clear_server();
                     self.follow_reset();
                     if self.net.as_ref().map(|n| n.status) == Some(Status::Reconnecting) {
                         self.recheck_access();
@@ -886,43 +922,32 @@ impl App {
         let Some(net) = self.net.as_ref() else {
             return;
         };
-        if net.status == Status::Online && net.is_open() {
-            let outgoing: Vec<Message> = self
-                .board
-                .take_outgoing()
-                .into_iter()
-                .map(|u| self.wire_update(u))
-                .collect();
-            let Some(net) = self.net.as_ref() else {
-                return;
-            };
-            for m in &outgoing {
-                net.send(m);
-            }
-            if !self.public_view
-                && self.presence_sent != Some(self.cursor_world)
-                && now - self.presence_sent_at >= PRESENCE_INTERVAL_MS
-            {
-                let (x, y) = self
-                    .cursor_world
-                    .map_or((f32::NAN, f32::NAN), |w| (w.x, w.y));
-                net.send(&Message::Presence(Presence {
-                    peer: 0,
-                    x,
-                    y,
-                    color: self.identity.color,
-                    name: self.identity.name.clone(),
-                }));
-                self.presence_sent = Some(self.cursor_world);
-                self.presence_sent_at = now;
-            }
+        if net.status == Status::Online
+            && net.is_open()
+            && !self.public_view
+            && self.presence_sent != Some(self.cursor_world)
+            && now - self.presence_sent_at >= PRESENCE_INTERVAL_MS
+        {
+            let (x, y) = self
+                .cursor_world
+                .map_or((f32::NAN, f32::NAN), |w| (w.x, w.y));
+            net.send(&Message::Presence(Presence {
+                peer: 0,
+                x,
+                y,
+                color: self.identity.color,
+                name: self.identity.name.clone(),
+            }));
+            self.presence_sent = Some(self.cursor_world);
+            self.presence_sent_at = now;
         }
 
         let local = self.saves_locally();
-        let status = (net.status, self.cursors.len(), local);
+        let direct = self.p2p.as_ref().map_or(0, |p| p.open_count());
+        let status = (net.status, self.cursors.server_len(), local, direct);
         if self.last_status != Some(status) {
             self.last_status = Some(status);
-            let text = match (status.0, local) {
+            let mut text = match (status.0, local) {
                 (Status::Connecting, _) => "接続中…".to_string(),
                 (Status::Online, _) => format!("オンライン · {}人", status.1 + 1),
                 (Status::Reconnecting, true) => "再接続中 · この端末に保存".to_string(),
@@ -931,8 +956,12 @@ impl App {
                 (Status::Offline, false) => "オフライン(保存されません)".to_string(),
                 (Status::Disabled, _) => "ダミー表示中(同期なし)".to_string(),
             };
+            if direct > 0 {
+                text.push_str(&format!(" · 直接 {direct}台"));
+            }
             self.hud.net.set_text_content(Some(&text));
             let state = match status.0 {
+                _ if direct > 0 && status.0 != Status::Online => "direct",
                 Status::Online => "online",
                 Status::Connecting | Status::Reconnecting => "connecting",
                 Status::Offline | Status::Disabled => "offline",
@@ -1085,6 +1114,8 @@ impl App {
         export::pump(self);
         self.save_prefs();
         self.pump_net(now);
+        self.pump_p2p(now);
+        self.flush_outgoing();
         self.save_local(now, false);
         self.collab_frame();
         self.workshop_frame();
@@ -1095,6 +1126,8 @@ impl App {
         self.a11y_frame(now);
         self.touch_frame(now);
         self.call_frame();
+        self.p2p_frame();
+        self.meeting_frame(now);
         self.mind_frame();
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
@@ -1928,6 +1961,8 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     history::install(app)?;
     plugins_ui::install(app, doc)?;
     call_ui::install(app, doc)?;
+    meeting_ui::install(app, doc)?;
+    meeting_link_ui::install(app, doc)?;
     video_memo::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
@@ -1970,6 +2005,7 @@ fn start_loop(app: Rc<RefCell<App>>) {
     *tick2.borrow_mut() = Some(Closure::new(move |now: f64| {
         app.borrow_mut().frame(now);
         touch::open_pending_menu(&app);
+        meeting_ui::pump(&app);
         if let Some(cb) = tick.borrow().as_ref() {
             let _ = window2.request_animation_frame(cb.as_ref().unchecked_ref());
         }

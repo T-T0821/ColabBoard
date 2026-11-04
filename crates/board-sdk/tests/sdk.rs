@@ -120,3 +120,65 @@ async fn sdk_round_trip() {
     assert_eq!(bad.me().await.unwrap_err().status(), Some(401));
     assert!(Client::new("ftp://x", "t").is_err());
 }
+
+/// サーバーで書き出す・読み込ませる(CLI の `pull` / `push` が使う)。
+#[tokio::test]
+async fn export_and_import() {
+    let (base, token) = setup().await;
+    let client = Client::new(&base, token).unwrap();
+    let info = client.create_board("書き出し").await.unwrap();
+    let board = client.board(&info.id);
+
+    // Mermaid を読み込ませる。
+    let created = board
+        .import(
+            Some("mermaid"),
+            "graph LR\n A[開始] --> B[終了]".as_bytes().to_vec(),
+        )
+        .await
+        .unwrap();
+    assert!(created.len() >= 3);
+    // 形式を省いても中身から分かる。
+    let more = board
+        .import(None, b"# Memo\n- one\n- two".to_vec())
+        .await
+        .unwrap();
+    assert!(!more.is_empty());
+
+    let png = board.export("png", &[("scale", "1".into())]).await.unwrap();
+    assert_eq!(&png[1..4], b"PNG");
+    let pdf = board.export("pdf", &[]).await.unwrap();
+    assert!(pdf.starts_with(b"%PDF"));
+    let md = board.export("md", &[]).await.unwrap();
+    assert!(String::from_utf8(md).unwrap().contains("one"));
+    let file = board.export("graboard", &[]).await.unwrap();
+    let copy = board_core::convert::load(&file).unwrap();
+    assert!(copy.len() >= created.len() + more.len());
+
+    // `.graboard` を別のボードへ(画像なども欠けずに写る)。
+    let other = client.create_board("写し").await.unwrap();
+    let n = client
+        .board(&other.id)
+        .import(Some("graboard"), file)
+        .await
+        .unwrap()
+        .len();
+    assert_eq!(n, copy.len());
+
+    // 誤った設定はエラー。
+    let err = board.export("gif", &[]).await.unwrap_err();
+    assert_eq!(err.status(), Some(400));
+    let err = board
+        .export("png", &[("scale", "99".into())])
+        .await
+        .unwrap_err();
+    assert_eq!(err.status(), Some(400));
+    let err = board
+        .export("png", &[("frame", "ない".into())])
+        .await
+        .unwrap_err();
+    assert_eq!(err.status(), Some(404));
+    // ログインしていない人は書き出せない。
+    let anon = Client::anonymous(&base).unwrap();
+    assert!(anon.board(&info.id).export("png", &[]).await.is_err());
+}
