@@ -11,6 +11,8 @@
 | [単一バイナリ](#2-単一バイナリ) | Docker を使わないとき。ファイル 1 つをコピーして動かす |
 | [ソースから](#3-ソースからビルド済みクライアントを別に置く) | 開発中、またはクライアントを自分で差し替えるとき |
 
+Google Cloud に置く場合は、Terraform で VM・HTTPS・バックアップ・監視までまとめて作れます([deploy/gcp](../deploy/gcp/README.md))。
+
 ## 1. Docker / Docker Compose
 
 ```sh
@@ -206,8 +208,10 @@ volumes:
 
 - [ ] HTTPS のリバースプロキシを置き、`COOKIE_SECURE=1` と `TRUST_PROXY=1` を設定した
 - [ ] サーバーの 8080 番は外から直接つながらない
+- [ ] 直接接続(P2P)を使わせないなら `P2P_ENABLED=0`(チームごとならチームの設定で止める)
 - [ ] 知らない人に使わせないなら `ANONYMOUS_BOARDS=0`(URL を知っていれば誰でも編集できるボードを作らせない)と `MAX_USERS` を設定した
-- [ ] `DATA_DIR` を定期的にバックアップしている(下の「バックアップと更新」)
+- [ ] バックアップを別の場所に置いている(`BACKUP_LOCATION`。下の「バックアップと復元」)
+- [ ] `ADMIN_LOGINS` を設定し、エラーの通知先(`SENTRY_DSN` か `ERROR_SLACK_WEBHOOK`、GCP なら `LOG_FORMAT=gcp`)を決めた
 - [ ] AI 機能を使うなら、`ANTHROPIC_API_KEY` をサーバーの環境変数だけに置いた(ブラウザには渡らない)
 - [ ] 大勢で使うなら、プロキシ側でも接続数・帯域の制限をかけた(サーバーを複数台にする場合は特に)
 
@@ -224,18 +228,130 @@ volumes:
 | `CSP` / `HSTS` | `1` / `COOKIE_SECURE` と同じ | `0` でそのヘッダーを付けない |
 | 回数制限・上限 | [公開前の守り](#公開前の守り) | `LOGIN_FAILURES_PER_ACCOUNT` `MAX_USERS` `MAX_BOARDS_PER_USER` など |
 | `ANONYMOUS_BOARDS` | `1` | `0` でログインなしのボード(URL を知っていれば誰でも編集できるもの)を禁止 |
+| `E2E_BOARDS` | `1` | `0` でエンドツーエンド暗号化ボード(サーバーの管理者にも中身が見えないもの)を新しく作れなくする。サーバー管理者は画面からも切り替えられる。チームのボードはチームの管理者が許可したときだけ作れる([e2e.md](e2e.md)) |
+| `P2P_ENABLED` | `1` | `0` でサーバーを通さない直接接続(P2P)を止める。直接接続では中身がサーバーを通らないので、操作ログに残るのは使った記録と通報だけ |
 | `MAX_MESSAGE_MB` | `128` | WebSocket で受け取る 1 通の上限。初回同期でボード全体を送るので、数十万要素のボードを使うなら増やす(10 万要素で約 28 MB) |
 | `ANTHROPIC_API_KEY` | なし | 設定すると AI 機能が使える |
 | `ANTHROPIC_MODEL` | `claude-opus-5-5` | AI 機能で使うモデル |
 | `GITHUB_TOKEN` / `GITHUB_SYNC_REPOS` | なし | ボードを GitHub で管理するときのサーバーのトークンと、それを使ってよいリポジトリ([docs/github.md](github.md)) |
 | `GITHUB_WEBHOOK_SECRET` | なし | GitHub の push を自動で取り込む Webhook の署名の鍵 |
+| `PUBLIC_URL` | なし | 公開している URL。Slack 通知・通知メールのリンクとメールアドレスの確認リンクに使う |
+| `SMTP_URL` / `MAIL_FROM` | なし | そろうとメール通知が使える。下の「メール・プッシュ通知」を参照 |
+| `PUSH_NOTIFICATIONS` | `1` | `0` でプッシュ通知を止める |
+| `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | 自動 | プッシュ通知の鍵と問い合わせ先 |
+| `PUSH_ALLOWED_HOSTS` | 主要なプッシュサービス | プッシュ通知を送ってよいホスト |
+| `DUE_REMIND_HOURS` | `24` | コメントの期限の何時間前に知らせるか |
+| `NOTIFY_UTC_OFFSET` | `+09:00` | 通知メールに書く時刻のタイムゾーン |
 | `RUST_LOG` | `info` | ログの詳しさ |
+| `LOG_FORMAT` | `text` | `gcp` で Cloud Logging の構造化ログ、`json` で 1 行 1 件の JSON([エラー監視](#エラー監視)) |
+| `SENTRY_DSN` / `SENTRY_ENVIRONMENT` | なし | エラーを Sentry(または互換のサービス)へ送る |
+| `ERROR_SLACK_WEBHOOK` | なし | 新しい種類のエラーを Slack の Incoming Webhook に知らせる |
+| `BACKUP_LOCATION` | `DATA_DIR/backups` | 定期バックアップの置き場所(`file:///…` か `s3://…`。[バックアップと復元](#バックアップと復元)) |
+| `BACKUP_INTERVAL_HOURS` / `BACKUP_KEEP` | `24` / `14` | バックアップの間隔(`0` で定期を止める)と、残す数(定期・手動それぞれ) |
+| `BACKUP_ACCESS_KEY_ID` / `BACKUP_SECRET_ACCESS_KEY` | なし | `s3://` の置き場所の認証情報(なければ `AWS_…`) |
+
+## エラー監視
+
+サーバーのエラーと、利用者のブラウザで起きたエラーを 1 か所に集めます。設定しなくても動き、
+`ADMIN_LOGINS` のサーバー管理者はボード一覧の「運用」→「エラー」で一覧を見られます。
+
+- **集めるもの**: サーバーのログの ERROR(保存の失敗など)とパニック(スタックトレース付き)、
+  ブラウザの JavaScript のエラー・処理されなかった Promise の失敗・wasm のパニック(`POST /api/errors` に自動で送る)
+- **まとめ方**: メッセージと場所が同じものは 1 つにまとめ、回数・最初と最後の時刻・最新の 1 件の詳細
+  (スタック、ページ、ブラウザ、ログイン中の人、ボード、版)を残す。数字や ID の違いは同じものとみなす
+- **解決済み**: 直したら「解決済みにする」。また起きると未解決に戻り、通知も飛ぶ
+- ブラウザからの受け付けは、同じサイトのページからだけ、1 つの IP から 1 分に 30 件まで、1 件 16 KB まで。共有リンクの鍵は URL から外して送る
+
+外への知らせ(どれも任意):
+
+```sh
+SENTRY_DSN=https://<公開鍵>@o123.ingest.sentry.io/456   # 起きたエラーを Sentry へ(ブラウザのものもサーバー経由で)。1 分に 60 件まで
+SENTRY_ENVIRONMENT=production
+ERROR_SLACK_WEBHOOK=https://hooks.slack.com/services/…  # 新しい種類のエラー(と再発)だけ。1 時間に 20 件まで
+PUBLIC_URL=https://board.example.com/                     # Slack のメッセージに運用の画面へのリンクを付ける
+```
+
+**Google Cloud で動かすとき** は `LOG_FORMAT=gcp` にすると、ログが Cloud Logging の構造化ログ(`severity`・`sourceLocation` 付きの JSON)になり、
+ERROR は Error Reporting の形(`@type: …ReportedErrorEvent`)で出るので、コンテナのログを送るだけで Error Reporting に載ります(通知は Error Reporting の設定で)。
+Datadog・Loki などに送るなら `LOG_FORMAT=json` です。
+
+## バックアップと復元
+
+サーバーは全データ(アカウント・ボード・コメント・バージョン履歴・動画メモ・チーム・操作ログ・集めたエラー、
+チームの保存場所に置いたボードの中身も)を 1 つのファイル(`.grabak.gz`)にまとめて、定期的に残します。
+
+- **既定**: 24 時間ごと、定期と手動それぞれ 14 個まで、置き場所は `DATA_DIR/backups`。
+  同じディスクなので、誤って消したボードは戻せますが、ディスクの故障には別の場所が必要です
+- **別の場所に置く**(おすすめ): `BACKUP_LOCATION` に、保存場所(`STORAGE_LOCATIONS`)と同じ書き方で指定します
+
+```sh
+# Google Cloud Storage(バケットの「相互運用性」で HMAC キーを作る)
+BACKUP_LOCATION='s3://my-graboard-backups/prod?endpoint=https://storage.googleapis.com&region=auto'
+BACKUP_ACCESS_KEY_ID=GOOG1…  BACKUP_SECRET_ACCESS_KEY=…
+# AWS S3 / Cloudflare R2 / MinIO など
+BACKUP_LOCATION='s3://graboard-backups/prod?region=ap-northeast-1'
+# 別ディスク・NAS
+BACKUP_LOCATION=file:///mnt/backup/graboard
+```
+
+バケット側でもバージョニングや保持ポリシーを付けておくと、置き場所ごと消える事故にも備えられます。
+
+**取る**: 定期のほか、運用の画面「バックアップ」→「今すぐバックアップ」、またはサーバーを止めて `board-server backup`。
+一覧からファイルをダウンロードできます(サーバー管理者だけ)。失敗するとログに ERROR が出るので、エラー監視の通知にも載ります。
+
+**ボードを 1 つ戻す**: 運用の画面で戻したい時点の「ボードを戻す…」を押し、ボードを選んで「戻す」。
+
+- 今もあるボードは、中身をその時点に戻します(普通の編集として全員の画面に反映)。戻す前の状態はバージョン履歴に「バックアップ(…)から戻す前」として残ります
+- 削除したボードは、コメント・バージョン履歴・動画メモ・メンバーごと作り直し、オーナーのボード一覧に戻ります(チームがもうなければ個人ボードとして)
+- どちらも操作ログに「バックアップから復元」と残ります
+
+**全体を戻す**(ディスクの故障・サーバーの引っ越しなど): サーバーを止めてから実行します。今のデータは `boards.redb.before-restore-<時刻>` として脇に残ります。
+
+```sh
+board-server restore 1793491200000123 --yes        # BACKUP_LOCATION にある ID で
+board-server restore ./graboard-2026-11-01.grabak.gz --yes   # ダウンロードしたファイルで
+# Docker なら(イメージの ENTRYPOINT が board-server なので、サブコマンドだけを渡す)
+docker compose stop
+docker compose run --rm colabboard restore <ID> --yes
+docker compose start
+```
+
+チームの保存場所に置いていたボードの中身は、同じ `STORAGE_LOCATIONS` が設定されていればそこへ、なければこのサーバーに戻します。
+
+## 更新
+## メール・プッシュ通知
+
+メンション・返信・コメントの期限は、画面のベルに加えてメールとプッシュ通知でも届けられます。
+各自がボード一覧の「通知の設定」で、メールアドレスの登録・この端末でのプッシュ通知の有効化・受け取る種類を選びます。
+
+**メール** は SMTP で送ります。`SMTP_URL` と `MAIL_FROM` をそろえ、確認リンクのために `PUBLIC_URL` も設定してください。
+
+```sh
+SMTP_URL=smtps://apikey:SECRET@smtp.example.com      # 465 番(TLS)
+# SMTP_URL=smtp://user:pass@smtp.example.com:587?tls=required   # 587 番(STARTTLS)
+MAIL_FROM="グラボード <noreply@example.com>"
+PUBLIC_URL=https://board.example.com/
+```
+
+- 登録したアドレスには確認のメールを送り、リンク(24 時間有効)を開くまで通知は送りません(他人のアドレスに送りつけられないように)。送り直しは 1 分に 1 回まで
+- 既定で送るのはメンションと期限。返信はメールだと多くなりがちなので、各自がオンにしたときだけ
+- 送り主のドメインには SPF・DKIM を設定しておくと、迷惑メールに入りにくくなります
+
+**プッシュ通知** は Web Push(VAPID)で、設定なしで使えます(鍵はサーバーが作って `DATA_DIR` に保存)。
+
+- ブラウザの決まりで、HTTPS(か `localhost`)で開いたときだけ有効にできます
+- iPhone・iPad(iOS 16.4 以降)は、Safari の共有メニューから「ホーム画面に追加」したアプリで開いたときに有効にできます
+- サーバーが送るのは中身のない合図だけです。受け取った端末の Service Worker が `/api/notifications` から内容を取って表示するので、コメントの本文は Google・Apple などのプッシュサービスを通りません
+- 複数台のサーバーで動かすときや鍵を固定したいときは、`VAPID_PRIVATE_KEY`(P-256 の秘密鍵 32 バイトを base64url にしたもの)を指定します。鍵を変えると、各自がプッシュ通知を有効にし直す必要があります
+- 送り先は既知のプッシュサービス(`fcm.googleapis.com`・`*.push.services.mozilla.com`・`*.push.apple.com`・`*.notify.windows.com`)だけです。社内の別のサービスを使うなら `PUSH_ALLOWED_HOSTS` を設定します
+
+**期限** はコメントのスレッドに付けられ、1 分ごとに見回って、期限の `DUE_REMIND_HOURS` 時間前と過ぎたときに、メンションされた人と書いた人へ知らせます(スレッドを解決すれば止まり、期限を変えると知らせ直します)。
 
 ## バックアップと更新
 
-- データは `DATA_DIR/boards.redb` の 1 ファイルです。サーバーを止めてからコピーすれば、そのままバックアップになります
-  (Docker なら `docker compose stop && docker run --rm -v colabboard-data:/data -v $PWD:/backup busybox cp /data/boards.redb /backup/`)
 - 更新は、新しいバイナリ(またはイメージ)に差し替えて再起動するだけです。保存形式は互換を保ちます
+- 心配なら、先に運用の画面で「今すぐバックアップ」を押しておきます。手で写すなら、サーバーを止めて `DATA_DIR/boards.redb` をコピーします
+  (Docker なら `docker compose stop && docker run --rm -v colabboard-data:/data -v $PWD:/backup busybox cp /data/boards.redb /backup/`)
 - 各ブラウザも自分のボードを IndexedDB に保存しているので、サーバーが止まっている間の編集は再起動後に自動でマージされます
 
 ## 動作確認

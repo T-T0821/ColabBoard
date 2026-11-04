@@ -1,11 +1,11 @@
-//! 表計算・CSV・Mermaid・PlantUML の取り込み(表の読み取りは [`crate::sheets`])。
+//! 表計算・CSV・Mermaid・PlantUML の取り込み(大きな表の読み取りは Worker 側、[`super::file_worker`])。
 
 use board_core::Vec2;
 use board_core::tabular::{self, Sheet};
 
 use super::App;
 
-pub use crate::sheets::{decode_text, is_csv, is_spreadsheet, read_spreadsheet};
+pub use crate::sheets::{decode_text, is_csv, is_spreadsheet};
 
 /// 位置をそのまま写す取り込み(draw.io・Miro)。
 type PlacedImport =
@@ -69,9 +69,9 @@ impl App {
             return true;
         }
         let parsed = if mermaid::looks_like_mermaid(text) {
-            mermaid::parse(text)
+            mermaid::parse_diagram(text)
         } else if plantuml::looks_like_plantuml(text) {
-            plantuml::parse(text)
+            plantuml::parse_diagram(text)
         } else {
             return false;
         };
@@ -79,8 +79,8 @@ impl App {
             return true;
         }
         match parsed {
-            Ok(spec) => {
-                self.insert_diagram(&spec);
+            Ok(d) => {
+                self.insert_any_diagram(&d);
             }
             Err(e) => super::show_error(&e),
         }

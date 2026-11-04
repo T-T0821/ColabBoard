@@ -183,7 +183,7 @@ impl Net {
         for e in &events {
             match e {
                 NetEvent::Open => {}
-                NetEvent::Message(Message::Sync { .. }) => {
+                NetEvent::Message(Message::Sync { .. } | Message::SealedSync { .. }) => {
                     self.status = Status::Online;
                     self.synced_once = true;
                     self.retry_delay = 1000.0;

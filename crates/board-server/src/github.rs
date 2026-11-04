@@ -657,6 +657,8 @@ pub async fn set_link(
     Json(req): Json<SetGithub>,
 ) -> ApiResult<Json<GithubLink>> {
     let meta = api::owner_board(&state, &headers, &id)?;
+    // 暗号化ボードはサーバーが中身を読めないので、リポジトリに書き出せない。
+    crate::e2e::require_plain(Some(&meta))?;
     let user = api::require_user(&state, &headers)?;
     let cfg = &state.config.github;
     let repo = parse_repo(&req.repo).ok_or_else(|| {

@@ -2,19 +2,34 @@
 
 pub mod bench;
 pub mod sheets;
+pub mod speech;
 
 #[cfg(target_arch = "wasm32")]
 mod app;
 #[cfg(target_arch = "wasm32")]
+mod billing;
+#[cfg(target_arch = "wasm32")]
 mod developer;
 #[cfg(target_arch = "wasm32")]
+mod e2e;
+#[cfg(target_arch = "wasm32")]
+mod error_report;
+#[cfg(target_arch = "wasm32")]
 mod home;
+#[cfg(target_arch = "wasm32")]
+mod notify_settings;
 
 #[cfg(target_arch = "wasm32")]
 mod http;
 pub mod i18n;
 #[cfg(target_arch = "wasm32")]
+mod local_ai;
+#[cfg(target_arch = "wasm32")]
 mod net;
+#[cfg(target_arch = "wasm32")]
+mod p2p;
+#[cfg(target_arch = "wasm32")]
+mod ops;
 #[cfg(target_arch = "wasm32")]
 mod presence;
 #[cfg(target_arch = "wasm32")]
@@ -26,6 +41,8 @@ mod theme;
 #[cfg(target_arch = "wasm32")]
 mod tooltip;
 #[cfg(target_arch = "wasm32")]
+mod transcribe;
+#[cfg(target_arch = "wasm32")]
 mod voice;
 
 #[cfg(target_arch = "wasm32")]
@@ -34,7 +51,8 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn start() {
-    console_error_panic_hook::set_once();
+    // パニックをコンソールに出し、サーバーのエラー監視にも知らせる。
+    error_report::install();
     let _ = console_log::init_with_level(log::Level::Info);
     if let Some(w) = web_sys::window()
         && let Some(d) = w.document()

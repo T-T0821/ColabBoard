@@ -50,6 +50,8 @@
 | `PATCH` | `/boards/{id}/elements/{eid}` | 編集 | 要素を変える([変更](#変更)) |
 | `DELETE` | `/boards/{id}/elements/{eid}` | 編集 | 要素を消す → 204 |
 | `POST` | `/boards/{id}/ops` | 編集 | まとめて作る・変える・消す([一括操作](#一括操作)) |
+| `GET` | `/boards/{id}/export` | 閲覧 | サーバーで書き出す(PNG・PDF・`.graboard`・JSON・マークダウン。[書き出しと取り込み](#書き出しと取り込み)) |
+| `POST` | `/boards/{id}/import` | 編集 | ファイルを読み込んで既存の要素の右に並べる → 201 `{"created": ["…"]}` |
 | `GET` | `/boards/{id}/comments` | 閲覧 | コメント一覧 |
 | `POST` | `/boards/{id}/comments` | コメント | コメントを書く `{"body": "…", "x": 0, "y": 0}` |
 
@@ -245,3 +247,30 @@ GRABOARD_URL=http://localhost:8080 GRABOARD_TOKEN=gbt_… cargo run -p graboard-
 サーバーは今のボードの状態を写した使い捨てのボードに操作を適用し、できた CRDT の更新を
 ルームに取り込んで全員に配る(`Hub::edit`)。同時にブラウザで編集している人の変更とは yrs がそのまま合わせる。
 API での変更もバージョン履歴の自動保存の対象になる。
+
+## 書き出しと取り込み
+
+描画は GPU を使わない `board-export`、ファイルの読み書きは `board_core::convert` で、CLI(`graboard`、[docs/cli.md](cli.md))と同じエンジンを使う。
+
+`GET /boards/{id}/export` のパラメーター:
+
+| パラメーター | 例 | 内容 |
+| --- | --- | --- |
+| `format` | `pdf` | `png`(既定)/ `pdf` / `graboard` / `json` / `md` |
+| `scale` | `2` | 1 単位を何画素にするか(0.25〜4、既定 2)。大きすぎるボードは 2,400 万画素に収まるよう縮める |
+| `padding` | `48` | 周りの余白 |
+| `background` | `transparent` | 背景色(`#rrggbb`)か `transparent`(PNG のみ) |
+| `frame` | `2` | フレーム 1 つだけ(名前・スライドの番号・要素 ID)。ないと 404 |
+| `pages` | `frames` | PDF をフレーム 1 つ 1 ページに(スライドの順、60 ページまで) |
+
+個人作業エリアの中身は伏せて書き出す。`Content-Disposition` にボード名のファイル名が付く。
+
+`POST /boards/{id}/import?format=…` は本文にファイルの中身をそのまま送る(20 MB まで)。`format` は
+`graboard` / `json` / `markdown` / `mermaid` / `plantuml` / `drawio` / `miro` / `csv` / `xlsx`。省くと中身から推測する。
+`.graboard` は画像も含めてそのまま写る。
+
+```sh
+curl -H "Authorization: Bearer $TOKEN" "$BASE/boards/abc123/export?format=pdf&pages=frames" -o 企画.pdf
+curl -H "Authorization: Bearer $TOKEN" --data-binary @flow.mmd "$BASE/boards/abc123/import?format=mermaid"
+```
+

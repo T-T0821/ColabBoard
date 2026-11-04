@@ -87,6 +87,10 @@ pub(super) async fn post_json(
     url: &str,
     body: &str,
 ) -> Result<JsValue, String> {
+    // 「クラウド AI を使わない」設定なら、ボードの内容をサーバーの Claude に送らない。
+    if crate::local_ai::cloud_off() {
+        return Err(crate::local_ai::CLOUD_OFF_MESSAGE.to_string());
+    }
     let init = RequestInit::new();
     init.set_method("POST");
     init.set_body(&JsValue::from_str(body));
