@@ -135,6 +135,7 @@ Miro や FigJam のように、Web 上で複数人が同時に編集できるホ
 | 機能 | 内容 |
 | --- | --- |
 | **性能確認** | ダミー要素 1 千〜100 万個での性能確認(右上のボタン、または `?n=100000`)。`?bench` で決まった手順のパン/ズームを自動で計測([docs/benchmarks.md](docs/benchmarks.md)) |
+| **巨大ファイルの高速取り込み** | PDF・画像・CSV・Excel を貼り付け・ドロップすると、重い処理は別の wasm の Web Worker を CPU のコア数に合わせて最大 4 つ並べて並行に行い、画面は止まらない。PDF は 300 ページまで取り込み、先にページの大きさの枠を並べてから描けたページ順に画像に差し替える(ページが多いほど解像度を下げてボードを軽く保つ。Undo 1 回で PDF ごと取り消せる)。数百 MB の CSV でもボードに置ける先頭 500 行だけを文字にして残りは数えるだけにし、何行あったかを知らせる |
 | **WebGL2 への切り替え** | WebGPU が使えないブラウザでは WebGL2 に自動で切り替え(`?webgl` で強制) |
 | **デスクトップアプリ**(Windows・macOS・Linux、Tauri) | サーバーを内蔵していて、ネットワークがなくてもこの PC だけで使える。メニューの「接続先」からチームのサーバーにつなぐこともでき、一度開いたサーバーはつながらないときも前回のボードを開いて編集できる([docs/desktop.md](docs/desktop.md)) |
 
@@ -273,7 +274,7 @@ DATA_DIR=/var/lib/graboard PORT=8080 ./target/release/board-server
 
 `embed` なしでビルドした場合は `STATIC_DIR` でクライアントのディレクトリを指定する。
 
-PDF の取り込み(hayro、約 3 MB)は別の wasm(`board-pdf_bg.wasm`)に分けてあり、PDF が貼られたときに Web Worker で初めて読み込む。初回表示の重さには入らない。
+重いファイルの処理(PDF の描画の hayro・Excel の読み取りの calamine など)は別の wasm(`board-files_bg.wasm`)に分けてあり、PDF・大きな画像・CSV・Excel が来たときに初めて Web Worker で読み込む(CPU のコア数に合わせて最大 4 つ並べて並行に処理する)。初回表示の重さには入らない。
 
 HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/ws` も通す)を置き、`COOKIE_SECURE=1` と `TRUST_PROXY=1` にする。
 ログイン試行の回数制限、アカウント数・ボード数・接続数の上限、CSP などのセキュリティヘッダーも組み込み済み。設定とチェックリストは [docs/self-hosting.md の「公開前の守り」](docs/self-hosting.md#公開前の守り)。

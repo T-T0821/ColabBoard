@@ -1236,6 +1236,18 @@ AI 機能 無制限	Unlimited AI
 一致するボードはありません	No matching boards
 お気に入りはまだありません。ボードの ☆ を押すとここに集まります。	No favorites yet. Press ☆ on a board to collect it here.
 フォルダの名前を入れてください	Enter a folder name
+PDF を読み込んでいます…	Reading the PDF…
+PDF のページを描いています {n} / {n}	Rendering PDF pages {n} / {n}
+PDF の {n} ページを取り込みました	Imported {n} PDF pages
+PDF の先頭 {n} ページを取り込みました(全 {n} ページ)	Imported the first {n} PDF pages (of {n})
+PDF の {n} ページを取り込みました({n} ページは描けませんでした)	Imported {n} PDF pages ({n} pages could not be rendered)
+PDF の取り込みをやめました	Stopped importing the PDF
+先頭の {n} 行を取り込みました(全 {n} 行)	Imported the first {n} rows (of {n})
+ファイルの処理中に止まりました	Processing stopped while reading the file
+ファイルの処理部品を起動できません	Could not start the file processor
+ファイルを処理できません	Could not process the file
+{n} ページ目がありません	Page {n} does not exist
+PDF がまだ届いていません	The PDF has not arrived yet
 # エンドツーエンド暗号化ボード
 暗号化	Encrypted
 🔒 暗号化	🔒 Encrypted

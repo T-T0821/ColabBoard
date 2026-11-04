@@ -333,9 +333,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "board-pdf"
+name = "board-files"
 version = "0.1.0"
 dependencies = [
+ "board-core",
+ "calamine",
+ "encoding_rs",
  "hayro",
  "image",
  "js-sys",
@@ -411,9 +414,11 @@ dependencies = [
  "base64 0.22.1",
  "board-core",
  "board-e2e",
+ "board-files",
  "board-render",
  "console_error_panic_hook",
  "console_log",
+ "encoding_rs",
  "glam",
  "image",
  "js-sys",

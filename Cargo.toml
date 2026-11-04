@@ -9,7 +9,7 @@ members = [
     "crates/board-bench",
     "crates/board-sdk",
     "crates/board-plugin",
-    "crates/board-pdf",
+    "crates/board-files",
     "crates/board-e2e",
     "crates/board-export",
     "crates/board-cli",

@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
   <title>グラボード</title>
   <link data-trunk rel="rust" data-wasm-opt="s" />
-  <!-- PDF の取り込み(hayro)は別の wasm。PDF が貼られたときに Web Worker で初めて読み込む -->
-  <link data-trunk rel="rust" href="../board-pdf/Cargo.toml" data-type="worker" data-loader-shim data-wasm-opt="s" />
+  <!-- 重いファイル(PDF・大きな画像・表)の処理は別の wasm。来たときに初めて Web Worker で読み込み、複数並べて並行に処理する -->
+  <link data-trunk rel="rust" href="../board-files/Cargo.toml" data-type="worker" data-loader-shim data-wasm-opt="s" />
   <link data-trunk rel="css" href="style.css" />
   <link data-trunk rel="copy-dir" href="assets/fonts" />
   <link data-trunk rel="copy-dir" href="assets/cloud-icons" />

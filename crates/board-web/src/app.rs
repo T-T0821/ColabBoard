@@ -22,6 +22,7 @@ mod call_ui;
 mod collab;
 mod comments;
 mod export;
+mod file_worker;
 mod follow;
 mod format_bar;
 mod history;
@@ -227,7 +228,13 @@ async fn create_renderer(
             }
         };
         match Renderer::new(&instance, surface, w, h).await {
-            Ok(r) => return Ok((canvas, r)),
+            Ok(mut r) => {
+                // 画像のテクスチャ作りを 1 フレームの時間で区切る(大量の画像で固まらないように)。
+                if let Some(perf) = web_sys::window().and_then(|w| w.performance()) {
+                    r.set_clock(move || perf.now());
+                }
+                return Ok((canvas, r));
+            }
             Err(e) => {
                 log::warn!("{backends:?} で初期化できませんでした: {e}");
                 last_err = e.to_string();
@@ -1195,6 +1202,10 @@ impl App {
         {
             Ok(stats) => {
                 let cpu_ms = now_ms(&self.window) - started;
+                // 画像は 1 フレームに数枚ずつテクスチャにするので、残っていれば次も描く。
+                if stats.images_pending {
+                    self.dirty = true;
+                }
                 if self.timings.first_frame.is_none() && !stats.skipped {
                     self.timings.first_frame = Some(now_ms(&self.window));
                     self.publish_timings();
