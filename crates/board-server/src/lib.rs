@@ -6,7 +6,7 @@
 //! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
 //! - `/api/billing/...`: 料金プランと Stripe での支払い([`billing`])。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])・会議の進行役([`ai_meeting`])、Slack 通知([`slack`])、GitHub・Jira の課題カード([`issues`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])・会議の進行役([`ai_meeting`])、Slack 通知([`slack`])、メール・プッシュ通知([`notify`])、GitHub・Jira の課題カード([`issues`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -29,6 +29,7 @@ mod embedded;
 pub mod guard;
 pub mod issues;
 pub mod media;
+pub mod notify;
 pub mod og;
 pub mod oidc;
 pub mod plugins;
@@ -100,6 +101,8 @@ pub struct Config {
     pub password_login: bool,
     /// 回数制限・利用上限・セキュリティヘッダー。
     pub limits: guard::Limits,
+    /// メール・プッシュ通知(既定はどちらも使わない)。
+    pub notifier: Arc<notify::Notifier>,
     /// 料金プランと支払い(Stripe)。既定は使わない。
     pub billing: billing::BillingConfig,
 }
@@ -148,6 +151,7 @@ impl Default for Config {
             oidc: None,
             password_login: true,
             limits: guard::Limits::default(),
+            notifier: Arc::new(notify::Notifier::default()),
             billing: billing::BillingConfig::default(),
         }
     }
@@ -216,6 +220,7 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
                 .merge(teams::routes())
                 .merge(audit::routes())
                 .merge(oidc::routes())
+                .merge(notify::routes())
                 .merge(billing::routes())
                 .merge(search::routes()),
         )
