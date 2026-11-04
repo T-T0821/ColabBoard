@@ -9,6 +9,9 @@
 //! | `GET` | `/api/boards` | 自分のボード一覧([`BoardInfo`] の配列) |
 //! | `POST` | `/api/boards` | ボード作成([`NewBoard`] → [`BoardInfo`]) |
 //! | `GET` | `/api/boards/{id}?key=` | ボードの情報と自分の権限([`BoardInfo`]) |
+//! | `PUT` | `/api/boards/{id}/labels` | 自分用のお気に入り・タグ・フォルダ([`SetLabels`] → [`BoardInfo`]、開けるボードなら誰でも) |
+//! | `POST` | `/api/folders/rename` | フォルダの名前を変える・なくす([`RenameFolder`]) |
+//! | `GET` | `/api/search?q=` | 開けるボードすべてを名前・タグ・フォルダ・中身の文字で探す([`SearchHit`] の配列) |
 //! | `PATCH` | `/api/boards/{id}` | 名前の変更([`RenameBoard`]、編集者以上) |
 //! | `DELETE` | `/api/boards/{id}` | 削除(オーナーのみ) |
 //! | `GET` | `/api/boards/{id}/sharing` | 共有設定([`Sharing`]、オーナーのみ) |
@@ -150,6 +153,122 @@ pub struct BoardInfo {
     /// 属しているチームの ID。個人のボードなら `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
+    /// 自分だけの整理(お気に入り・タグ・フォルダ・最後に開いた時刻)。
+    #[serde(flatten, default)]
+    pub labels: BoardLabels,
+}
+
+/// ボードに自分で付ける整理の印。ほかの人には見えない。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoardLabels {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub favorite: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    /// 自分が最後に開いた時刻(UNIX ミリ秒)。開いたことがなければ 0。
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub opened: u64,
+}
+
+fn is_zero(v: &u64) -> bool {
+    *v == 0
+}
+
+/// タグの数と長さの上限。
+pub const MAX_TAGS: usize = 10;
+pub const MAX_TAG_CHARS: usize = 20;
+/// フォルダ名の長さの上限。
+pub const MAX_FOLDER_CHARS: usize = 40;
+
+/// タグを整える: 前後の空白と先頭の `#` を取り、重複と空を除き、上限で切る。
+pub fn clean_tags<S: AsRef<str>>(tags: &[S]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in tags {
+        let t: String = t
+            .as_ref()
+            .trim()
+            .trim_start_matches(['#', '＃'])
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(MAX_TAG_CHARS)
+            .collect();
+        if t.is_empty() || out.iter().any(|o| o.to_lowercase() == t.to_lowercase()) {
+            continue;
+        }
+        out.push(t);
+        if out.len() == MAX_TAGS {
+            break;
+        }
+    }
+    out
+}
+
+/// フォルダ名を整える。空なら `None`(フォルダに入れない)。
+pub fn clean_folder(name: &str) -> Option<String> {
+    let f: String = name
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control() && *c != '/')
+        .take(MAX_FOLDER_CHARS)
+        .collect();
+    let f = f.trim().to_string();
+    (!f.is_empty()).then_some(f)
+}
+
+/// `PUT /api/boards/{id}/labels`。指定したものだけ変える。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SetLabels {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favorite: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    /// フォルダに入れる。空文字ならフォルダから出す。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+}
+
+/// `POST /api/folders/rename`。`to` が空ならフォルダをなくす(ボードはフォルダの外へ)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RenameFolder {
+    pub from: String,
+    pub to: String,
+}
+
+/// 検索で一致した場所。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchKind {
+    Title,
+    Tag,
+    Folder,
+    /// ボードの中の要素(付箋・図形・テキスト・コネクタのラベルなど)。
+    Content,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchMatch {
+    pub kind: MatchKind,
+    /// 一致した部分の前後を含む抜き出し。
+    pub text: String,
+    /// `text` の中で一致した部分(文字位置, 文字数)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub highlight: Option<[usize; 2]>,
+    /// 要素の ID(16 進)。`?room=…&focus=…` で開くとそこへ移動する。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub element: Option<String>,
+}
+
+/// `GET /api/search?q=` の 1 件。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SearchHit {
+    pub board: BoardInfo,
+    pub matches: Vec<SearchMatch>,
+    /// 中身で一致した要素の数(`matches` に入れたのは先頭の数件だけ)。
+    #[serde(default)]
+    pub content_count: usize,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]

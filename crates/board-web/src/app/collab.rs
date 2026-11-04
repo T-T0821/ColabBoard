@@ -323,7 +323,7 @@ impl App {
     }
 
     /// 要素が画面に入るように移動して選択する。
-    fn focus_element(&mut self, id: ElementId) {
+    pub(super) fn focus_element(&mut self, id: ElementId) {
         let Some(b) = self.board.get(id).map(|e| e.bounds()) else {
             return;
         };
