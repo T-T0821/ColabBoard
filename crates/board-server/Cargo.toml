@@ -6,7 +6,8 @@ license.workspace = true
 description = "グラボード の同期サーバー(WebSocket + 永続化)"
 
 [dependencies]
-board-core.workspace = true
+board-core = { workspace = true, features = ["spreadsheet"] }
+board-export.workspace = true
 axum = { version = "0.8.9", features = ["ws"] }
 tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
 tower-http = { version = "0.7.1", features = ["fs", "trace"] }

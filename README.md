@@ -379,6 +379,20 @@ STORAGE_TOKYO_ACCESS_KEY_ID=…  STORAGE_TOKYO_SECRET_ACCESS_KEY=…   # なけ�
 | **Rust SDK** | Rust からは SDK クレート `graboard-sdk`(`crates/board-sdk`)で使える。 |
 | **詳しい説明** | 詳しくは [docs/api.md](docs/api.md)。 |
 
+### コマンドライン(CLI)とサーバーでの書き出し
+
+- `graboard`(`crates/board-cli`)で、テンプレートから新しいボードを作る・Markdown / Mermaid / PlantUML / draw.io / Miro / CSV / Excel を読み込む・PNG / PDF / マークダウン / JSON に書き出すことが、ブラウザなしでできる。
+- Web やサーバーと同じ Rust のコアを使い、描画は GPU なしの `board-export`(日本語フォント同梱)。フレームを 1 つ 1 ページにした PDF も作れる。
+- サーバーでも同じエンジンで書き出せる(`GET /api/v1/boards/{id}/export`)。CLI の `pull` / `push` でサーバーのボードを書き出したり、ファイルを読み込ませたりできる。公開ページの OGP 画像も同じ描画になり、文字が読めるようになった。
+- 詳しくは [docs/cli.md](docs/cli.md)。
+
+```sh
+cargo install --path crates/board-cli
+graboard new kpt -o 振り返り.png
+graboard convert flow.mmd -o flow.pdf
+graboard pull abc123 --frames -o 企画.pdf      # GRABOARD_URL / GRABOARD_TOKEN を使う
+```
+
 ### プラグイン(WASM)
 
 | 項目 | 内容 |
@@ -400,6 +414,8 @@ STORAGE_TOKYO_ACCESS_KEY_ID=…  STORAGE_TOKYO_SECRET_ACCESS_KEY=…   # なけ�
 | `board-types` | REST API とプラグインでやり取りする JSON の型(serde だけに依存) |
 | `board-plugin` | WASM プラグインを書くためのクレート(クレート名 `graboard-plugin`)と例 |
 | `board-sdk` | REST API(`/api/v1`)の Rust クライアント(クレート名 `graboard-sdk`) |
+| `board-export` | GPU なしの描画(CPU のラスタライザと文字描画)で PNG / PDF にする。CLI・サーバーの書き出し・OGP 画像で共用 |
+| `board-cli` | コマンドライン `graboard`(作る・変換する・書き出す・サーバーとやり取りする) |
 | `board-server` | 同期サーバー(axum + tokio)。ルームごとに yrs ドキュメントを持って更新を中継し、redb に保存する |
 | `board-bench` | 再現可能なベンチマーク(CPU 側の処理時間、初回同期の速さ) |
 | `board-desktop` | デスクトップアプリ(Tauri)。`board-server` をアプリの中で動かし、埋め込みの Web クライアントを WebView で開く。WebView の開発用ライブラリが要るので別のワークスペース |

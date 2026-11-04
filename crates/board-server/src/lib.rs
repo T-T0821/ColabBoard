@@ -47,6 +47,7 @@ pub mod store;
 pub mod teams;
 pub mod templates;
 pub mod tokens;
+pub mod transfer;
 pub mod versions;
 
 use std::path::PathBuf;
