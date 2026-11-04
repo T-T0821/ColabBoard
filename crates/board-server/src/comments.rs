@@ -498,7 +498,7 @@ mod tests {
         let alice = user(&store, "alice");
         let bob = user(&store, "bob");
         let carol = user(&store, "carol");
-        let meta = boards::create(&store, "alice", "企画", None).unwrap();
+        let meta = boards::create(&store, "alice", "企画", None, None).unwrap();
         let id = meta.id.clone();
         // bob はメンバー、carol は開けない。
         let mut m = boards::get(&store, &id).unwrap().unwrap();
@@ -591,7 +591,7 @@ mod tests {
         let store = Store::memory();
         let alice = user(&store, "alice");
         user(&store, "bob");
-        let mut m = boards::create(&store, "alice", "企画", None).unwrap();
+        let mut m = boards::create(&store, "alice", "企画", None, None).unwrap();
         m.members.insert("bob".into(), Role::Editor);
         boards::put(&store, &m).unwrap();
         let id = m.id.clone();

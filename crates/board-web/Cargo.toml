@@ -10,6 +10,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 board-core = { workspace = true, features = ["spreadsheet"] }
 board-render.workspace = true
+board-e2e.workspace = true
+base64 = "0.22"
 glam.workspace = true
 log.workspace = true
 wasm-bindgen = "0.2"
@@ -115,6 +117,7 @@ web-sys = { version = "0.3", features = [
     "BlobEvent",
     "CanvasRenderingContext2d",
     "CanvasGradient",
+    "Crypto",
 ] }
 # PDF の取り込み(Pure Rust のラスタライザ)。wasm が数 MB 増えるので機能で切れるようにする。
 # 直接接続(P2P)の招待リンクを QR コード(SVG)にする。

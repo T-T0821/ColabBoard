@@ -980,6 +980,15 @@ impl SplitMix64 {
     }
 }
 
+/// 複数の yrs v1 更新を 1 つにまとめる(暗号化ボードで、復号したログを一度に取り込むのに使う)。
+/// 空なら空の `Vec` を返す。
+pub fn merge_updates(updates: &[Vec<u8>]) -> Result<Vec<u8>, String> {
+    if updates.is_empty() {
+        return Ok(Vec::new());
+    }
+    yrs::merge_updates_v1(updates.iter().map(Vec::as_slice)).map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

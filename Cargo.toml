@@ -10,6 +10,7 @@ members = [
     "crates/board-sdk",
     "crates/board-plugin",
     "crates/board-pdf",
+    "crates/board-e2e",
     "crates/board-export",
     "crates/board-cli",
     "tools/cloud-icons",
@@ -27,6 +28,7 @@ rust-version = "1.88"
 board-core = { path = "crates/board-core" }
 board-types = { path = "crates/board-types" }
 board-render = { path = "crates/board-render" }
+board-e2e = { path = "crates/board-e2e" }
 board-export = { path = "crates/board-export" }
 glam = { version = "0.30", features = ["bytemuck"] }
 bytemuck = { version = "1", features = ["derive"] }

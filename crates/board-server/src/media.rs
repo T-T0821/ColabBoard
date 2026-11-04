@@ -132,10 +132,12 @@ pub async fn upload(
 ) -> Result<Json<Uploaded>, Error> {
     let user = api::current_user(&state, &headers)?;
     let login = user.as_ref().map(|u| u.login.as_str());
-    let (_, role) = api::board_access(&state, &id, login, q.key.as_deref())?;
+    let (meta, role) = api::board_access(&state, &id, login, q.key.as_deref())?;
     if !role.can_edit() {
         return Err(Error::forbidden());
     }
+    // 動画はサーバーに平文で置くので、暗号化ボードでは受け付けない。
+    crate::e2e::require_plain(meta.as_ref())?;
     let mime = headers
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())

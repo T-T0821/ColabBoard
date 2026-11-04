@@ -6,9 +6,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use board_core::api::{
-    AuditEvent, BoardInfo, Login, MatchKind, Me, NewBoard, NewTeam, RenameFolder, Role, SearchHit,
-    SetBoardTeam, SetLabels, SetTeamMember, SetTeamP2p, SetTeamStorage, Signup, SsoStatus,
-    StorageLocation, Team, TeamInfo, TeamRole, TeamSso, UserTemplate,
+    AuditEvent, BoardInfo, E2ePolicy, HandleReport, Login, MatchKind, Me, NewBoard, NewTeam,
+    RenameFolder, Report, ReportStatus, Role, SearchHit, SetBoardTeam, SetLabels, SetTeamE2e,
+    SetTeamMember, SetTeamP2p, SetTeamStorage, Signup, SsoStatus, StorageLocation, Team,
+    TeamInfo, TeamRole, TeamSso, UserTemplate,
 };
 use board_core::templates::{Category, Template};
 use wasm_bindgen::JsCast;
@@ -81,6 +82,27 @@ struct Home {
     renaming_folder: bool,
     /// 検索欄に最初のフォーカスを当てたか。
     search_focused: std::cell::Cell<bool>,
+    /// 暗号化ボードを作れる場所。
+    e2e: E2ePolicy,
+    /// 開いている通報の一覧。
+    reports: Option<ReportsView>,
+}
+
+/// 通報の一覧の表示。
+struct ReportsView {
+    /// チームの通報ならその ID。`None` は全体(サーバー管理者)。
+    team: Option<String>,
+    list: Vec<Report>,
+    loaded: bool,
+}
+
+impl ReportsView {
+    fn query(&self) -> String {
+        match &self.team {
+            Some(t) => format!("?team={}", http::encode(t)),
+            None => String::new(),
+        }
+    }
 }
 
 /// 「最近見たボード」に出す数。
@@ -230,6 +252,8 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         editing: None,
         renaming_folder: false,
         search_focused: std::cell::Cell::new(false),
+        e2e: E2ePolicy::default(),
+        reports: None,
     }));
     install(&home)?;
     if home.borrow().me.is_some() {
@@ -476,7 +500,14 @@ impl Home {
             editing = if editor.is_empty() { "" } else { " editing" },
             url = escape(&url),
             title = escape(&b.title),
-            badge = role_badge(b.role),
+            badge = if b.e2e.is_some() {
+                format!(
+                    r#"{}<span class="badge e2e-lock" title="エンドツーエンド暗号化ボード">🔒 暗号化</span>"#,
+                    role_badge(b.role)
+                )
+            } else {
+                role_badge(b.role)
+            },
             ago = ago(b.updated),
             labels = label_chips(b),
         )
@@ -679,12 +710,14 @@ impl Home {
   <form data-form="create" class="create"{searching}>
     <input name="title" maxlength="80" placeholder="{placeholder}" />
     <button type="submit" class="primary" {busy}>ボードを作る</button>
+    {e2e_option}
     <button type="button" data-action="gallery" aria-expanded="{gallery_open}">テンプレートから作る</button>
   </form>
   {err}
   {gallery}
   {team_panel}
   {audit}
+  {reports}
   <ul class="boards">{rows}</ul>
 </div>"#,
             name = escape(&me.name),
@@ -714,11 +747,17 @@ impl Home {
             },
             team_panel = self.render_team_panel(me),
             admin = if me.admin {
-                r#"<button type="button" class="quiet" data-action="ops" data-id="errors">運用</button><button type="button" class="quiet" data-action="audit" data-id="">全体の操作ログ</button>"#
+                r#"<button type="button" class="quiet" data-action="ops" data-id="errors">運用</button><button type="button" class="quiet" data-action="audit" data-id="">全体の操作ログ</button><button type="button" class="quiet" data-action="reports" data-id="">通報</button>"#
             } else {
                 ""
             },
             audit = self.render_audit(),
+            reports = self.render_reports(me),
+            e2e_option = if self.can_create_e2e() {
+                r#"<label class="e2e-option" title="中身をこのブラウザで暗号化してから送ります。サーバーの管理者にも読めません。AI・コメント・履歴など、サーバーが中身を読む機能は使えなくなります"><input type="checkbox" name="e2e" /> <span aria-hidden="true">🔒</span> エンドツーエンド暗号化(サーバーにも中身が見えない)</label>"#
+            } else {
+                ""
+            },
             gallery_open = self.gallery.is_some(),
             gallery = self.render_gallery(me),
         )
@@ -882,6 +921,105 @@ impl Home {
             } else {
                 ""
             },
+        )
+    }
+
+    /// 今の画面(個人・チーム)で暗号化ボードを作れるか。
+    fn can_create_e2e(&self) -> bool {
+        if !self.e2e.enabled {
+            return false;
+        }
+        match self.filter.team() {
+            Some(t) => self.e2e.teams.iter().any(|x| x == t),
+            None => true,
+        }
+    }
+
+    fn render_reports(&self, me: &Me) -> String {
+        let Some(view) = &self.reports else {
+            return String::new();
+        };
+        let mut rows = String::new();
+        for r in &view.list {
+            let status = match r.status {
+                ReportStatus::Open => r#"<span class="badge report-open">未対応</span>"#,
+                ReportStatus::Resolved => {
+                    r#"<span class="badge" data-role="editor">対応済み</span>"#
+                }
+                ReportStatus::Dismissed => r#"<span class="badge">問題なし</span>"#,
+            };
+            let evidence = match &r.evidence {
+                Some(e) => format!(
+                    r#"<details><summary>添えられたボードの文字</summary><pre class="evidence">{}</pre></details>"#,
+                    escape(e)
+                ),
+                None if r.e2e => r#"<p class="muted small">暗号化ボードで、文字は添えられていません(サーバーでは中身を確かめられません)。</p>"#.into(),
+                None => String::new(),
+            };
+            let suspend = if r.suspended {
+                format!(
+                    r#"<button type="button" data-action="report-handle" data-id="{id}" data-status="resolved" data-suspend="false">利用停止を解除</button>"#,
+                    id = r.id
+                )
+            } else {
+                format!(
+                    r#"<button type="button" class="danger" data-action="report-handle" data-id="{id}" data-status="resolved" data-suspend="true">利用停止にする</button>"#,
+                    id = r.id
+                )
+            };
+            rows.push_str(&format!(
+                r#"<li class="report"><div class="report-head">{status}<strong translate="no">{title}</strong>{lock}<span class="muted small">{when}</span>{suspended}</div>
+<p><strong>{reason}</strong>{comment}</p>
+<p class="muted small">通報: {who} · ボード ID <code>{board}</code></p>
+{evidence}
+<div class="row actions">{suspend}<button type="button" class="quiet" data-action="report-handle" data-id="{id}" data-status="dismissed">問題なし</button><button type="button" class="quiet" data-action="report-handle" data-id="{id}" data-status="resolved">対応済みにする</button></div></li>"#,
+                id = r.id,
+                title = escape(&r.board_title),
+                lock = if r.e2e { r#" <span class="badge e2e-lock" title="エンドツーエンド暗号化ボード">🔒 暗号化</span>"# } else { "" },
+                when = escape(&datetime(r.at)),
+                suspended = if r.suspended { r#" <span class="badge report-open">利用停止中</span>"# } else { "" },
+                reason = escape(board_core::api::report_reason_label(&r.reason)),
+                comment = if r.comment.is_empty() { String::new() } else { format!(": {}", escape(&r.comment)) },
+                who = r.reporter.as_deref().map(|l| format!("@{}", escape(l))).unwrap_or_else(|| "共有リンクから開いた人".into()),
+                board = escape(&r.board),
+            ));
+        }
+        if rows.is_empty() {
+            rows = if view.loaded {
+                r#"<li class="muted">通報はありません。</li>"#.into()
+            } else {
+                r#"<li class="muted">読み込み中…</li>"#.into()
+            };
+        }
+        let title = match &view.team {
+            Some(t) => match self.teams.iter().find(|x| &x.id == t) {
+                Some(team) => format!("「{}」への通報", escape(&team.name)),
+                None => "チームへの通報".into(),
+            },
+            None => "全体の通報".into(),
+        };
+        // サーバー全体のオン・オフ(サーバー管理者)。
+        let server = if view.team.is_none() && me.admin {
+            format!(
+                r#"<div class="row e2e-server"><span class="grow small">エンドツーエンド暗号化ボード(サーバー全体): <strong>{state}</strong></span><button type="button" class="quiet" data-action="server-e2e" data-id="{next}">{label}</button></div>"#,
+                state = if self.e2e.enabled { "有効" } else { "無効" },
+                next = if self.e2e.enabled { "off" } else { "on" },
+                label = if self.e2e.enabled {
+                    "オフにする"
+                } else {
+                    "オンにする"
+                },
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            r#"<section class="audit-panel reports-panel">
+  <header><h2>{title}</h2><span class="spacer"></span><button type="button" class="quiet" data-action="close-reports">閉じる</button></header>
+  {server}
+  <p class="muted small">暗号化ボードの中身はサーバーでは読めません。通報した人が添えた文字だけが確認の手がかりです。利用停止にすると、そのボードは誰も開けなくなり、つないでいる人も切断されます(内容は消えません)。</p>
+  <ul class="reports">{rows}</ul>
+</section>"#
         )
     }
 
@@ -1055,6 +1193,29 @@ impl Home {
         } else {
             String::new()
         };
+        // 暗号化ボードの許可(チームの管理者が決める)。
+        let e2e = if !self.e2e.enabled {
+            String::new()
+        } else if admin {
+            format!(
+                r#"<div class="row inline"><span class="muted small nowrap">🔒 暗号化ボード</span><span class="small grow">{state}</span><button type="button" class="quiet" data-action="team-e2e" data-id="{next}">{label}</button></div>"#,
+                state = if team.e2e {
+                    "許可(メンバーがこのチームで作れます。中身は管理者にも見えません)"
+                } else {
+                    "許可していません"
+                },
+                next = if team.e2e { "off" } else { "on" },
+                label = if team.e2e {
+                    "禁止する"
+                } else {
+                    "許可する"
+                },
+            )
+        } else if team.e2e {
+            r#"<p class="muted small">🔒 このチームでは暗号化ボードを作れます。</p>"#.to_string()
+        } else {
+            String::new()
+        };
         // サーバーを通さない直接接続(P2P)。中身がサーバーを通らないので、管理者が止められる。
         let p2p = if admin {
             format!(
@@ -1080,7 +1241,7 @@ impl Home {
             r#"<section class="team-panel">
   <header><h2 translate="no">{name}</h2><span class="badge" data-role="{rs}">{rl}</span><span class="muted">{n} 人</span><span class="spacer"></span>{log}{danger}</header>
   <ul class="team-members">{members}</ul>
-  {add}{mv}{storage}{p2p}{sso}
+  {add}{mv}{storage}{p2p}{sso}{e2e}
   <p class="muted small">チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。</p>
 </section>"#,
             name = escape(&team.name),
@@ -1089,8 +1250,8 @@ impl Home {
             n = team.members.len(),
             log = if admin {
                 format!(
-                    r#"<button type="button" class="quiet" data-action="audit" data-id="{}">操作ログ</button>"#,
-                    escape(&team.id)
+                    r#"<button type="button" class="quiet" data-action="audit" data-id="{id}">操作ログ</button><button type="button" class="quiet" data-action="reports" data-id="{id}">通報</button>"#,
+                    id = escape(&team.id)
                 )
             } else {
                 String::new()
@@ -1123,6 +1284,7 @@ async fn reload(home: Shared) {
         }
         _ => None,
     };
+    let policy = http::get::<E2ePolicy>("/e2e").await.unwrap_or_default();
     let locations = if detail.is_some() && home.borrow().locations.is_empty() {
         http::get::<Vec<StorageLocation>>("/storage")
             .await
@@ -1141,6 +1303,7 @@ async fn reload(home: Shared) {
     }
     h.teams = teams;
     h.team = detail;
+    h.e2e = policy;
     match result {
         Ok(list) => {
             h.boards = list;
@@ -1230,10 +1393,29 @@ fn install(home: &Shared) -> Result<(), String> {
                 "create" => {
                     let title = form_value(&form, "title");
                     let team = h.borrow().filter.team().map(str::to_string);
-                    match http::send::<_, BoardInfo>("POST", "/boards", &NewBoard { title, team })
-                        .await
+                    // 暗号化ボード: 鍵はこのブラウザで作り、サーバーには指紋だけを送る。
+                    let sealed = form
+                        .query_selector("[name=e2e]")
+                        .ok()
+                        .flatten()
+                        .and_then(|e| e.dyn_into::<HtmlInputElement>().ok())
+                        .is_some_and(|i| i.checked());
+                    let key = sealed.then(crate::e2e::new_key);
+                    let e2e = key.as_ref().map(|k| k.key_id());
+                    match http::send::<_, BoardInfo>(
+                        "POST",
+                        "/boards",
+                        &NewBoard { title, team, e2e },
+                    )
+                    .await
                     {
-                        Ok(b) => navigate(&h.borrow().window, &board_url(&b.id, None)),
+                        Ok(b) => {
+                            let window = h.borrow().window.clone();
+                            if let Some(k) = &key {
+                                crate::e2e::store_key(&window, &b.id, k);
+                            }
+                            navigate(&window, &board_url(&b.id, None))
+                        }
                         Err(e) => {
                             let mut hm = h.borrow_mut();
                             hm.busy = false;
@@ -1491,12 +1673,102 @@ fn install(home: &Shared) -> Result<(), String> {
             }
             "audit" => {
                 let team = id.filter(|t| !t.is_empty());
+                h.borrow_mut().reports = None;
                 h.borrow_mut().audit = Some(AuditView {
                     team,
                     events: Vec::new(),
                     more: false,
                 });
                 wasm_bindgen_futures::spawn_local(load_audit(h.clone(), false));
+            }
+            "reports" => {
+                let team = id.filter(|t| !t.is_empty());
+                {
+                    let mut hm = h.borrow_mut();
+                    hm.audit = None;
+                    hm.reports = Some(ReportsView {
+                        team,
+                        list: Vec::new(),
+                        loaded: false,
+                    });
+                    hm.render();
+                }
+                wasm_bindgen_futures::spawn_local(load_reports(h.clone()));
+            }
+            "close-reports" => {
+                let mut hm = h.borrow_mut();
+                hm.reports = None;
+                hm.render();
+            }
+            "report-handle" => {
+                let Some(rid) = id.and_then(|i| i.parse::<u64>().ok()) else {
+                    return;
+                };
+                let status = match el.get_attribute("data-status").as_deref() {
+                    Some("dismissed") => ReportStatus::Dismissed,
+                    Some("open") => ReportStatus::Open,
+                    _ => ReportStatus::Resolved,
+                };
+                let suspend = el.get_attribute("data-suspend").map(|v| v == "true");
+                let q = h
+                    .borrow()
+                    .reports
+                    .as_ref()
+                    .map(|v| v.query())
+                    .unwrap_or_default();
+                let h = h.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let res = http::send::<_, Report>(
+                        "PUT",
+                        &format!("/reports/{rid}{q}"),
+                        &HandleReport { status, suspend },
+                    )
+                    .await;
+                    if let Err(e) = res {
+                        let mut hm = h.borrow_mut();
+                        hm.error = Some(e.message());
+                        hm.render();
+                        return;
+                    }
+                    load_reports(h).await;
+                });
+            }
+            "team-e2e" => {
+                let allowed = id.as_deref() == Some("on");
+                let Some(team) = h.borrow().filter.team().map(str::to_string) else {
+                    return;
+                };
+                let h = h.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let res = http::send::<_, Team>(
+                        "PUT",
+                        &format!("/teams/{}/e2e", http::encode(&team)),
+                        &SetTeamE2e { allowed },
+                    )
+                    .await
+                    .map(|_| ());
+                    after_team_call(&h, res).await;
+                });
+            }
+            "server-e2e" => {
+                let enabled = id.as_deref() == Some("on");
+                let h = h.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let res = http::send::<_, E2ePolicy>(
+                        "PUT",
+                        "/e2e",
+                        &serde_json::json!({ "enabled": enabled }),
+                    )
+                    .await;
+                    match res {
+                        Ok(_) => reload(h).await,
+                        Err(e) => {
+                            let mut hm = h.borrow_mut();
+                            hm.error = Some(e.message());
+                            hm.render();
+                        }
+                    }
+                });
             }
             "ops" => {
                 crate::ops::open(
@@ -1551,7 +1823,7 @@ fn install(home: &Shared) -> Result<(), String> {
                 h.borrow_mut().busy = true;
                 let h = h.clone();
                 wasm_bindgen_futures::spawn_local(async move {
-                    match http::send::<_, BoardInfo>("POST", "/boards", &NewBoard { title, team })
+                    match http::send::<_, BoardInfo>("POST", "/boards", &NewBoard { title, team, e2e: None })
                         .await
                     {
                         Ok(b) => navigate(
@@ -1916,6 +2188,28 @@ fn label_chips(b: &BoardInfo) -> String {
         ));
     }
     html
+}
+
+/// 通報の一覧を読む。
+async fn load_reports(h: Shared) {
+    let Some(q) = h.borrow().reports.as_ref().map(|v| v.query()) else {
+        return;
+    };
+    let res = http::get::<Vec<Report>>(&format!("/reports{q}")).await;
+    let mut hm = h.borrow_mut();
+    match res {
+        Ok(list) => {
+            if let Some(v) = hm.reports.as_mut() {
+                v.list = list;
+                v.loaded = true;
+            }
+        }
+        Err(e) => {
+            hm.reports = None;
+            hm.error = Some(e.message());
+        }
+    }
+    hm.render();
 }
 
 /// 操作ログを読む。`more` なら今ある分より古いものを足す。

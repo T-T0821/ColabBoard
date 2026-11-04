@@ -10,6 +10,8 @@ mod billing;
 #[cfg(target_arch = "wasm32")]
 mod developer;
 #[cfg(target_arch = "wasm32")]
+mod e2e;
+#[cfg(target_arch = "wasm32")]
 mod error_report;
 #[cfg(target_arch = "wasm32")]
 mod home;

@@ -56,6 +56,7 @@ const PRESENCE_INTERVAL_MS: f64 = 40.0;
 
 mod ai_ui;
 mod diagram_ui;
+mod e2e_ui;
 
 struct App {
     window: Window,
@@ -134,6 +135,11 @@ struct App {
     touch: touch::Touch,
     /// Web に公開したページから開いた(`&public`)。見るだけで、カーソルも送らない。
     public_view: bool,
+    /// エンドツーエンド暗号化ボードなら、暗号化・復号に使う鍵。
+    e2e: Option<crate::e2e::Sealer>,
+    /// 暗号化ボードのログの状態(まとめるときに使う)。
+    sealed: e2e_ui::SealedState,
+    e2e_ui: e2e_ui::E2eUi,
     /// サーバーを通さない直接接続(共同編集のボードだけ)。
     p2p: Option<crate::p2p::P2p>,
     p2p_ui: p2p_ui::P2pUi,
@@ -291,6 +297,7 @@ pub async fn run() -> Result<(), String> {
     }
     let mut me = None;
     let mut info = None;
+    let mut sealer = None;
     if collaborative {
         let room = ensure_room(&window, &params);
         match session::check_access(&room, key.as_deref()).await {
@@ -299,7 +306,21 @@ pub async fn run() -> Result<(), String> {
                 session::show_denied(&document, me.is_some(), false);
                 return Ok(());
             }
+            Access::Suspended => {
+                session::show_suspended(&document);
+                return Ok(());
+            }
             Access::Granted(i) => {
+                // 暗号化ボード: 鍵(リンクの # 以降か、この端末に覚えたもの)がなければ開けない。
+                if let Some(e2e) = &i.e2e {
+                    match crate::e2e::resolve_key(&window, &room, e2e) {
+                        Ok(k) => sealer = Some(crate::e2e::Sealer::new(&room, k)),
+                        Err(problem) => {
+                            crate::e2e::show_key_prompt(&document, &i, problem, false);
+                            return Ok(());
+                        }
+                    }
+                }
                 info = Some(i);
                 me = session::fetch_me().await;
             }
@@ -379,8 +400,11 @@ pub async fn run() -> Result<(), String> {
         _ => None,
     };
 
-    // 公開ページ・埋め込みでは直接接続を出さない。
-    let p2p_room = room.is_some() && !public_view && !params.has("embed");
+    if let (Some(chrome), Some(sealer)) = (&chrome, &sealer) {
+        chrome.borrow_mut().e2e_key = Some(sealer.key().to_link());
+    }
+    // 公開ページ・埋め込み・暗号化ボードでは直接接続を出さない。
+    let p2p_room = room.is_some() && !public_view && !params.has("embed") && sealer.is_none();
     let app = Rc::new(RefCell::new(App {
         window: window.clone(),
         document: document.clone(),
@@ -447,6 +471,9 @@ pub async fn run() -> Result<(), String> {
         syncs: 0,
         touch: touch::Touch::default(),
         public_view,
+        e2e: sealer,
+        sealed: e2e_ui::SealedState::default(),
+        e2e_ui: e2e_ui::E2eUi::new(&document)?,
         p2p: p2p_room.then(crate::p2p::P2p::new),
         p2p_ui: p2p_ui::P2pUi::new(key.clone()),
         pending_template: None,
@@ -500,6 +527,7 @@ pub async fn run() -> Result<(), String> {
     search_ui::install(&app)?;
     a11y::install(&app)?;
     issues::install(&app)?;
+    e2e_ui::install(&app)?;
     p2p_ui::install(&app, &document)?;
     start_loop(app);
     Ok(())
@@ -687,6 +715,37 @@ impl App {
         };
         match access {
             Access::Granted(info) => {
+                // 暗号化ボードの鍵が作り直され、手元の鍵では読めなくなった。
+                if let (Some(sealer), Some(e2e)) = (&self.e2e, &info.e2e)
+                    && sealer.key().key_id() != e2e.key_id
+                {
+                    let fresh = self
+                        .chrome
+                        .as_ref()
+                        .map(|c| c.borrow().room.clone())
+                        .and_then(|room| crate::e2e::stored_key(&self.window, &room))
+                        .filter(|k| k.key_id() == e2e.key_id);
+                    match fresh {
+                        // 自分で作り直したときは、新しい鍵をもう覚えている。
+                        Some(k) => {
+                            if let Some(s) = self.e2e.as_mut() {
+                                s.set_key(k);
+                            }
+                        }
+                        None => {
+                            if let Some(net) = self.net.as_mut() {
+                                net.disable();
+                            }
+                            crate::e2e::show_key_prompt(
+                                &self.document,
+                                &info,
+                                crate::e2e::KeyProblem::Wrong,
+                                true,
+                            );
+                            return;
+                        }
+                    }
+                }
                 chrome.borrow_mut().set_info(info);
                 if !self.can_edit() {
                     // 編集できなくなった: 途中の操作をやめる。
@@ -706,7 +765,77 @@ impl App {
                 let logged_in = chrome.borrow().me.is_some();
                 session::show_denied(&self.document, logged_in, true);
             }
+            Access::Suspended => {
+                if let Some(net) = self.net.as_mut() {
+                    net.disable();
+                }
+                session::show_suspended(&self.document);
+            }
             Access::Unavailable => {}
+        }
+    }
+
+    /// 初回同期(つなぎ直しを含む)。`state` はボード全体(暗号化ボードなら復号してまとめたもの)。
+    fn on_synced(&mut self, state: Vec<u8>, _now: f64) {
+        self.syncs += 1;
+        if self.syncs > 1 {
+            self.recheck_access();
+            self.fetch_comments();
+        }
+        let before = self.live_state_vector();
+        if !state.is_empty()
+            && let Err(e) = self.live_board_mut().apply_remote(&state)
+        {
+            log::error!("初回同期に失敗: {e}");
+        }
+        let new_info = self.live_state_vector() != before;
+        if self.e2e.is_none() {
+            self.p2p_forward(board_core::p2p::Source::Server, new_info, &state);
+        }
+        self.p2p_flush_log();
+        if self.timings.synced.is_none() {
+            self.timings.synced = Some(now_ms(&self.window));
+            self.publish_timings();
+        }
+        // 切断中・オフライン中の変更のうち、サーバーにないものだけを送る
+        // (CRDT なので、その間の他の人の変更ともマージされる)。
+        let _ = self.live_board_mut().take_outgoing();
+        let live = self.live_board.as_ref().unwrap_or(&self.board);
+        let missing = if state.is_empty() {
+            live.encode_diff(None)
+        } else {
+            live.encode_missing_from(&state)
+                .or_else(|_| live.encode_diff(None))
+        };
+        // 暗号化ボードで、手元に何もなければ送らない(空の更新を暗号化して積まない)。
+        let empty = live.is_empty() && self.e2e.is_some();
+        if let Ok(missing) = missing
+            && !empty
+        {
+            let msg = self.wire_update(missing);
+            if let Some(net) = self.net.as_ref() {
+                net.send(&msg);
+            }
+        }
+        self.cursors.clear_server();
+        self.presence_sent = None;
+        self.presence_sent_at = 0.0;
+        if !self.view_initialized {
+            self.initial_view();
+        }
+        self.editor.prune_selection(&self.board);
+        self.apply_pending_template();
+        self.dirty = true;
+    }
+
+    /// 送る形にする(暗号化ボードなら暗号化する)。
+    fn wire_update(&self, update: Vec<u8>) -> Message {
+        match &self.e2e {
+            Some(sealer) => Message::Sealed {
+                seq: 0,
+                blob: sealer.seal_update(&update),
+            },
+            None => Message::Update(update),
         }
     }
 
@@ -721,42 +850,23 @@ impl App {
                 NetEvent::Open => {}
                 NetEvent::Message(Message::Sync { you, state }) => {
                     log::info!("同期しました(参加者番号 {you})");
-                    self.syncs += 1;
-                    if self.syncs > 1 {
-                        self.recheck_access();
-                        self.fetch_comments();
-                    }
-                    let before = self.live_state_vector();
-                    if let Err(e) = self.live_board_mut().apply_remote(&state) {
-                        log::error!("初回同期に失敗: {e}");
-                    }
-                    let new_info = self.live_state_vector() != before;
-                    self.p2p_forward(board_core::p2p::Source::Server, new_info, &state);
-                    self.p2p_flush_log();
-                    if self.timings.synced.is_none() {
-                        self.timings.synced = Some(now_ms(&self.window));
-                        self.publish_timings();
-                    }
-                    // 切断中・オフライン中の変更のうち、サーバーにないものだけを送る
-                    // (CRDT なので、その間の他の人の変更ともマージされる)。
-                    let _ = self.live_board_mut().take_outgoing();
-                    let live = self.live_board.as_ref().unwrap_or(&self.board);
-                    let missing = live
-                        .encode_missing_from(&state)
-                        .or_else(|_| live.encode_diff(None));
-                    if let (Some(net), Ok(missing)) = (self.net.as_ref(), missing) {
-                        net.send(&Message::Update(missing));
-                    }
-                    self.cursors.clear_server();
-                    self.presence_sent = None;
-                    self.presence_sent_at = 0.0;
-                    if !self.view_initialized {
-                        self.initial_view();
-                    }
-                    self.editor.prune_selection(&self.board);
-                    self.apply_pending_template();
-                    self.dirty = true;
+                    self.on_synced(state, now);
                 }
+                NetEvent::Message(Message::SealedSync { you, base, blobs }) => {
+                    let Some(state) = self.open_sealed_log(base, &blobs) else {
+                        continue;
+                    };
+                    log::info!(
+                        "暗号化ボードを同期しました(参加者番号 {you}、{} 件)",
+                        blobs.len()
+                    );
+                    self.on_synced(state, now);
+                    self.maybe_compact(blobs.len() >= crate::e2e::COMPACT_AT);
+                }
+                NetEvent::Message(Message::Sealed { seq, blob }) => {
+                    self.on_sealed(seq, &blob);
+                }
+                NetEvent::Message(Message::Compact { .. }) => {}
                 NetEvent::Message(Message::Update(u)) => {
                     let before = self.live_state_vector();
                     if let Err(e) = self.live_board_mut().apply_remote(&u) {
@@ -878,9 +988,16 @@ impl App {
 
     /// 招待用に今の URL をコピーする。
     fn copy_link(&self) {
-        let Ok(href) = self.window.location().href() else {
+        let Ok(mut href) = self.window.location().href() else {
             return;
         };
+        // 暗号化ボードは鍵をアドレスバーから消しているので、コピーするリンクに付け直す。
+        if let Some(sealer) = &self.e2e {
+            if let Some((base, _)) = href.split_once('#') {
+                href = base.to_string();
+            }
+            href.push_str(&format!("#k={}", sealer.key().to_link()));
+        }
         let _ = self.window.navigator().clipboard().write_text(&href);
         if let Some(el) = self.document.get_element_by_id("share") {
             el.set_text_content(Some("コピーしました"));

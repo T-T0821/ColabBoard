@@ -37,6 +37,9 @@ pub struct TeamRecord {
     /// ボードの中身を置く場所([`crate::storage`])。`None` はこのサーバー。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub storage: Option<String>,
+    /// チームのボードを暗号化ボードとして作れるか(チームの管理者が決める。既定は不可)。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub e2e: bool,
     /// チームのボードで直接接続(P2P)を止めているか([`crate::p2p`])。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub p2p_disabled: bool,
@@ -52,6 +55,7 @@ impl TeamRecord {
             created: self.created,
             sso_domains: self.sso_domains.clone(),
             storage: self.storage.clone(),
+            e2e: self.e2e,
             p2p_disabled: self.p2p_disabled,
         }
     }
@@ -134,6 +138,7 @@ pub fn create(store: &Store, owner: &str, name: &str) -> Result<TeamRecord, Stor
             members: BTreeMap::from([(owner.to_string(), TeamRole::Owner)]),
             sso_domains: Vec::new(),
             storage: None,
+            e2e: false,
             p2p_disabled: false,
         };
         if store.insert_new_json(TEAMS, &team.id, &team)? {
@@ -619,7 +624,7 @@ mod tests {
             Some(TeamRole::Member)
         );
 
-        let b = boards::create(&store, "alice", "計画", Some(&t.id)).unwrap();
+        let b = boards::create(&store, "alice", "計画", Some(&t.id), None).unwrap();
         // bob はチームのボードとして一覧で見える(既定は編集可)。
         let list = boards::list_for(&store, "bob", true).unwrap();
         assert_eq!(list.len(), 1);

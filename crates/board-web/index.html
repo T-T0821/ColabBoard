@@ -42,6 +42,7 @@
     <a class="brand" href="./" title="ボード一覧">グラボード</a>
     <span id="board-title" data-editable="false" translate="no"></span>
     <span id="board-role" class="badge" hidden></span>
+    <button id="e2e-badge" class="e2e-badge" title="エンドツーエンド暗号化: サーバーの管理者にも中身は見えません" aria-controls="e2e-panel" aria-expanded="false" hidden><span aria-hidden="true">🔒</span> 暗号化</button>
     <span class="sep"></span>
     <span><span class="label">描画</span> <span id="hud-backend">初期化中…</span></span>
     <span><span class="label">要素</span> <span id="hud-count">0</span></span>
@@ -125,6 +126,7 @@
 
   <a id="embed-open" class="panel embed-open" target="_blank" rel="noopener" hidden>グラボードで開く ↗</a>
   <section id="share-panel" class="panel share-panel" aria-label="共有" hidden></section>
+  <section id="e2e-panel" class="panel share-panel e2e-panel" aria-label="エンドツーエンド暗号化" hidden></section>
 
   <section class="panel demo" aria-label="性能確認">
     <span class="label">ダミー要素</span>

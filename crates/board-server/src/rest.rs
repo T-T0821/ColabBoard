@@ -175,6 +175,9 @@ pub(crate) async fn blocking<T: Send + 'static>(
 
 impl From<String> for Error {
     fn from(e: String) -> Self {
+        if e == crate::room::SEALED_ERROR {
+            return crate::e2e::sealed_error();
+        }
         tracing::error!("ボードを読めません: {e}");
         Error::new(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -304,7 +307,19 @@ async fn create_board(
     if let Some(team) = &req.team {
         crate::teams::member_team(state.store(), team, &user.login)?;
     }
-    let meta = boards::create(state.store(), &user.login, &req.title, req.team.as_deref())?;
+    // 鍵はブラウザで作って手元にだけ置くものなので、API からは暗号化ボードを作らない。
+    if req.e2e.is_some() {
+        return Err(Error::bad_request(
+            "暗号化ボードは Web の画面から作ってください",
+        ));
+    }
+    let meta = boards::create(
+        state.store(),
+        &user.login,
+        &req.title,
+        req.team.as_deref(),
+        None,
+    )?;
     tracing::info!(board = %meta.id, owner = %user.login, "ボード作成(API)");
     crate::audit::record(
         &state,
@@ -339,6 +354,7 @@ async fn board_info(
             key: None,
             team: None,
             labels: Default::default(),
+            e2e: None,
         },
     }))
 }
