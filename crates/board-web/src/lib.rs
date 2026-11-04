@@ -10,6 +10,8 @@ mod billing;
 #[cfg(target_arch = "wasm32")]
 mod developer;
 #[cfg(target_arch = "wasm32")]
+mod error_report;
+#[cfg(target_arch = "wasm32")]
 mod home;
 #[cfg(target_arch = "wasm32")]
 mod notify_settings;
@@ -19,6 +21,8 @@ mod http;
 pub mod i18n;
 #[cfg(target_arch = "wasm32")]
 mod net;
+#[cfg(target_arch = "wasm32")]
+mod ops;
 #[cfg(target_arch = "wasm32")]
 mod presence;
 #[cfg(target_arch = "wasm32")]
@@ -40,7 +44,8 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn start() {
-    console_error_panic_hook::set_once();
+    // パニックをコンソールに出し、サーバーのエラー監視にも知らせる。
+    error_report::install();
     let _ = console_log::init_with_level(log::Level::Info);
     if let Some(w) = web_sys::window()
         && let Some(d) = w.document()

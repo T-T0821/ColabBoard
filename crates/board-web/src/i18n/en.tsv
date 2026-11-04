@@ -964,6 +964,54 @@ SSO 自動参加	SSO auto-join
 グラボードのサーバーのディスク	Graboard server disk
 サーバーのディレクトリ	Server directory
 保存場所の変更	Data location changed
+運用	Operations
+エラー	Errors
+バックアップ	Backups
+解決済みも表示	Show resolved
+更新	Refresh
+· Slack 通知:	· Slack alerts:
+· ログ形式:	· Log format:
+有効	On
+エラーの記録はありません。	No errors recorded.
+未解決のエラーはありません。	No open errors.
+場所	Location
+最初	First seen
+最後	Last seen
+版	Version
+利用者	User
+ボード	Board
+ページ	Page
+ブラウザ	Browser
+未解決に戻す	Reopen
+解決済みにする	Mark resolved
+記録を消す	Delete record
+定期	Scheduled
+手動	Manual
+復元の前	Before restore
+ダウンロード	Download
+ボードを戻す…	Restore a board…
+まだバックアップがありません。	No backups yet.
+取っています…	Backing up…
+今すぐバックアップ	Back up now
+種類	Type
+大きさ	Size
+{n} 件	{n}
+保存先:	Location:
+定期バックアップは止めています(手動だけ)	Scheduled backups are off (manual only)
+{n} 時間ごと	Every {n} h
+定期と手動それぞれ {n} 個まで残す	Keeps up to {n} of each (scheduled and manual)
+次回	Next
+今もある	Exists
+削除済み	Deleted
+このサーバーにない	Not on this server
+戻す	Restore
+今の中身を置き換えます(今の状態はバージョン履歴に残ります)	Replaces the current content (the current state is kept in version history)
+コメント・バージョン履歴・メンバーごと作り直します	Recreates it with comments, version history and members
+このバックアップにボードはありません。	This backup has no boards.
+ボードを作り直しました。オーナーのボード一覧に戻っています。	The board was recreated and is back in its owner's board list.
+ボードの中身を戻しました。戻す前の状態はバージョン履歴にあります。	The board content was restored. The previous state is in version history.
+バックアップ作成	Backup created
+バックアップから復元	Restored from backup
 # 自作テンプレートのギャラリー
 標準	Standard
 チーム	Team

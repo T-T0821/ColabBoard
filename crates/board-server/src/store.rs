@@ -26,6 +26,7 @@
 //! | `user_templates` | (ログイン名, テンプレート ID) | なし(自分のテンプレートの索引) |
 //! | `team_templates` | (チーム ID, テンプレート ID) | なし(チームに公開されたテンプレートの索引) |
 //! | `audit` | (`*` か `team:{id}`, 記録 ID) | [`AuditEvent`](board_core::api::AuditEvent)(JSON) |
+//! | `errors` | エラーのまとまりの ID | [`ErrorGroup`](board_core::api::ops::ErrorGroup)(JSON) |
 //! | `due_comments` | (ボード ID, コメント ID) | 期限(UNIX ミリ秒、JSON)。期限の知らせを送る前のスレッドの索引 |
 //! | `notify_settings` | ログイン名 | [`NotifyRecord`](crate::notify::NotifyRecord)(JSON) |
 //! | `notify_verify` | 確認トークン | [`VerifyRecord`](crate::notify::VerifyRecord)(JSON) |
@@ -77,6 +78,7 @@ pub(crate) const TEAM_BOARDS: TableDefinition<(&str, &str), &[u8]> =
 pub(crate) const SSO_IDENTITIES: TableDefinition<&str, &[u8]> =
     TableDefinition::new("sso_identities");
 pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit");
+pub(crate) const ERRORS: TableDefinition<&str, &[u8]> = TableDefinition::new("errors");
 pub(crate) const TEMPLATES: TableDefinition<&str, &[u8]> = TableDefinition::new("templates");
 pub(crate) const TEMPLATE_DATA: TableDefinition<&str, &[u8]> =
     TableDefinition::new("template_data");
@@ -176,6 +178,7 @@ impl Store {
         txn.open_table(TEAM_BOARDS)?;
         txn.open_table(AUDIT)?;
         txn.open_table(SSO_IDENTITIES)?;
+        txn.open_table(ERRORS)?;
         txn.open_table(TEMPLATES)?;
         txn.open_table(TEMPLATE_DATA)?;
         txn.open_table(USER_TEMPLATES)?;
@@ -195,6 +198,11 @@ impl Store {
             persistent,
             locations: RwLock::new(HashMap::new()),
         })
+    }
+
+    /// redb そのもの(バックアップで全テーブルを読み書きする)。
+    pub(crate) fn database(&self) -> &Database {
+        &self.db
     }
 
     /// ディスクに保存しているか。
