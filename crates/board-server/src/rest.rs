@@ -331,6 +331,7 @@ async fn board_info(
             updated: 0,
             key: None,
             team: None,
+            labels: Default::default(),
         },
     }))
 }

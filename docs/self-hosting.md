@@ -11,6 +11,8 @@
 | [単一バイナリ](#2-単一バイナリ) | Docker を使わないとき。ファイル 1 つをコピーして動かす |
 | [ソースから](#3-ソースからビルド済みクライアントを別に置く) | 開発中、またはクライアントを自分で差し替えるとき |
 
+Google Cloud に置く場合は、Terraform で VM・HTTPS・バックアップ・監視までまとめて作れます([deploy/gcp](../deploy/gcp/README.md))。
+
 ## 1. Docker / Docker Compose
 
 ```sh

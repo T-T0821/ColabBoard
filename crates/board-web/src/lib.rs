@@ -6,6 +6,8 @@ pub mod sheets;
 #[cfg(target_arch = "wasm32")]
 mod app;
 #[cfg(target_arch = "wasm32")]
+mod billing;
+#[cfg(target_arch = "wasm32")]
 mod developer;
 #[cfg(target_arch = "wasm32")]
 mod home;
@@ -27,6 +29,8 @@ mod storage;
 mod theme;
 #[cfg(target_arch = "wasm32")]
 mod tooltip;
+#[cfg(target_arch = "wasm32")]
+mod transcribe;
 #[cfg(target_arch = "wasm32")]
 mod voice;
 

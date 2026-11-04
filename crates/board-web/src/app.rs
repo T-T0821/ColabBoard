@@ -29,6 +29,7 @@ mod imports;
 mod ink_ui;
 mod issues;
 mod media;
+mod meeting_ui;
 mod mindmap_ui;
 mod offline;
 mod plugins_ui;
@@ -86,6 +87,8 @@ struct App {
     cursors_dirty: bool,
     /// 最初の表示位置を決めたか(共同編集では初回同期後に決める)。
     view_initialized: bool,
+    /// 最初に移動する要素(`&focus=` 。検索結果から開いたとき)。
+    pending_focus: Option<ElementId>,
     /// 自分のカーソルのワールド座標(canvas の外なら `None`)。
     cursor_world: Option<Vec2>,
     presence_sent: Option<Option<Vec2>>,
@@ -110,6 +113,8 @@ struct App {
     /// 音声通話(サーバーにつながるボードだけ)。
     voice: Option<crate::voice::VoiceCall>,
     call_ui: call_ui::CallUi,
+    /// 会議パネル(AI ファシリテーター・リアルタイム議事録・文字起こし)。
+    meeting: meeting_ui::MeetingUi,
     video: video_memo::VideoMemo,
     /// 昔のバージョンを表示している間、本物のボードをここに預ける(同期はこちらに反映する)。
     live_board: Option<Board>,
@@ -395,6 +400,10 @@ pub async fn run() -> Result<(), String> {
         cursors: Cursors::new(document.clone(), by_id(&document, "cursors")?),
         cursors_dirty: false,
         view_initialized: false,
+        pending_focus: params
+            .get("focus")
+            .and_then(|h| u64::from_str_radix(&h, 16).ok())
+            .map(ElementId),
         cursor_world: None,
         presence_sent: None,
         presence_sent_at: 0.0,
@@ -419,6 +428,7 @@ pub async fn run() -> Result<(), String> {
         history: history::History::new(&document)?,
         voice,
         call_ui: call_ui::CallUi::new(&document)?,
+        meeting: meeting_ui::MeetingUi::new(&document)?,
         video: video_memo::VideoMemo::new(&document)?,
         live_board: None,
         show_authors: true,
@@ -595,6 +605,13 @@ impl App {
     /// 最初の表示位置: 全体が入るようにしつつ、等倍より大きくはしない。
     fn initial_view(&mut self) {
         self.view_initialized = true;
+        // 検索結果から開いたなら、その要素へ。
+        if let Some(id) = self.pending_focus.take()
+            && self.board.get(id).is_some()
+        {
+            self.focus_element(id);
+            return;
+        }
         let Some(r) = self.board.bounds() else {
             return;
         };
@@ -958,6 +975,7 @@ impl App {
         self.a11y_frame(now);
         self.touch_frame(now);
         self.call_frame();
+        self.meeting_frame(now);
         self.mind_frame();
         // canvas の表示サイズが変わっていたら描画先を合わせる。
         let (w, h) = canvas_physical_size(&self.window, &self.canvas);
@@ -1791,6 +1809,7 @@ fn install_controls(app: &Rc<RefCell<App>>, doc: &Document) -> Result<(), String
     history::install(app)?;
     plugins_ui::install(app, doc)?;
     call_ui::install(app, doc)?;
+    meeting_ui::install(app, doc)?;
     video_memo::install(app, doc)?;
     on_click(doc, "undo", app, |a| a.undo())?;
     on_click(doc, "redo", app, |a| a.redo())?;
@@ -1833,6 +1852,7 @@ fn start_loop(app: Rc<RefCell<App>>) {
     *tick2.borrow_mut() = Some(Closure::new(move |now: f64| {
         app.borrow_mut().frame(now);
         touch::open_pending_menu(&app);
+        meeting_ui::pump(&app);
         if let Some(cb) = tick.borrow().as_ref() {
             let _ = window2.request_animation_frame(cb.as_ref().unchecked_ref());
         }

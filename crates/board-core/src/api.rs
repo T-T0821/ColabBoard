@@ -9,6 +9,9 @@
 //! | `GET` | `/api/boards` | 自分のボード一覧([`BoardInfo`] の配列) |
 //! | `POST` | `/api/boards` | ボード作成([`NewBoard`] → [`BoardInfo`]) |
 //! | `GET` | `/api/boards/{id}?key=` | ボードの情報と自分の権限([`BoardInfo`]) |
+//! | `PUT` | `/api/boards/{id}/labels` | 自分用のお気に入り・タグ・フォルダ([`SetLabels`] → [`BoardInfo`]、開けるボードなら誰でも) |
+//! | `POST` | `/api/folders/rename` | フォルダの名前を変える・なくす([`RenameFolder`]) |
+//! | `GET` | `/api/search?q=` | 開けるボードすべてを名前・タグ・フォルダ・中身の文字で探す([`SearchHit`] の配列) |
 //! | `PATCH` | `/api/boards/{id}` | 名前の変更([`RenameBoard`]、編集者以上) |
 //! | `DELETE` | `/api/boards/{id}` | 削除(オーナーのみ) |
 //! | `GET` | `/api/boards/{id}/sharing` | 共有設定([`Sharing`]、オーナーのみ) |
@@ -51,6 +54,10 @@
 //! | `GET` | `/api/sso/oidc/start?next=` | OpenID Connect でログインを始める(IdP へリダイレクト) |
 //! | `GET` | `/api/audit?team=&before=&limit=&action=` | 操作ログ([`AuditEvent`] の配列、新しい順。`team` 指定はチームの管理者、なしはサーバー管理者) |
 //! | `GET` | `/api/audit/export?team=&format=csv\|jsonl` | 操作ログの書き出し(CSV か JSON Lines) |
+//! | `GET` | `/api/billing` | 自分の料金プランと今月の利用状況([`Billing`]、要ログイン) |
+//! | `POST` | `/api/billing/checkout` | 有料プランの申し込みを始める([`BillingRedirect`]、Stripe Checkout の URL) |
+//! | `POST` | `/api/billing/portal` | 支払い方法の変更・解約の画面([`BillingRedirect`]、Stripe カスタマーポータルの URL) |
+//! | `POST` | `/api/billing/webhook` | Stripe からの通知(署名を確かめる) |
 //!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
 
@@ -152,6 +159,122 @@ pub struct BoardInfo {
     /// 属しているチームの ID。個人のボードなら `None`。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<String>,
+    /// 自分だけの整理(お気に入り・タグ・フォルダ・最後に開いた時刻)。
+    #[serde(flatten, default)]
+    pub labels: BoardLabels,
+}
+
+/// ボードに自分で付ける整理の印。ほかの人には見えない。
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoardLabels {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub favorite: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    /// 自分が最後に開いた時刻(UNIX ミリ秒)。開いたことがなければ 0。
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub opened: u64,
+}
+
+fn is_zero<T: Default + PartialEq>(v: &T) -> bool {
+    *v == T::default()
+}
+
+/// タグの数と長さの上限。
+pub const MAX_TAGS: usize = 10;
+pub const MAX_TAG_CHARS: usize = 20;
+/// フォルダ名の長さの上限。
+pub const MAX_FOLDER_CHARS: usize = 40;
+
+/// タグを整える: 前後の空白と先頭の `#` を取り、重複と空を除き、上限で切る。
+pub fn clean_tags<S: AsRef<str>>(tags: &[S]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in tags {
+        let t: String = t
+            .as_ref()
+            .trim()
+            .trim_start_matches(['#', '＃'])
+            .trim()
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(MAX_TAG_CHARS)
+            .collect();
+        if t.is_empty() || out.iter().any(|o| o.to_lowercase() == t.to_lowercase()) {
+            continue;
+        }
+        out.push(t);
+        if out.len() == MAX_TAGS {
+            break;
+        }
+    }
+    out
+}
+
+/// フォルダ名を整える。空なら `None`(フォルダに入れない)。
+pub fn clean_folder(name: &str) -> Option<String> {
+    let f: String = name
+        .trim()
+        .chars()
+        .filter(|c| !c.is_control() && *c != '/')
+        .take(MAX_FOLDER_CHARS)
+        .collect();
+    let f = f.trim().to_string();
+    (!f.is_empty()).then_some(f)
+}
+
+/// `PUT /api/boards/{id}/labels`。指定したものだけ変える。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SetLabels {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub favorite: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    /// フォルダに入れる。空文字ならフォルダから出す。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+}
+
+/// `POST /api/folders/rename`。`to` が空ならフォルダをなくす(ボードはフォルダの外へ)。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RenameFolder {
+    pub from: String,
+    pub to: String,
+}
+
+/// 検索で一致した場所。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchKind {
+    Title,
+    Tag,
+    Folder,
+    /// ボードの中の要素(付箋・図形・テキスト・コネクタのラベルなど)。
+    Content,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SearchMatch {
+    pub kind: MatchKind,
+    /// 一致した部分の前後を含む抜き出し。
+    pub text: String,
+    /// `text` の中で一致した部分(文字位置, 文字数)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub highlight: Option<[usize; 2]>,
+    /// 要素の ID(16 進)。`?room=…&focus=…` で開くとそこへ移動する。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub element: Option<String>,
+}
+
+/// `GET /api/search?q=` の 1 件。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SearchHit {
+    pub board: BoardInfo,
+    pub matches: Vec<SearchMatch>,
+    /// 中身で一致した要素の数(`matches` に入れたのは先頭の数件だけ)。
+    #[serde(default)]
+    pub content_count: usize,
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
@@ -413,6 +536,7 @@ impl AuditEvent {
             "team.member" => "チームのメンバー変更",
             "team.settings" => "チームの設定変更",
             "team.storage" => "保存場所の変更",
+            "billing.plan" => "料金プランの変更",
             "token.create" => "API トークン作成",
             "token.revoke" => "API トークン失効",
             other => other,
@@ -464,10 +588,6 @@ pub struct Comment {
     /// 期限の知らせをどこまで送ったか(サーバーが使う。0: まだ、1: 近づいた、2: 過ぎた)。
     #[serde(default, skip_serializing_if = "is_zero")]
     pub due_stage: u8,
-}
-
-fn is_zero(v: &u8) -> bool {
-    *v == 0
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -827,6 +947,84 @@ pub fn valid_login(s: &str) -> bool {
     (3..=32).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+}
+
+/// 料金プラン。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlanId {
+    #[default]
+    Free,
+    Pro,
+}
+
+impl PlanId {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PlanId::Free => "free",
+            PlanId::Pro => "pro",
+        }
+    }
+}
+
+/// プランごとの上限。`0` は無制限。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanLimits {
+    /// 自分が持てるボードの数。
+    pub boards: u32,
+    /// AI 機能を呼べる回数(1 か月あたり)。
+    pub ai_per_month: u32,
+    /// 1 つのボードに招待できるメンバーの数(オーナーを除く)。
+    pub members_per_board: u32,
+    /// 1 つのボードに置ける動画メモの合計(MB)。
+    pub media_mb_per_board: u32,
+}
+
+/// 選べるプラン(料金画面の表示用)。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanOffer {
+    pub id: PlanId,
+    pub name: String,
+    /// 表示用の値段(`¥1,200 / 月` など)。
+    pub price: String,
+    pub limits: PlanLimits,
+}
+
+/// 今月の利用状況。
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Usage {
+    pub boards: u32,
+    pub ai_this_month: u32,
+}
+
+/// 自分の料金プラン。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Billing {
+    /// `off`(このサーバーでは料金プランを使わない)・`mock`(テスト用の決済)・`stripe`。
+    pub mode: String,
+    pub plan: PlanId,
+    /// Stripe のサブスクリプションの状態(`active`・`past_due`・`canceled` など)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    /// 今の請求期間の終わり(UNIX ミリ秒)。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub period_end: Option<u64>,
+    /// 期間の終わりで解約する予定か。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cancel_at_period_end: bool,
+    /// 支払いの管理(カスタマーポータル)を開けるか。
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub can_manage: bool,
+    pub limits: PlanLimits,
+    pub usage: Usage,
+    #[serde(default)]
+    pub plans: Vec<PlanOffer>,
+}
+
+/// 決済・ポータルの画面へ移る先。
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BillingRedirect {
+    pub url: String,
 }
 
 #[cfg(test)]

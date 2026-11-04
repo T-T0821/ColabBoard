@@ -27,6 +27,10 @@
 //! | `notify_verify` | 確認トークン | [`VerifyRecord`](crate::notify::VerifyRecord)(JSON) |
 //! | `push_subs` | (ログイン名, 送り先 URL のハッシュ) | [`PushRecord`](crate::notify::PushRecord)(JSON) |
 //! | `server_keys` | 名前(`vapid`) | サーバーが作った鍵(JSON) |
+//! | `billing` | ログイン名 | [`BillingRecord`](crate::billing::BillingRecord)(JSON) |
+//! | `billing_customers` | Stripe の顧客 ID | ログイン名(JSON) |
+//! | `billing_events` | Stripe のイベント ID | 受け取った時刻(JSON。同じ通知を二度処理しないため) |
+//! | `usage` | `{ログイン名}\n{年-月}` | その月に AI 機能を呼んだ回数(JSON) |
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -78,6 +82,12 @@ pub(crate) const NOTIFY_VERIFY: TableDefinition<&str, &[u8]> =
 pub(crate) const PUSH_SUBS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("push_subs");
 pub(crate) const SERVER_KEYS: TableDefinition<&str, &[u8]> = TableDefinition::new("server_keys");
+pub(crate) const BILLING: TableDefinition<&str, &[u8]> = TableDefinition::new("billing");
+pub(crate) const BILLING_CUSTOMERS: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("billing_customers");
+pub(crate) const BILLING_EVENTS: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("billing_events");
+pub(crate) const USAGE: TableDefinition<&str, &[u8]> = TableDefinition::new("usage");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
 pub fn next_id() -> u64 {
@@ -160,6 +170,10 @@ impl Store {
         txn.open_table(NOTIFY_VERIFY)?;
         txn.open_table(PUSH_SUBS)?;
         txn.open_table(SERVER_KEYS)?;
+        txn.open_table(BILLING)?;
+        txn.open_table(BILLING_CUSTOMERS)?;
+        txn.open_table(BILLING_EVENTS)?;
+        txn.open_table(USAGE)?;
         txn.commit()?;
         Ok(Self {
             db,
@@ -447,6 +461,32 @@ impl Store {
         }
         txn.commit()?;
         Ok(true)
+    }
+
+    /// 数を 1 増やす(読んで書くまでを 1 つのトランザクションで)。`max` が 0 でなく、
+    /// すでに `max` 以上なら増やさずに `None`。
+    pub(crate) fn increment(
+        &self,
+        table: TableDefinition<&str, &[u8]>,
+        key: &str,
+        max: u64,
+    ) -> Result<Option<u64>, StoreError> {
+        let txn = self.db.begin_write()?;
+        let next = {
+            let mut t = txn.open_table(table)?;
+            let current: u64 = match t.get(key)? {
+                Some(v) => serde_json::from_slice(v.value())?,
+                None => 0,
+            };
+            if max > 0 && current >= max {
+                return Ok(None);
+            }
+            let next = current + 1;
+            t.insert(key, serde_json::to_vec(&next)?.as_slice())?;
+            next
+        };
+        txn.commit()?;
+        Ok(Some(next))
     }
 
     /// 表の件数。
