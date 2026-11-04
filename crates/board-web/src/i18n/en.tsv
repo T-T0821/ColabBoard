@@ -964,6 +964,55 @@ SSO 自動参加	SSO auto-join
 グラボードのサーバーのディスク	Graboard server disk
 サーバーのディレクトリ	Server directory
 保存場所の変更	Data location changed
+# 自作テンプレートのギャラリー
+標準	Standard
+チーム	Team
+自分	Mine
+テンプレートの種類	Template type
+＋ テンプレートに保存	+ Save as template
+テンプレートに保存	Save as template
+テンプレートを編集	Edit template
+{n} 回使用	Used {n}×
+自分だけ	Only me
+チームに公開中	Shared with the team
+編集・公開先の変更	Edit or change sharing
+編集	Edit
+ボードに置く	Place on the board
+要素 {n} 個	{n} elements
+選んでいる {n} 個の要素を保存します。	Saves the {n} selected elements.
+何も選んでいないので、ボード全体({n} 個の要素)を保存します。	Nothing is selected, so the whole board ({n} elements) will be saved.
+名前	Name
+説明	Description
+分類	Category
+公開先	Share with
+作った人だけ(公開をやめる)	Only the creator (stop sharing)
+例: 週次定例の振り返り	e.g. Weekly retro
+どんな場面で使うか	When to use it
+例: 振り返り	e.g. Retrospective
+チームに公開すると、メンバー全員の「チーム」タブに並び、誰でもボードに置けます。	Shared templates appear in every member's Team tab, and anyone on the team can place them.
+変更を保存	Save changes
+保存	Save
+削除	Delete
+自分のテンプレート	My templates
+チームのテンプレート	Team templates
+保存しました	Saved
+チームに公開しました	Shared with the team
+更新しました	Updated
+削除しました	Deleted
+保存する要素がありません	There is nothing to save
+保存する要素がありません。付箋や図形を置いてから保存してください	There is nothing to save. Add sticky notes or shapes first.
+チームに入ると、チームで公開されたテンプレートがここに並びます。チームはボード一覧で作れます。	Templates shared with your teams appear here. You can create a team from the board list.
+まだチームに公開されたテンプレートはありません。よく使う配置を選んで「＋ テンプレートに保存」から公開できます。	No team templates yet. Select a layout you use often and share it with "+ Save as template".
+まだ自作のテンプレートはありません。よく使う配置を選んで「＋ テンプレートに保存」を押すと、ここに並びます。	No templates of your own yet. Select a layout you use often and press "+ Save as template".
+テンプレートから作る	From a template
+テンプレートギャラリー	Template gallery
+閉じる	Close
+標準のテンプレート	Standard templates
+ボードでよく使う配置を選び、テンプレートのメニューの「＋ テンプレートに保存」を押すと、ここに並びます。チームに公開すると、メンバー全員が使えます。	Select a layout on a board and press "+ Save as template" in the Templates menu to add it here. Share it with a team so every member can use it.
+選ぶと新しいボードを作って置きます。チームのテンプレートはそのチームのボードになります。	Pick one to create a new board with it. Team templates create a board in that team.
+テンプレート作成	Template created
+テンプレートの変更	Template changed
+テンプレート削除	Template deleted
 会議	Meeting
 AI ファシリテーターとリアルタイム議事録	AI facilitator and live minutes
 会議の機能	Meeting tools

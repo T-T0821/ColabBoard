@@ -21,6 +21,10 @@
 //! | `user_teams` | (ログイン名, チーム ID) | 入った時刻(JSON) |
 //! | `team_boards` | (チーム ID, ボード ID) | 加わった時刻(JSON) |
 //! | `sso_identities` | `{issuer}\n{sub}` | 結びついたログイン名(JSON) |
+//! | `templates` | テンプレート ID | [`TemplateRecord`](crate::templates::TemplateRecord)(JSON) |
+//! | `template_data` | テンプレート ID | テンプレートの中身(クリップボード形式の文字列、JSON) |
+//! | `user_templates` | (ログイン名, テンプレート ID) | なし(自分のテンプレートの索引) |
+//! | `team_templates` | (チーム ID, テンプレート ID) | なし(チームに公開されたテンプレートの索引) |
 //! | `audit` | (`*` か `team:{id}`, 記録 ID) | [`AuditEvent`](board_core::api::AuditEvent)(JSON) |
 //! | `due_comments` | (ボード ID, コメント ID) | 期限(UNIX ミリ秒、JSON)。期限の知らせを送る前のスレッドの索引 |
 //! | `notify_settings` | ログイン名 | [`NotifyRecord`](crate::notify::NotifyRecord)(JSON) |
@@ -73,6 +77,13 @@ pub(crate) const TEAM_BOARDS: TableDefinition<(&str, &str), &[u8]> =
 pub(crate) const SSO_IDENTITIES: TableDefinition<&str, &[u8]> =
     TableDefinition::new("sso_identities");
 pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit");
+pub(crate) const TEMPLATES: TableDefinition<&str, &[u8]> = TableDefinition::new("templates");
+pub(crate) const TEMPLATE_DATA: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("template_data");
+pub(crate) const USER_TEMPLATES: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("user_templates");
+pub(crate) const TEAM_TEMPLATES: TableDefinition<(&str, &str), &[u8]> =
+    TableDefinition::new("team_templates");
 pub(crate) const DUE_COMMENTS: TableDefinition<(&str, u64), &[u8]> =
     TableDefinition::new("due_comments");
 pub(crate) const NOTIFY_SETTINGS: TableDefinition<&str, &[u8]> =
@@ -165,6 +176,10 @@ impl Store {
         txn.open_table(TEAM_BOARDS)?;
         txn.open_table(AUDIT)?;
         txn.open_table(SSO_IDENTITIES)?;
+        txn.open_table(TEMPLATES)?;
+        txn.open_table(TEMPLATE_DATA)?;
+        txn.open_table(USER_TEMPLATES)?;
+        txn.open_table(TEAM_TEMPLATES)?;
         txn.open_table(DUE_COMMENTS)?;
         txn.open_table(NOTIFY_SETTINGS)?;
         txn.open_table(NOTIFY_VERIFY)?;

@@ -52,6 +52,11 @@
 //! | `PUT` | `/api/teams/{tid}/sso` | SSO 自動参加ドメインの設定([`TeamSso`] → [`Team`]、サーバー管理者のみ) |
 //! | `GET` | `/api/storage` | 選べるデータの保存場所([`StorageLocation`] の配列、要ログイン) |
 //! | `PUT` | `/api/teams/{tid}/storage` | チームのボードの保存場所を変え、中身を移す([`SetTeamStorage`] → [`Team`]、チームのオーナーのみ) |
+//! | `GET` | `/api/templates` | 使える自作テンプレート(自分の + 入っているチームに公開されたもの。[`UserTemplate`] の配列、よく使われる順) |
+//! | `POST` | `/api/templates` | 自作テンプレートを保存する([`NewUserTemplate`] → [`UserTemplate`]。`team` を付けるとそのチームに公開) |
+//! | `PATCH` | `/api/templates/{id}` | 名前・説明・分類・公開先の変更([`EditUserTemplate`] → [`UserTemplate`]、作った人かチームの管理者) |
+//! | `DELETE` | `/api/templates/{id}` | 削除(作った人かチームの管理者) |
+//! | `POST` | `/api/templates/{id}/use` | 中身を受け取り、使われた回数を数える([`UserTemplateData`]) |
 //! | `GET` | `/api/sso` | ログイン方法([`SsoStatus`]、ログイン不要) |
 //! | `GET` | `/api/sso/oidc/start?next=` | OpenID Connect でログインを始める(IdP へリダイレクト) |
 //! | `GET` | `/api/audit?team=&before=&limit=&action=` | 操作ログ([`AuditEvent`] の配列、新しい順。`team` 指定はチームの管理者、なしはサーバー管理者) |
@@ -490,6 +495,78 @@ pub struct SetBoardTeam {
     pub access: Option<Role>,
 }
 
+/// 自作テンプレートの概要(ギャラリーに出す)。
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct UserTemplate {
+    pub id: String,
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    /// 分類(「振り返り」など、自由に付ける)。
+    #[serde(default)]
+    pub category: String,
+    /// 作った人のログイン名。
+    pub owner: String,
+    /// 作った人の表示名。
+    #[serde(default)]
+    pub owner_name: String,
+    /// 公開先のチーム。`None` なら作った人だけが使える。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_name: Option<String>,
+    pub created: u64,
+    pub updated: u64,
+    /// 使われた回数。
+    #[serde(default)]
+    pub uses: u64,
+    /// 要素の数。
+    #[serde(default)]
+    pub elements: usize,
+    /// 縮小図(SVG)。数値と色だけでできている。
+    #[serde(default)]
+    pub preview: String,
+    /// 自分が名前の変更・公開先の変更・削除をできるか。
+    #[serde(default)]
+    pub can_edit: bool,
+}
+
+/// 自作テンプレートを保存する。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NewUserTemplate {
+    pub title: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub category: String,
+    /// 公開するチーム(メンバーである必要がある)。`None` なら自分だけ。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+    /// 中身(クリップボードと同じ `colabboard/v1:` 形式)。
+    pub data: String,
+}
+
+/// 自作テンプレートの変更。省いた項目はそのまま。
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct EditUserTemplate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    /// 公開先。チーム ID ならそのチームに公開、空文字なら自分だけに戻す。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team: Option<String>,
+}
+
+/// 自作テンプレートの中身。
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct UserTemplateData {
+    pub template: UserTemplate,
+    pub data: String,
+}
+
 /// 操作ログの 1 件。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditEvent {
@@ -541,6 +618,9 @@ impl AuditEvent {
             "billing.plan" => "料金プランの変更",
             "token.create" => "API トークン作成",
             "token.revoke" => "API トークン失効",
+            "template.create" => "テンプレート作成",
+            "template.update" => "テンプレートの変更",
+            "template.delete" => "テンプレート削除",
             other => other,
         }
     }

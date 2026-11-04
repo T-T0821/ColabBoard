@@ -1467,6 +1467,76 @@ body[data-preview="on"] #board { box-shadow: inset 0 0 0 3px var(--warning); }
 .template-picker span { font-size: 11px; color: var(--muted); line-height: 1.4; }
 .template-empty { margin: 12px 4px; color: var(--muted); font-size: 12px; }
 
+/* 開いている間は、書式バーやファシリテーションのパネルより前に出す。 */
+.toolbar:has(.template-picker[data-open]) { z-index: 35; }
+/* 自作テンプレートのギャラリー(タブ・カード・保存のフォーム) */
+.template-tabs { display: flex; align-items: center; gap: 4px; flex: none; flex-wrap: wrap; }
+.template-tabs[hidden], .template-list[hidden], .template-form[hidden], .template-search[hidden] { display: none; }
+.popover.template-picker button { width: auto; height: auto; }
+.template-picker .template-tabs button {
+  flex-direction: row; align-items: center; height: 30px; padding: 0 12px;
+  font-size: 12.5px; border-radius: 999px; background: transparent; border-color: transparent; color: var(--muted);
+}
+.template-picker .template-tabs button[aria-selected="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.template-picker .template-tabs .template-save { margin-left: auto; border-color: var(--border-strong); color: var(--text); background: var(--panel-solid); }
+.template-picker .template-tabs .template-save:hover { border-color: var(--accent); color: var(--accent); }
+.template-card { position: relative; display: flex; }
+.template-card[hidden] { display: none; }
+.template-picker .template-use { flex: 1; min-width: 0; }
+.template-thumb {
+  display: block; width: 100%; aspect-ratio: 16 / 9; margin-bottom: 4px;
+  border-radius: var(--r-xs); background: var(--bg); border: 1px solid var(--border); overflow: hidden;
+}
+.template-thumb svg { display: block; width: 100%; height: 100%; }
+.template-desc { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.template-picker .template-meta, .gallery-card .template-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; margin-top: 2px; }
+.template-meta .chip { padding: 1px 7px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 10.5px; }
+.template-meta .scope[data-scope="team"]::before { content: "👥 "; }
+.template-picker .template-edit {
+  position: absolute; top: 6px; right: 6px; height: 24px; padding: 0 8px; font-size: 11px;
+  flex-direction: row; align-items: center; opacity: 0; box-shadow: var(--shadow-sm);
+}
+.template-card:hover .template-edit, .template-edit:focus-visible { opacity: 1; }
+@media (pointer: coarse) {
+  .template-picker .template-edit { opacity: 1; height: 32px; }
+  .template-picker .template-tabs button { height: 36px; }
+}
+.template-note { margin: 4px 2px 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.template-notice { margin: 2px 2px 8px; padding: 6px 10px; border-radius: var(--r-xs); background: var(--success-soft); color: var(--success-text); font-size: 12px; }
+.template-form { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; min-height: 0; }
+.template-form h4 { margin: 2px 2px 0; font-size: 14px; }
+.template-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--muted); font-weight: 500; }
+.template-form input, .template-form select { height: 34px; padding: 0 10px; font-size: 13px; }
+.template-form .template-note { margin: 0 2px; }
+.template-form-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+.template-picker .template-form-actions button { flex-direction: row; align-items: center; height: 32px; padding: 0 14px; }
+.template-picker .template-form-actions button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.template-picker .template-form-actions button.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.template-picker .template-form-actions [data-action="ask-delete"], .template-picker .template-form-actions [data-action="delete"] { margin-left: auto; }
+
+/* ボード一覧のテンプレートギャラリー */
+.home-gallery { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin: 0 0 16px; display: flex; flex-direction: column; gap: 8px; }
+.home-gallery header { display: flex; align-items: center; gap: 8px; }
+.home-gallery h2 { flex: 1; margin: 0; font-size: 15px; }
+.home-gallery h3 { margin: 8px 0 0; font-size: 13px; }
+.home-gallery p { margin: 0; }
+.gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+.home-card .gallery-card {
+  height: auto; padding: 8px 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left;
+  background: var(--panel-solid); border: 1px solid var(--border); border-radius: var(--r-sm);
+}
+.home-card .gallery-card:hover { border-color: var(--accent-ring); background: var(--accent-soft); }
+.gallery-card strong { font-size: 13px; }
+.gallery-card > span { font-size: 11px; color: var(--muted); line-height: 1.4; }
+.gallery-builtin { display: flex; flex-direction: column; gap: 4px; }
+.gallery-builtin > div { display: flex; flex-wrap: wrap; gap: 4px; }
+.home-card .chip-button { height: 28px; padding: 0 10px; font-size: 12px; border-radius: 999px; background: var(--panel-solid); }
+.home-card .chip-button:hover { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 720px) {
+  .home-card form.create { flex-wrap: wrap; }
+  .home-card form.create input { flex-basis: 100%; }
+}
+
 /* ---- テンプレートの進め方(ファシリテーションのパネル) ---- */
 .template-guide { margin: 8px 0 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--accent-soft); }
 .template-guide[hidden] { display: none; }

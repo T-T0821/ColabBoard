@@ -133,6 +133,8 @@ struct App {
     touch: touch::Touch,
     /// Web に公開したページから開いた(`&public`)。見るだけで、カーソルも送らない。
     public_view: bool,
+    /// ギャラリーから開いたときに、空のボードへ置くテンプレート(`&template=`)。
+    pending_template: Option<templates_ui::Pending>,
 }
 
 struct Hud {
@@ -439,6 +441,7 @@ pub async fn run() -> Result<(), String> {
         syncs: 0,
         touch: touch::Touch::default(),
         public_view,
+        pending_template: None,
     }));
     {
         let mut a = app.borrow_mut();
@@ -483,6 +486,9 @@ pub async fn run() -> Result<(), String> {
     reactions::install(&app)?;
     media::install(&app)?;
     templates_ui::install(&app)?;
+    if collaborative && !public_view {
+        templates_ui::start_pending(&app, params.get("template"));
+    }
     search_ui::install(&app)?;
     a11y::install(&app)?;
     issues::install(&app)?;
@@ -732,6 +738,7 @@ impl App {
                         self.initial_view();
                     }
                     self.editor.prune_selection(&self.board);
+                    self.apply_pending_template();
                     self.dirty = true;
                 }
                 NetEvent::Message(Message::Update(u)) => {
