@@ -1,5 +1,7 @@
-//! PNG / PDF / マークダウンの書き出し。GPU で白背景にオフスクリーン描画して読み戻し、
+//! PNG / PDF / マークダウン / Mermaid / PlantUML / draw.io の書き出し。
+//! 画像は GPU で白背景にオフスクリーン描画して読み戻し、
 //! PNG は image クレート、PDF は JPEG を埋め込んだ 1 ページの PDF にする。
+//! 図のテキスト(Mermaid・PlantUML・draw.io)は `board_core` で作る。
 
 use wasm_bindgen::JsCast;
 
@@ -27,6 +29,22 @@ pub enum ExportFormat {
     Pdf,
     /// 文字の内容だけ(フレームは見出し、付箋は箇条書き、表は表)。
     Markdown,
+    /// 図をテキストにする(`.mmd` / `.puml`)。`copy` ならクリップボードへ。
+    Mermaid {
+        copy: bool,
+    },
+    PlantUml {
+        copy: bool,
+    },
+    /// 位置と見た目のまま draw.io のファイル(`.drawio`)にする。
+    Drawio,
+}
+
+impl ExportFormat {
+    /// 画像ではなく文字で書き出すか。
+    fn is_text(self) -> bool {
+        !matches!(self, ExportFormat::Png | ExportFormat::Pdf)
+    }
 }
 
 /// バイト列をファイルとして保存させる。
@@ -76,7 +94,7 @@ fn encode(format: ExportFormat, rgba: Vec<u8>, w: u32, h: u32) -> Result<Vec<u8>
                 .map_err(|e| e.to_string())?;
             Ok(board_core::export::jpeg_pdf(&out.into_inner(), w, h))
         }
-        ExportFormat::Markdown => Err("マークダウンは画像から作れません".into()),
+        _ => Err("画像の書き出しではありません".into()),
     }
 }
 
@@ -94,14 +112,8 @@ impl App {
                 .filter(|id| !self.hidden_elements().contains(id))
                 .collect();
         }
-        if format == ExportFormat::Markdown {
-            let md = board_core::markdown::export(&self.board, &sel);
-            let result = if md.trim().is_empty() {
-                Err("書き出す文字がありません".to_string())
-            } else {
-                download("graboard.md", "text/markdown", md.as_bytes())
-            };
-            if let Err(e) = result {
+        if format.is_text() {
+            if let Err(e) = self.export_text(format, &sel) {
                 super::show_error(&e);
             }
             return;
@@ -130,12 +142,57 @@ impl App {
                 .and_then(|bytes| match format {
                     ExportFormat::Png => download("graboard.png", "image/png", &bytes),
                     ExportFormat::Pdf => download("graboard.pdf", "application/pdf", &bytes),
-                    ExportFormat::Markdown => Ok(()),
+                    _ => Ok(()),
                 });
             if let Err(e) = result {
                 log::warn!("書き出しに失敗しました: {e}");
                 super::show_error(&format!("書き出しに失敗しました: {e}"));
             }
         });
+    }
+
+    /// 文字で書き出す(マークダウン・図のテキスト)。
+    fn export_text(
+        &mut self,
+        format: ExportFormat,
+        sel: &[board_core::ElementId],
+    ) -> Result<(), String> {
+        use board_core::diagram::{extract, mermaid, plantuml};
+        let diagram = || extract::extract(&self.board, sel);
+        let (text, name, mime, copy) = match format {
+            ExportFormat::Markdown => {
+                let md = board_core::markdown::export(&self.board, sel);
+                if md.trim().is_empty() {
+                    return Err("書き出す文字がありません".into());
+                }
+                (md, "graboard.md", "text/markdown", false)
+            }
+            ExportFormat::Mermaid { copy } => (
+                mermaid::write(&diagram()?),
+                "graboard.mmd",
+                "text/plain",
+                copy,
+            ),
+            ExportFormat::PlantUml { copy } => (
+                plantuml::write(&diagram()?),
+                "graboard.puml",
+                "text/plain",
+                copy,
+            ),
+            ExportFormat::Drawio => (
+                board_core::drawio::export(&self.board, sel)?,
+                "graboard.drawio",
+                "application/vnd.jgraph.mxfile",
+                false,
+            ),
+            ExportFormat::Png | ExportFormat::Pdf => return Ok(()),
+        };
+        if copy {
+            let window = web_sys::window().ok_or("window がありません")?;
+            let _ = window.navigator().clipboard().write_text(&text);
+            super::ink_ui::toast(&self.document, "クリップボードにコピーしました", "done");
+            return Ok(());
+        }
+        download(name, mime, text.as_bytes())
     }
 }

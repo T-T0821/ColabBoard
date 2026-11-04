@@ -69,9 +69,9 @@ impl App {
             return true;
         }
         let parsed = if mermaid::looks_like_mermaid(text) {
-            mermaid::parse(text)
+            mermaid::parse_diagram(text)
         } else if plantuml::looks_like_plantuml(text) {
-            plantuml::parse(text)
+            plantuml::parse_diagram(text)
         } else {
             return false;
         };
@@ -79,8 +79,8 @@ impl App {
             return true;
         }
         match parsed {
-            Ok(spec) => {
-                self.insert_diagram(&spec);
+            Ok(d) => {
+                self.insert_any_diagram(&d);
             }
             Err(e) => super::show_error(&e),
         }
