@@ -8,6 +8,9 @@
 //! - 線: つながった図形にはそのままつなぐ(出入りの位置 `exitX` `entryX` も)。
 //!   直角・曲線・直線、矢じり(ER 図の記号も)、破線、ラベルを写す。
 //! - ページが複数あれば、ページごとにフレームに入れて横に並べる。
+//!
+//! 書き出し([`export`])は逆向きで、図形・線・手書き線を位置と見た目のまま
+//! 1 ページの `.drawio` にする。書き出したファイルを取り込むと同じ図に戻る。
 
 use std::collections::HashMap;
 
@@ -18,7 +21,7 @@ use crate::board::Board;
 use crate::color::Rgba8;
 use crate::connector::{Cap, Connector, Endpoint, PathStyle, Target};
 use crate::element::{Element, ElementId};
-use crate::shape::{Shape, ShapeKind, TextAlign};
+use crate::shape::{Shape, ShapeKind, TextAlign, VAlign};
 
 /// ページどうしの隙間。
 const PAGE_GAP: f32 = 160.0;
@@ -434,6 +437,13 @@ fn page_elements(cells: &[Cell], alloc: &mut dyn FnMut() -> ElementId) -> Vec<El
             _ if kind == ShapeKind::Frame => TextAlign::Left,
             _ => TextAlign::Center,
         };
+        s.valign = match style.get("verticalAlign").map(String::as_str) {
+            // フレームの見出しは枠の上(draw.io では枠の外に出すため bottom にしてある)。
+            _ if kind == ShapeKind::Frame => VAlign::Top,
+            Some("top") => VAlign::Top,
+            Some("bottom") => VAlign::Bottom,
+            _ => VAlign::Middle,
+        };
         if c.link.starts_with("http") {
             s.meta.link = c.link.clone();
         }
@@ -559,6 +569,322 @@ pub fn import(board: &mut Board, xml: &str, center: Vec2) -> Result<Vec<ElementI
     Ok(ids)
 }
 
+// ---- 書き出し ----
+
+/// XML の属性値にする。
+fn attr(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('"', "&quot;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('\n', "&#xa;")
+}
+
+/// 図形の文字を HTML のラベルにする(改行は `<br>`)。
+fn html_label(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('\n', "<br>")
+}
+
+/// 色を `#rrggbb` にする(透明は `none`)。
+fn color_value(c: Rgba8) -> String {
+    let [r, g, b, a] = c.0;
+    if a == 0 {
+        "none".into()
+    } else {
+        format!("#{r:02x}{g:02x}{b:02x}")
+    }
+}
+
+/// 図形の種類 → draw.io の形のスタイル。
+fn shape_style(s: &Shape) -> &'static str {
+    match s.kind {
+        ShapeKind::Rect if s.corner_radius > 0.0 => "rounded=1;",
+        ShapeKind::Rect => "rounded=0;",
+        ShapeKind::RoundRect => "rounded=1;",
+        ShapeKind::Pill => "rounded=1;arcSize=50;",
+        ShapeKind::Ellipse => "ellipse;",
+        ShapeKind::Diamond => "rhombus;",
+        ShapeKind::Triangle => "triangle;direction=north;",
+        ShapeKind::Hexagon => "shape=hexagon;perimeter=hexagonPerimeter2;",
+        ShapeKind::Parallelogram => "shape=parallelogram;perimeter=parallelogramPerimeter;",
+        ShapeKind::Trapezoid => "shape=trapezoid;perimeter=trapezoidPerimeter;",
+        ShapeKind::Cylinder => "shape=cylinder3;boundedLbl=1;",
+        ShapeKind::Document => "shape=document;boundedLbl=1;",
+        ShapeKind::PredefinedProcess => "shape=process;",
+        ShapeKind::Cloud => "ellipse;shape=cloud;",
+        ShapeKind::Chevron => "shape=step;perimeter=stepPerimeter;",
+        ShapeKind::Card => "shape=card;",
+        ShapeKind::Sticky => "shape=note;",
+        ShapeKind::Cross => "shape=cross;",
+        ShapeKind::Speech => "shape=callout;",
+        ShapeKind::ArrowRight => "shape=singleArrow;",
+        ShapeKind::ArrowBoth => "shape=doubleArrow;",
+        ShapeKind::ManualInput => "shape=manualInput;",
+        ShapeKind::Delay => "shape=delay;",
+        ShapeKind::OffPage => "shape=offPageConnector;",
+        ShapeKind::InternalStorage => "shape=internalStorage;",
+        ShapeKind::Text => "text;",
+        ShapeKind::Frame => "container=1;collapsible=0;",
+        _ => "rounded=0;",
+    }
+}
+
+/// 端の飾り → `endArrow=..;endFill=..`(`side` は `start` か `end`)。
+fn arrow_style(cap: Cap, side: &str) -> String {
+    let (name, fill) = match cap {
+        Cap::None => ("none", None),
+        Cap::Arrow => ("open", None),
+        Cap::Triangle => ("block", Some(0)),
+        Cap::TriangleFilled => ("block", Some(1)),
+        Cap::Diamond => ("diamond", Some(0)),
+        Cap::DiamondFilled => ("diamond", Some(1)),
+        Cap::Circle => ("oval", Some(0)),
+        Cap::One => ("ERmandOne", None),
+        Cap::Many => ("ERmany", None),
+        Cap::ZeroOrOne => ("ERzeroToOne", None),
+        Cap::OneOrMany => ("ERoneToMany", None),
+        Cap::ZeroOrMany => ("ERzeroToMany", None),
+    };
+    match fill {
+        Some(f) => format!("{side}Arrow={name};{side}Fill={f};"),
+        None => format!("{side}Arrow={name};"),
+    }
+}
+
+struct Writer {
+    cells: String,
+    next: usize,
+}
+
+impl Writer {
+    fn id(&mut self) -> String {
+        self.next += 1;
+        format!("c{}", self.next)
+    }
+
+    fn vertex(&mut self, id: &str, value: &str, style: &str, r: (Vec2, Vec2), link: &str) {
+        let (pos, size) = r;
+        let geometry = format!(
+            r#"<mxGeometry x="{}" y="{}" width="{}" height="{}" as="geometry"/>"#,
+            pos.x, pos.y, size.x, size.y
+        );
+        if link.is_empty() {
+            self.cells.push_str(&format!(
+                "<mxCell id=\"{id}\" value=\"{}\" style=\"{}\" vertex=\"1\" parent=\"1\">{geometry}</mxCell>\n",
+                attr(value),
+                attr(style)
+            ));
+        } else {
+            self.cells.push_str(&format!(
+                "<UserObject label=\"{}\" link=\"{}\" id=\"{id}\"><mxCell style=\"{}\" vertex=\"1\" parent=\"1\">{geometry}</mxCell></UserObject>\n",
+                attr(value),
+                attr(link),
+                attr(style)
+            ));
+        }
+    }
+
+    /// 線。端は図形の ID(書き出した図形につながっていれば)か点。
+    #[allow(clippy::too_many_arguments)]
+    fn edge(
+        &mut self,
+        value: &str,
+        style: &str,
+        source: Option<&str>,
+        target: Option<&str>,
+        from: Vec2,
+        to: Vec2,
+        waypoints: &[Vec2],
+    ) {
+        let id = self.id();
+        let mut ends = String::new();
+        if let Some(s) = source {
+            ends.push_str(&format!(" source=\"{s}\""));
+        }
+        if let Some(t) = target {
+            ends.push_str(&format!(" target=\"{t}\""));
+        }
+        let mut geo = String::new();
+        if source.is_none() {
+            geo.push_str(&format!(
+                r#"<mxPoint x="{}" y="{}" as="sourcePoint"/>"#,
+                from.x, from.y
+            ));
+        }
+        if target.is_none() {
+            geo.push_str(&format!(
+                r#"<mxPoint x="{}" y="{}" as="targetPoint"/>"#,
+                to.x, to.y
+            ));
+        }
+        if !waypoints.is_empty() {
+            geo.push_str(r#"<Array as="points">"#);
+            for p in waypoints {
+                geo.push_str(&format!(r#"<mxPoint x="{}" y="{}"/>"#, p.x, p.y));
+            }
+            geo.push_str("</Array>");
+        }
+        self.cells.push_str(&format!(
+            "<mxCell id=\"{id}\" value=\"{}\" style=\"{}\" edge=\"1\" parent=\"1\"{ends}><mxGeometry relative=\"1\" as=\"geometry\">{geo}</mxGeometry></mxCell>\n",
+            attr(value),
+            attr(style)
+        ));
+    }
+}
+
+/// 手書き線をこの点数まではまっすぐな線のつながりにする(それより多ければ途中の点を経由する 1 本の線)。
+const STROKE_SEGMENTS: usize = 8;
+
+/// 要素 `ids`(空ならボード全体)を draw.io のファイル(`.drawio`)にする。
+/// 選んだ要素と同じグループの要素、選んだフレームの中身、両端が対象につながった線も含める。
+pub fn export(board: &Board, ids: &[ElementId]) -> Result<String, String> {
+    let elements = crate::diagram::extract::scope(board, ids);
+    let mut w = Writer {
+        cells: String::new(),
+        next: 1,
+    };
+    let mut cell_of: HashMap<ElementId, String> = HashMap::new();
+    for e in &elements {
+        let Element::Shape(s) = e else { continue };
+        if matches!(
+            s.kind,
+            ShapeKind::Image | ShapeKind::Video | ShapeKind::Stamp
+        ) {
+            continue;
+        }
+        let id = w.id();
+        let style = s.text_style();
+        let mut st = String::from(shape_style(s));
+        st.push_str("whiteSpace=wrap;html=1;");
+        if s.kind != ShapeKind::Text {
+            st.push_str(&format!(
+                "fillColor={};strokeColor={};strokeWidth={};",
+                color_value(s.fill),
+                color_value(s.stroke),
+                s.stroke_width
+            ));
+        } else {
+            st.push_str("fillColor=none;strokeColor=none;");
+        }
+        st.push_str(&format!(
+            "fontColor={};fontSize={};",
+            color_value(s.text_color),
+            style.font_size
+        ));
+        st.push_str(match s.align {
+            TextAlign::Left => "align=left;",
+            TextAlign::Right => "align=right;",
+            _ => "align=center;",
+        });
+        if s.kind == ShapeKind::Frame {
+            st.push_str("verticalAlign=bottom;labelPosition=center;verticalLabelPosition=top;");
+        } else {
+            st.push_str(match s.valign {
+                VAlign::Top => "verticalAlign=top;",
+                VAlign::Bottom => "verticalAlign=bottom;",
+                VAlign::Middle => "verticalAlign=middle;",
+            });
+        }
+        w.vertex(
+            &id,
+            &html_label(&s.text),
+            &st,
+            (s.pos, s.size),
+            &s.meta.link,
+        );
+        cell_of.insert(s.id, id);
+    }
+    for e in &elements {
+        match e {
+            Element::Connector(c) => {
+                let mut st = match c.style {
+                    PathStyle::Elbow => String::from("edgeStyle=orthogonalEdgeStyle;rounded=0;"),
+                    PathStyle::Curved => String::from("curved=1;"),
+                    PathStyle::Straight => String::new(),
+                };
+                st.push_str("html=1;");
+                st.push_str(&arrow_style(c.start_cap, "start"));
+                st.push_str(&arrow_style(c.end_cap, "end"));
+                if c.dashed {
+                    st.push_str("dashed=1;");
+                }
+                st.push_str(&format!(
+                    "strokeColor={};strokeWidth={};",
+                    color_value(c.color),
+                    c.width
+                ));
+                let end = |ep: &Endpoint, exit: bool, st: &mut String| -> Option<String> {
+                    let Endpoint::Attached { id, anchor } = ep else {
+                        return None;
+                    };
+                    let cell = cell_of.get(id)?.clone();
+                    if let Some(a) = anchor {
+                        let (x, y) = if exit {
+                            ("exitX", "exitY")
+                        } else {
+                            ("entryX", "entryY")
+                        };
+                        st.push_str(&format!("{x}={};{y}={};", a.x, a.y));
+                    }
+                    Some(cell)
+                };
+                let source = end(&c.from, true, &mut st);
+                let target = end(&c.to, false, &mut st);
+                let point = |ep: &Endpoint, fallback: Option<&Vec2>| match ep {
+                    Endpoint::Free(p) => *p,
+                    Endpoint::Attached { .. } => fallback.copied().unwrap_or_default(),
+                };
+                let from = point(&c.from, c.path.first());
+                let to = point(&c.to, c.path.last());
+                w.edge(
+                    &html_label(&c.text),
+                    &st,
+                    source.as_deref(),
+                    target.as_deref(),
+                    from,
+                    to,
+                    &[],
+                );
+            }
+            Element::Stroke(k) if k.points.len() >= 2 => {
+                let st = format!(
+                    "html=1;endArrow=none;startArrow=none;strokeColor={};strokeWidth={};{}",
+                    color_value(k.color),
+                    k.width,
+                    if k.highlighter { "opacity=40;" } else { "" }
+                );
+                if k.points.len() <= STROKE_SEGMENTS {
+                    for pair in k.points.windows(2) {
+                        w.edge("", &st, None, None, pair[0], pair[1], &[]);
+                    }
+                } else {
+                    let n = k.points.len();
+                    w.edge(
+                        "",
+                        &st,
+                        None,
+                        None,
+                        k.points[0],
+                        k.points[n - 1],
+                        &k.points[1..n - 1],
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+    if w.cells.is_empty() {
+        return Err("書き出せる図形がありません".into());
+    }
+    Ok(format!(
+        "<mxfile host=\"graboard\">\n<diagram name=\"グラボード\" id=\"graboard\">\n<mxGraphModel grid=\"1\" gridSize=\"10\" guides=\"1\" connect=\"1\" arrows=\"1\" page=\"0\">\n<root>\n<mxCell id=\"0\"/>\n<mxCell id=\"1\" parent=\"0\"/>\n{}</root>\n</mxGraphModel>\n</diagram>\n</mxfile>\n",
+        w.cells
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -681,5 +1007,70 @@ mod tests {
             6
         );
         assert!(import(&mut Board::new(), "<mxfile></mxfile>", Vec2::ZERO).is_err());
+    }
+
+    #[test]
+    fn export_then_import_keeps_shapes_and_lines() {
+        use crate::templates::{self, Template};
+        for t in [
+            Template::UmlClass,
+            Template::Er,
+            Template::Sequence,
+            Template::UseCase,
+        ] {
+            let mut board = Board::new();
+            templates::insert(&mut board, t, Vec2::ZERO);
+            let xml = export(&board, &[]).unwrap();
+            assert!(looks_like_drawio(&xml));
+            let mut back = Board::new();
+            import(&mut back, &xml, Vec2::ZERO).unwrap();
+            let a = shapes(&board);
+            let b = shapes(&back);
+            assert_eq!(a.len(), b.len(), "{t:?}");
+            // 位置関係・大きさ・文字・色がそのまま。
+            let d = b[0].pos - a[0].pos;
+            for (x, y) in a.iter().zip(&b) {
+                assert_eq!(x.text, y.text, "{t:?}");
+                assert!((y.pos - x.pos - d).length() < 0.01, "{t:?} {}", x.text);
+                assert!((y.size - x.size).length() < 0.01, "{t:?} {}", x.text);
+                assert_eq!(x.fill, y.fill, "{t:?} {}", x.text);
+                assert_eq!(x.valign, y.valign, "{t:?} {}", x.text);
+            }
+            let attached = |b: &Board| {
+                b.elements()
+                    .iter()
+                    .filter_map(|e| match e {
+                        Element::Connector(c) => Some((
+                            c.from.attached_to().is_some(),
+                            c.to.attached_to().is_some(),
+                            c.start_cap,
+                            c.end_cap,
+                            c.dashed,
+                            c.text.clone(),
+                        )),
+                        _ => None,
+                    })
+                    .filter(|c| c.0 || !c.5.is_empty() || c.4)
+                    .collect::<Vec<_>>()
+            };
+            assert_eq!(attached(&board), attached(&back), "{t:?}");
+        }
+    }
+
+    #[test]
+    fn export_escapes_text_and_keeps_links() {
+        let mut board = Board::new();
+        let id = board.alloc_id();
+        let mut s = Shape::rect(id, Vec2::ZERO, Vec2::new(100.0, 50.0), Rgba8::WHITE);
+        s.text = "a < b & \"c\"\n2 行目".into();
+        s.meta.link = "https://example.com/?a=1&b=2".into();
+        board.push(Element::from(s));
+        let xml = export(&board, &[]).unwrap();
+        let mut back = Board::new();
+        import(&mut back, &xml, Vec2::ZERO).unwrap();
+        let t = shapes(&back)[0];
+        assert_eq!(t.text, "a < b & \"c\"\n2 行目");
+        assert_eq!(t.meta.link, "https://example.com/?a=1&b=2");
+        assert!(export(&Board::new(), &[]).is_err());
     }
 }

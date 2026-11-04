@@ -47,9 +47,14 @@ impl App {
     /// 図の定義をレイアウトして画面中央に置く。既存の要素と重なるなら、
     /// ボードの右側の空いている所に置く。
     pub(super) fn insert_diagram(&mut self, spec: &DiagramSpec) -> usize {
+        self.insert_any_diagram(&diagram::Diagram::Flow(spec.clone()))
+    }
+
+    /// 図(ノードと矢印の図・シーケンス図)をレイアウトして置く。置き場所は [`Self::insert_diagram`] と同じ。
+    pub(super) fn insert_any_diagram(&mut self, d: &diagram::Diagram) -> usize {
         let center = self.view_center();
         let board = &mut self.board;
-        let mut elements = diagram::build(spec, center, &mut || board.alloc_id());
+        let mut elements = d.build(center, &mut || board.alloc_id());
         let bounds = elements
             .iter()
             .map(BoardElement::bounds)

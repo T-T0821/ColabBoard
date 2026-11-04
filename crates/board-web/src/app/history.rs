@@ -1,4 +1,5 @@
 //! バージョン履歴: 一覧、名前を付けて保存、昔の状態の表示(プレビュー)と復元。
+//! ボードを GitHub のリポジトリにつないでいれば、ここから同期・プルリクエストもできる。
 //!
 //! プレビュー中は昔の状態を読み込んだ別の `Board` を表示し、本物のボードは
 //! `App::live_board` に預けておく(届いた更新はそちらに反映し続ける)。プレビュー中は編集できない。
@@ -7,7 +8,10 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use board_core::Board;
-use board_core::api::{NewVersion, VersionInfo};
+use board_core::api::{
+    GithubLink, GithubStatus, GithubSyncMode, GithubSyncRequest, GithubSyncResult, NewVersion,
+    VersionInfo,
+};
 use wasm_bindgen::JsCast;
 use web_sys::{Document, Element, HtmlElement, HtmlInputElement};
 
@@ -22,6 +26,19 @@ struct Inbox {
     message: Option<String>,
     /// 復元が終わった。
     restored: bool,
+    /// GitHub のつながり(`Some(None)` はつながっていない)。
+    github: Option<Option<GithubLink>>,
+    github_status: Option<GithubStatus>,
+    github_note: Option<GithubNote>,
+}
+
+/// GitHub の操作の結果の表示。
+#[derive(Clone, Debug)]
+struct GithubNote {
+    text: String,
+    /// コミット・プルリクエストの URL。
+    link: Option<(String, String)>,
+    error: bool,
 }
 
 pub struct History {
@@ -37,6 +54,12 @@ pub struct History {
     /// 閉じている間に履歴が変わった。
     stale: bool,
     enabled: bool,
+    github: Option<GithubLink>,
+    github_status: Option<GithubStatus>,
+    github_note: Option<GithubNote>,
+    github_busy: bool,
+    /// 確認中の上書き。
+    github_confirm: Option<GithubSyncMode>,
 }
 
 /// 「10/31 19:05」のような表示。
@@ -68,6 +91,11 @@ impl History {
             busy: false,
             stale: true,
             enabled: false,
+            github: None,
+            github_status: None,
+            github_note: None,
+            github_busy: false,
+            github_confirm: None,
         })
     }
 }
@@ -84,6 +112,7 @@ impl App {
         };
         self.history.stale = false;
         let inbox = self.history.inbox.clone();
+        let can_edit = self.history_ctx().is_some_and(|c| c.2);
         wasm_bindgen_futures::spawn_local(async move {
             match http::get::<Vec<VersionInfo>>(&http::board_path(
                 &room,
@@ -94,6 +123,92 @@ impl App {
             {
                 Ok(list) => inbox.borrow_mut().list = Some(list),
                 Err(e) => inbox.borrow_mut().message = Some(e.message()),
+            }
+            // GitHub の同期は編集できる人だけ。API のない古いサーバーでは出さない。
+            if can_edit
+                && let Ok(link) = http::get::<Option<GithubLink>>(&http::board_path(
+                    &room,
+                    key.as_deref(),
+                    "/github",
+                ))
+                .await
+            {
+                inbox.borrow_mut().github = Some(link);
+            }
+        });
+    }
+
+    /// GitHub と同期する(`None` なら状態を確かめるだけ)。
+    fn github_request(&mut self, req: Option<GithubSyncRequest>) {
+        let Some((room, key, _)) = self.history_ctx() else {
+            return;
+        };
+        if self.history.github_busy {
+            return;
+        }
+        self.history.github_busy = true;
+        self.history.github_note = Some(GithubNote {
+            text: if req.is_some() {
+                "GitHub と同期しています…".into()
+            } else {
+                "GitHub の状態を確かめています…".into()
+            },
+            link: None,
+            error: false,
+        });
+        self.render_history();
+        let inbox = self.history.inbox.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let note = match req {
+                None => match http::get::<GithubStatus>(&http::board_path(
+                    &room,
+                    key.as_deref(),
+                    "/github/status",
+                ))
+                .await
+                {
+                    Ok(st) => {
+                        let text = status_text(&st);
+                        inbox.borrow_mut().github_status = Some(st);
+                        GithubNote {
+                            text,
+                            link: None,
+                            error: false,
+                        }
+                    }
+                    Err(e) => GithubNote {
+                        text: e.message(),
+                        link: None,
+                        error: true,
+                    },
+                },
+                Some(req) => match http::send::<_, GithubSyncResult>(
+                    "POST",
+                    &http::board_path(&room, key.as_deref(), "/github/sync"),
+                    &req,
+                )
+                .await
+                {
+                    Ok(r) => {
+                        let note = result_note(&r);
+                        let mut i = inbox.borrow_mut();
+                        i.github = Some(Some(r.link));
+                        i.github_status = None;
+                        note
+                    }
+                    Err(e) => GithubNote {
+                        text: e.message(),
+                        link: None,
+                        error: true,
+                    },
+                },
+            };
+            inbox.borrow_mut().github_note = Some(note);
+            if let Ok(list) =
+                http::get::<Vec<VersionInfo>>(&http::board_path(&room, key.as_deref(), "/versions"))
+                    .await
+            {
+                inbox.borrow_mut().list = Some(list);
             }
         });
     }
@@ -118,8 +233,24 @@ impl App {
         let preview = inbox.preview.take();
         let message = inbox.message.take();
         let restored = std::mem::take(&mut inbox.restored);
+        let github = inbox.github.take();
+        let github_status = inbox.github_status.take();
+        let github_note = inbox.github_note.take();
         drop(inbox);
         let mut changed = false;
+        if let Some(link) = github {
+            self.history.github = link;
+            changed = true;
+        }
+        if let Some(st) = github_status {
+            self.history.github_status = Some(st);
+            changed = true;
+        }
+        if let Some(note) = github_note {
+            self.history.github_note = Some(note);
+            self.history.github_busy = false;
+            changed = true;
+        }
         if let Some(list) = list {
             self.history.list = list;
             changed = true;
@@ -243,6 +374,15 @@ impl App {
                 r#"<form class="row" data-form="save-version"><input class="grow" name="label" maxlength="80" placeholder="今の状態に名前を付けて保存" /><button type="submit">保存</button></form>"#,
             );
         }
+        if can_edit && let Some(link) = &h.github {
+            html.push_str(&github_html(
+                link,
+                h.github_status.as_ref(),
+                h.github_note.as_ref(),
+                h.github_busy,
+                h.github_confirm,
+            ));
+        }
         if let Some(m) = &h.message {
             html.push_str(&format!(r#"<p class="muted small">{}</p>"#, escape(m)));
         }
@@ -333,8 +473,53 @@ impl App {
                     }
                 });
             }
+            "github-status" => self.github_request(None),
+            "github-pr" => {
+                let message = self.github_message();
+                self.github_request(Some(GithubSyncRequest {
+                    mode: GithubSyncMode::Sync,
+                    message,
+                    pull_request: true,
+                }));
+            }
+            // 上書きは、ボタンの下に出す確認を押してから。
+            "github-pull" | "github-push" => {
+                self.history.github_confirm = Some(if action == "github-pull" {
+                    GithubSyncMode::Pull
+                } else {
+                    GithubSyncMode::Push
+                });
+                self.render_history();
+            }
+            "github-confirm-cancel" => {
+                self.history.github_confirm = None;
+                self.render_history();
+            }
+            "github-confirm" => {
+                let Some(mode) = self.history.github_confirm.take() else {
+                    return;
+                };
+                let message = self.github_message();
+                self.github_request(Some(GithubSyncRequest {
+                    mode,
+                    message,
+                    pull_request: false,
+                }));
+            }
             _ => {}
         }
+    }
+
+    /// 同期の欄に入力したコミットメッセージ。
+    fn github_message(&self) -> Option<String> {
+        self.history
+            .panel
+            .query_selector("[data-form=github-sync] [name=message]")
+            .ok()
+            .flatten()
+            .and_then(|e| e.dyn_into::<HtmlInputElement>().ok())
+            .map(|i| i.value().trim().to_string())
+            .filter(|m| !m.is_empty())
     }
 
     fn save_version(&mut self, label: String) {
@@ -356,6 +541,163 @@ impl App {
             }
         });
     }
+}
+
+fn status_text(st: &GithubStatus) -> String {
+    match (st.remote_exists, st.board_changed, st.repo_changed) {
+        (false, _, _) => "リポジトリにはまだファイルがありません。同期すると作ります".into(),
+        (true, false, false) => "ボードとリポジトリは同じです".into(),
+        (true, true, false) => "ボードに、まだリポジトリにない変更があります".into(),
+        (true, false, true) => "リポジトリに、まだボードにない変更があります".into(),
+        (true, true, true) => {
+            "ボードとリポジトリの両方に変更があります。同期するとマージします".into()
+        }
+    }
+}
+
+fn changes(c: &board_core::api::ChangeCount) -> String {
+    let mut parts = Vec::new();
+    if c.added > 0 {
+        parts.push(format!("追加 {}", c.added));
+    }
+    if c.updated > 0 {
+        parts.push(format!("変更 {}", c.updated));
+    }
+    if c.removed > 0 {
+        parts.push(format!("削除 {}", c.removed));
+    }
+    parts.join("・")
+}
+
+fn result_note(r: &GithubSyncResult) -> GithubNote {
+    let mut text = Vec::new();
+    let board = changes(&r.board);
+    if !board.is_empty() {
+        text.push(format!("リポジトリの変更をボードに取り込みました({board})"));
+    }
+    let repo = changes(&r.repo);
+    if r.pull_request_url.is_some() {
+        text.push(format!(
+            "プルリクエストを出しました{}",
+            if repo.is_empty() {
+                String::new()
+            } else {
+                format!("({repo})")
+            }
+        ));
+    } else if r.commit.is_some() {
+        text.push(if repo.is_empty() {
+            "コミットしました".to_string()
+        } else {
+            format!("コミットしました({repo})")
+        });
+    }
+    if text.is_empty() {
+        text.push("変更はありません。ボードとリポジトリは同じです".into());
+    }
+    if !r.conflicts.is_empty() {
+        let list: Vec<&str> = r.conflicts.iter().take(5).map(String::as_str).collect();
+        text.push(format!(
+            "両方で変わっていた {} 件はボード側を残しました: {}{}",
+            r.conflicts.len(),
+            list.join("、"),
+            if r.conflicts.len() > 5 { " ほか" } else { "" }
+        ));
+    }
+    let link = match (&r.pull_request_url, &r.commit_url, &r.commit) {
+        (Some(pr), _, _) => Some((pr.clone(), "プルリクエストを開く".to_string())),
+        (None, Some(url), Some(sha)) => Some((
+            url.clone(),
+            format!("コミット {}", sha.chars().take(7).collect::<String>()),
+        )),
+        _ => None,
+    };
+    GithubNote {
+        text: text.join("。"),
+        link,
+        error: false,
+    }
+}
+
+/// 履歴パネルの GitHub の欄。
+fn github_html(
+    link: &GithubLink,
+    status: Option<&GithubStatus>,
+    note: Option<&GithubNote>,
+    busy: bool,
+    confirm: Option<GithubSyncMode>,
+) -> String {
+    let last = match &link.last {
+        Some(l) => format!(
+            r#"最後の同期: <a href="{url}" target="_blank" rel="noopener">{when}</a>{by}"#,
+            url = escape(&l.url),
+            when = when(l.at),
+            by =
+                l.by.as_ref()
+                    .map(|b| format!(" · @{}", escape(b)))
+                    .unwrap_or_default()
+        ),
+        None => "まだ同期していません".into(),
+    };
+    let note = match note {
+        Some(n) => format!(
+            r#"<p class="{cls}">{text}{link}</p>"#,
+            cls = if n.error { "form-error" } else { "muted small" },
+            text = escape(&n.text),
+            link = n
+                .link
+                .as_ref()
+                .map(|(u, l)| format!(
+                    r#" <a href="{}" target="_blank" rel="noopener">{}</a>"#,
+                    escape(u),
+                    escape(l)
+                ))
+                .unwrap_or_default()
+        ),
+        None => match status {
+            Some(st) => format!(r#"<p class="muted small">{}</p>"#, escape(&status_text(st))),
+            None => String::new(),
+        },
+    };
+    let disabled = if busy || !link.writable {
+        "disabled"
+    } else {
+        ""
+    };
+    let hint = if link.writable {
+        String::new()
+    } else {
+        r#"<p class="muted small">書き込みに使うトークンがありません。ボードのオーナーが共有パネルの「GitHub で管理」で設定してください。</p>"#.to_string()
+    };
+    format!(
+        r#"<section class="github-sync" aria-label="GitHub">
+<div class="row"><strong class="grow">GitHub</strong><a class="small" href="{url}" target="_blank" rel="noopener" translate="no">{repo}</a></div>
+<p class="muted small"><span translate="no">{branch} · {path}</span><br />{last}</p>
+<form class="stack" data-form="github-sync">
+  <input name="message" maxlength="500" autocomplete="off" placeholder="コミットメッセージ(省略可)" aria-label="コミットメッセージ" />
+  <div class="row wrap"><button type="submit" class="primary" {disabled}>同期</button><button type="button" data-action="github-pr" {disabled}>プルリクエストにする</button><button type="button" class="quiet" data-action="github-status" {busy}>変更を確かめる</button></div>
+</form>
+{hint}{note}
+<details class="small" {open}><summary>上書きする</summary><div class="row wrap"><button type="button" class="quiet" data-action="github-pull" {busy}>リポジトリの内容をボードに読み込む</button><button type="button" class="quiet" data-action="github-push" {disabled}>ボードの内容をリポジトリに書く</button></div>{confirm}</details>
+</section>"#,
+        open = if confirm.is_some() { "open" } else { "" },
+        confirm = match confirm {
+            Some(mode) => format!(
+                r#"<p class="small">{}</p><div class="row"><button type="button" class="primary" data-action="github-confirm">上書きする</button><button type="button" class="quiet" data-action="github-confirm-cancel">やめる</button></div>"#,
+                if mode == GithubSyncMode::Pull {
+                    "リポジトリのファイルの内容でボードを上書きします。今の状態はバージョン履歴に残ります。"
+                } else {
+                    "ボードの今の状態でリポジトリのファイルを上書きします。GitHub 側の変更は取り込みません。"
+                }
+            ),
+            None => String::new(),
+        },
+        url = escape(&link.url),
+        repo = escape(&link.repo),
+        branch = escape(&link.branch),
+        path = escape(&link.path),
+        busy = if busy { "disabled" } else { "" },
+    )
 }
 
 fn action_of(e: &web_sys::Event) -> Option<(String, Element)> {
@@ -411,9 +753,23 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
         let app = app.clone();
         listen(panel.as_ref(), "submit", false, move |e: web_sys::Event| {
             e.prevent_default();
-            let Some(input) = e
-                .target()
-                .and_then(|t| t.dyn_into::<Element>().ok())
+            let form = e.target().and_then(|t| t.dyn_into::<Element>().ok());
+            if form
+                .as_ref()
+                .and_then(|f| f.get_attribute("data-form"))
+                .as_deref()
+                == Some("github-sync")
+            {
+                let mut a = app.borrow_mut();
+                let message = a.github_message();
+                a.github_request(Some(GithubSyncRequest {
+                    mode: GithubSyncMode::Sync,
+                    message,
+                    pull_request: false,
+                }));
+                return;
+            }
+            let Some(input) = form
                 .and_then(|f| f.query_selector("[name=label]").ok().flatten())
                 .and_then(|i| i.dyn_into::<HtmlInputElement>().ok())
             else {

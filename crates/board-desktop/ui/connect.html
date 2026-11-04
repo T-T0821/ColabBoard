@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>接続先</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #1d2030; --muted: #6b7088; --line: #e3e5ee; --card: #f6f7fb;
+    --accent: #4c5cf5; --accent-soft: #eef0ff; --danger: #d23b3b; --ok: #1f9d55;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1b1c23; --fg: #eceef6; --muted: #9a9fb5; --line: #33354a; --card: #23242e;
+      --accent: #8c96ff; --accent-soft: #2a2c45; --danger: #ff7b7b; --ok: #5fd08f; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg);
+    font: 14px/1.6 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Yu Gothic UI", sans-serif; }
+  main { padding: 22px 24px 20px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p.lead { margin: 0 0 16px; color: var(--muted); }
+  label.opt { display: grid; grid-template-columns: 20px 1fr; gap: 4px 10px; padding: 12px 14px;
+    border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; cursor: pointer; background: var(--card); }
+  label.opt:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  label.opt input { margin: 3px 0 0; accent-color: var(--accent); }
+  .title { font-weight: 600; }
+  .desc { grid-column: 2; color: var(--muted); font-size: 13px; }
+  .field { grid-column: 2; display: flex; gap: 8px; margin-top: 6px; }
+  input[type=text], input[type=password] { flex: 1; min-width: 0; padding: 7px 10px; border-radius: 8px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--fg); font: inherit; }
+  input:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button { padding: 7px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg);
+    color: var(--fg); font: inherit; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .6; cursor: default; }
+  details { margin: 6px 0 0; }
+  summary { cursor: pointer; color: var(--muted); }
+  .ai { padding: 10px 0 0; }
+  .ai .desc { margin: 0 0 6px; }
+  .status { min-height: 22px; margin: 10px 0 0; font-size: 13px; }
+  .status.err { color: var(--danger); }
+  .status.ok { color: var(--ok); }
+  footer { display: flex; justify-content: space-between; align-items: center; margin-top: 14px; gap: 8px; }
+  .link { background: none; border: none; color: var(--accent); padding: 0; }
+</style>
+</head>
+<body>
+<main>
+  <h1>接続先</h1>
+  <p class="lead">ボードをどこに保存するかを選びます。</p>
+
+  <form id="form">
+    <label class="opt">
+      <input type="radio" name="mode" value="local" checked />
+      <span class="title">この PC で使う</span>
+      <span class="desc">ボードはこの PC だけに保存されます。ネットワークがなくてもすべて使えます。</span>
+    </label>
+
+    <label class="opt">
+      <input type="radio" name="mode" value="remote" />
+      <span class="title">サーバーに接続する</span>
+      <span class="desc">チームのサーバーにつないで、みんなで同時に編集します。一度開いたあとは、つながらないときもこの PC に残った内容で編集でき、つながると自動でまとまります。</span>
+      <span class="field">
+        <input id="url" type="text" placeholder="https://board.example.com" autocomplete="url" spellcheck="false" />
+        <button type="button" id="check">確かめる</button>
+      </span>
+    </label>
+
+    <details id="ai-box">
+      <summary>AI 機能(この PC で使うとき)</summary>
+      <div class="ai">
+        <p class="desc">付箋の要約・議事録・図の生成などに使う Anthropic の API キー。キーはこの PC の設定ファイルに保存されます。サーバーに接続しているときはサーバーの設定が使われます。</p>
+        <span class="field" style="margin:0">
+          <input id="ai" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false" />
+          <button type="button" id="ai-clear">消す</button>
+        </span>
+      </div>
+    </details>
+
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+
+    <footer>
+      <button type="button" class="link" id="open-data">データのフォルダを開く</button>
+      <span>
+        <button type="button" id="cancel">キャンセル</button>
+        <button type="submit" class="primary" id="save">開く</button>
+      </span>
+    </footer>
+  </form>
+</main>
+<script>
+  const invoke = window.__TAURI__.core.invoke;
+  const $ = (id) => document.getElementById(id);
+  const status = (text, kind = '') => { const s = $('status'); s.textContent = text; s.className = 'status ' + kind; };
+  let aiChange = null; // null: 変えない, '': 消す, 文字列: 新しいキー
+
+  const mode = () => document.querySelector('input[name=mode]:checked').value;
+  $('url').addEventListener('focus', () => { document.querySelector('input[value=remote]').checked = true; });
+  $('ai').addEventListener('input', (e) => { aiChange = e.target.value; });
+  $('ai-clear').addEventListener('click', () => { $('ai').value = ''; $('ai').placeholder = 'sk-ant-…'; aiChange = ''; status('保存すると API キーを消します'); });
+  $('cancel').addEventListener('click', () => window.close());
+  $('open-data').addEventListener('click', () => invoke('open_data_dir').catch((e) => status(String(e), 'err')));
+
+  $('check').addEventListener('click', async () => {
+    status('確かめています…');
+    try {
+      const url = await invoke('check_server', { url: $('url').value });
+      $('url').value = url;
+      status('つながりました', 'ok');
+    } catch (e) {
+      status(String(e), 'err');
+    }
+  });
+
+  $('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    $('save').disabled = true;
+    status('開いています…');
+    try {
+      await invoke('set_connection', {
+        mode: mode(),
+        serverUrl: $('url').value.trim() || null,
+        aiKey: aiChange,
+      });
+    } catch (err) {
+      status(String(err), 'err');
+      $('save').disabled = false;
+    }
+  });
+
+  invoke('get_connection').then((c) => {
+    document.querySelector(`input[value=${c.mode}]`).checked = true;
+    if (c.server_url) $('url').value = c.server_url;
+    if (c.has_ai_key) $('ai').placeholder = '設定済み(変えるときだけ入力)';
+  });
+</script>
+</body>
+</html>

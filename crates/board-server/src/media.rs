@@ -80,6 +80,15 @@ pub fn get(
     Ok(store.get_seq_raw(MEDIA, board, id)?.map(|d| (info, d)))
 }
 
+/// ボードに置いた動画メモの合計(バイト)。
+pub fn total_bytes(store: &Store, board: &str) -> Result<usize, StoreError> {
+    Ok(store
+        .scan_seq::<MediaInfo>(MEDIA_INFO, board)?
+        .iter()
+        .map(|(_, m)| m.bytes)
+        .sum())
+}
+
 pub fn delete_all(store: &Store, board: &str) -> Result<(), StoreError> {
     store.clear_seq(MEDIA, board)?;
     store.clear_seq(MEDIA_INFO, board)
@@ -123,10 +132,12 @@ pub async fn upload(
 ) -> Result<Json<Uploaded>, Error> {
     let user = api::current_user(&state, &headers)?;
     let login = user.as_ref().map(|u| u.login.as_str());
-    let (_, role) = api::board_access(&state, &id, login, q.key.as_deref())?;
+    let (meta, role) = api::board_access(&state, &id, login, q.key.as_deref())?;
     if !role.can_edit() {
         return Err(Error::forbidden());
     }
+    // 動画はサーバーに平文で置くので、暗号化ボードでは受け付けない。
+    crate::e2e::require_plain(meta.as_ref())?;
     let mime = headers
         .get(CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
@@ -141,6 +152,7 @@ pub async fn upload(
             format!("動画は {} MB までです", MAX_MEDIA_BYTES / 1024 / 1024),
         ));
     }
+    crate::billing::check_media(&state, &id, body.len())?;
     let store = state.store().clone();
     let board = id.clone();
     let login = login.map(String::from);

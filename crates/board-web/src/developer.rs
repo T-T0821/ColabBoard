@@ -192,7 +192,21 @@ impl Dev {
             h.push_str(r#"<ul class="dev-list">"#);
             for p in &st.plugins {
                 let m = &p.manifest;
-                let perms: Vec<&str> = m.permissions.iter().map(|p| p.label()).collect();
+                let perms: Vec<String> = m
+                    .permissions
+                    .iter()
+                    .map(|p| {
+                        if *p == board_core::plugin::Permission::Network {
+                            format!(
+                                r#"{}(<span translate="no">{}</span>)"#,
+                                p.label(),
+                                escape(&m.hosts.join(", "))
+                            )
+                        } else {
+                            p.label().to_string()
+                        }
+                    })
+                    .collect();
                 let actions = if p.source == "user" {
                     format!(
                         r#"<button type="button" class="quiet" data-action="uninstall" data-id="{}">消す</button>"#,

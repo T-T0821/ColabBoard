@@ -37,16 +37,17 @@ pub use board_types::ops::{
     NewElement, Op, OpsResult, ShapeStyle,
 };
 pub use board_types::plugin::{
-    ABI_VERSION, BoardRef, HostCall, Permission, PluginCommand, PluginManifest, Reply, RunInput,
-    RunOutput, UserRef,
+    ABI_VERSION, BoardRef, FetchRequest, FetchResponse, HostCall, Permission, PluginCommand,
+    PluginManifest, Reply, RunInput, RunOutput, UserRef,
 };
 pub use serde_json;
 
 /// よく使うものをまとめて読み込む。
 pub mod prelude {
     pub use crate::{
-        Context, ElementBody, ElementData, ElementPatch, ElementQuery, EndpointData, ManifestExt,
-        NewElement, Op, OpsResult, Permission, PluginManifest, RunOutputExt, ShapeStyle,
+        Context, ElementBody, ElementData, ElementPatch, ElementQuery, EndpointData, FetchRequest,
+        FetchResponse, ManifestExt, NewElement, Op, OpsResult, Permission, PluginManifest,
+        RunOutputExt, ShapeStyle,
     };
     pub use board_types::plugin::RunOutput;
 }
@@ -57,6 +58,8 @@ pub trait ManifestExt {
     fn version(self, v: &str) -> Self;
     fn description(self, d: &str) -> Self;
     fn permission(self, p: Permission) -> Self;
+    /// 接続先を足す(`network` の権限も付く)。`api.example.com`、`*.example.com` など。
+    fn host(self, pattern: &str) -> Self;
     fn command(self, id: &str, title: &str) -> Self;
 }
 
@@ -68,6 +71,7 @@ impl ManifestExt for PluginManifest {
             version: String::new(),
             description: String::new(),
             permissions: Vec::new(),
+            hosts: Vec::new(),
             commands: Vec::new(),
             abi: ABI_VERSION,
         }
@@ -95,6 +99,14 @@ impl ManifestExt for PluginManifest {
         }
         add(&mut self, p);
         self
+    }
+
+    fn host(mut self, pattern: &str) -> Self {
+        let pattern = pattern.to_ascii_lowercase();
+        if !self.hosts.contains(&pattern) {
+            self.hosts.push(pattern);
+        }
+        self.permission(Permission::Network)
     }
 
     fn command(mut self, id: &str, title: &str) -> Self {
@@ -166,6 +178,63 @@ impl Context {
     /// 書き込める(プラグインが `board:write` を持ち、実行した人が編集者以上)か。
     pub fn can_write(&self) -> bool {
         self.input.can_write
+    }
+
+    /// この実行で使える権限か(宣言していても、実行する人が許可していなければ `false`)。
+    pub fn can(&self, p: Permission) -> bool {
+        self.input.permissions.contains(&p)
+    }
+
+    /// この実行で接続してよい先。
+    pub fn hosts(&self) -> &[String] {
+        &self.input.hosts
+    }
+
+    /// HTTP で問い合わせる(`network`)。接続先はマニフェストの `hosts` に書き、
+    /// 実行する人に許可されたものだけ。リダイレクトはたどらない。
+    pub fn fetch(&mut self, req: FetchRequest) -> Result<FetchResponse, String> {
+        host(&HostCall::Fetch(req))
+    }
+
+    /// `GET` して本文を JSON として読む(2xx 以外はエラー)。
+    pub fn get_json<T: serde::de::DeserializeOwned>(&mut self, url: &str) -> Result<T, String> {
+        let r = self.fetch(FetchRequest::get(url).header("accept", "application/json"))?;
+        if !r.ok() {
+            return Err(format!("{url} が {} を返しました", r.status));
+        }
+        r.json()
+    }
+
+    /// 保存領域から読む(`storage`)。なければ `None`。
+    pub fn load<T: serde::de::DeserializeOwned>(&mut self, key: &str) -> Result<Option<T>, String> {
+        let v: serde_json::Value = host(&HostCall::StorageGet { key: key.into() })?;
+        if v.is_null() {
+            return Ok(None);
+        }
+        serde_json::from_value(v)
+            .map(Some)
+            .map_err(|e| e.to_string())
+    }
+
+    /// 保存領域に書く(`storage`)。実行が成功したときだけ残る。
+    pub fn save<T: serde::Serialize>(&mut self, key: &str, value: &T) -> Result<(), String> {
+        let value = serde_json::to_value(value).map_err(|e| e.to_string())?;
+        let _: serde_json::Value = host(&HostCall::StorageSet {
+            key: key.into(),
+            value,
+        })?;
+        Ok(())
+    }
+
+    /// 保存領域から消す(`storage`)。
+    pub fn remove(&mut self, key: &str) -> Result<(), String> {
+        let _: serde_json::Value = host(&HostCall::StorageDelete { key: key.into() })?;
+        Ok(())
+    }
+
+    /// 保存領域のキー(`storage`)。
+    pub fn keys(&mut self) -> Result<Vec<String>, String> {
+        host(&HostCall::StorageKeys)
     }
 
     /// 要素を探す。
@@ -309,9 +378,10 @@ macro_rules! plugin {
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing {
     use std::cell::RefCell;
+    use std::collections::BTreeMap;
 
     use board_core::Board;
-    use board_core::plugin::HostContext;
+    use board_core::plugin::{HostContext, Network};
 
     use super::*;
 
@@ -333,35 +403,109 @@ pub mod testing {
         })
     }
 
+    pub use board_core::plugin::{Fetcher, PluginStorage};
+
     /// 実行の結果。
     pub struct Outcome {
         pub result: Result<RunOutput, String>,
         pub board: Board,
         pub logs: Vec<String>,
+        /// 実行後の保存領域(`storage` を使えたとき)。
+        pub storage: BTreeMap<String, serde_json::Value>,
+        /// 通信の記録。
+        pub fetches: Vec<board_core::plugin::FetchRecord>,
     }
 
-    /// プラグインを `board` に対して実行する。権限はマニフェストのとおり(書き込みは許す)。
+    /// 実行の環境(擬似ホストの設定)。
+    #[derive(Default)]
+    pub struct Env {
+        /// 最初の保存領域。
+        pub storage: BTreeMap<String, serde_json::Value>,
+        /// 通信の代わりに呼ぶ関数(なければ、通信はエラーになる)。
+        pub fetch: Option<Fetcher>,
+        /// 実行する人が許可しなかった権限。
+        pub deny: Vec<Permission>,
+    }
+
+    impl Env {
+        /// 通信の代わりに `f` を呼ぶ。
+        pub fn fetch(
+            mut self,
+            f: impl FnMut(&FetchRequest) -> Result<FetchResponse, String> + Send + 'static,
+        ) -> Self {
+            self.fetch = Some(Box::new(f));
+            self
+        }
+
+        pub fn storage(mut self, key: &str, value: serde_json::Value) -> Self {
+            self.storage.insert(key.into(), value);
+            self
+        }
+
+        pub fn deny(mut self, p: Permission) -> Self {
+            self.deny.push(p);
+            self
+        }
+    }
+
+    /// プラグインを `board` に対して実行する。権限はマニフェストのとおり(すべて許可する)。
     pub fn run(
         manifest: &PluginManifest,
         f: fn(&mut Context) -> Result<RunOutput, String>,
         board: Board,
-        mut input: RunInput,
+        input: RunInput,
     ) -> Outcome {
-        let can_write = manifest.can(Permission::BoardWrite);
-        input.can_write = can_write;
-        HOST.with(|h| {
-            *h.borrow_mut() = Some(HostContext::new(
-                board,
-                manifest.can(Permission::BoardRead),
-                can_write,
-            ))
-        });
+        run_with(manifest, f, board, input, Env::default())
+    }
+
+    /// 保存領域・通信・許可しない権限を指定して実行する。
+    /// 接続先の確かめ方(宣言した `hosts` だけ、https だけ)はサーバーと同じ。
+    pub fn run_with(
+        manifest: &PluginManifest,
+        f: fn(&mut Context) -> Result<RunOutput, String>,
+        board: Board,
+        mut input: RunInput,
+        env: Env,
+    ) -> Outcome {
+        let perms: Vec<Permission> = manifest
+            .permissions
+            .iter()
+            .copied()
+            .filter(|p| !env.deny.contains(p))
+            .collect();
+        let has = |p| perms.contains(&p);
+        input.can_write = has(Permission::BoardWrite);
+        input.hosts = if has(Permission::Network) {
+            manifest.hosts.clone()
+        } else {
+            Vec::new()
+        };
+        let mut ctx = HostContext::new(
+            board,
+            has(Permission::BoardRead),
+            has(Permission::BoardWrite),
+        );
+        if has(Permission::Storage) {
+            ctx = ctx.with_storage(PluginStorage::new(env.storage));
+        }
+        if has(Permission::Network) {
+            let fetcher = env.fetch.unwrap_or_else(|| {
+                Box::new(|_: &FetchRequest| {
+                    Err("testing::Env::fetch で通信の代わりを渡してください".to_string())
+                })
+            });
+            ctx = ctx.with_network(Network::new(manifest.hosts.clone(), fetcher));
+        }
+        input.permissions = perms;
+        HOST.with(|h| *h.borrow_mut() = Some(ctx));
         let result = f(&mut Context::new(input));
         let ctx = HOST.with(|h| h.borrow_mut().take()).expect("擬似ホスト");
         Outcome {
             result,
             board: ctx.board,
             logs: ctx.logs,
+            storage: ctx.storage.map(|s| s.data).unwrap_or_default(),
+            fetches: ctx.fetches,
         }
     }
 

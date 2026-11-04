@@ -6,8 +6,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use board_core::api::{
-    BoardInfo, Me, RenameBoard, Role, SetLink, SetMember, SetPublic, SetSlack, Sharing,
-    SlackEvents, SlackSettings,
+    BoardInfo, GithubLink, Me, RenameBoard, Role, SetGithub, SetLink, SetMember, SetPublic,
+    SetSlack, Sharing, SlackEvents, SlackSettings,
 };
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
@@ -22,6 +22,8 @@ pub enum Access {
     Granted(BoardInfo),
     /// 権限がない(またはボードがない)。
     Denied,
+    /// 通報を受けて管理者が利用停止にした。
+    Suspended,
     /// API のないサーバー・つながらない。従来どおり誰でも編集できるものとして扱う。
     Unavailable,
 }
@@ -29,6 +31,7 @@ pub enum Access {
 pub async fn check_access(room: &str, key: Option<&str>) -> Access {
     match http::get::<BoardInfo>(&http::board_path(room, key, "")).await {
         Ok(info) => Access::Granted(info),
+        Err(HttpError::Status(403, m)) if m.contains("利用停止") => Access::Suspended,
         Err(HttpError::Status(403 | 404, _)) => Access::Denied,
         Err(HttpError::Status(s, m)) => {
             log::warn!("ボード情報を取得できません({s}): {m}");
@@ -83,6 +86,26 @@ pub fn show_denied(document: &Document, logged_in: bool, revoked: bool) {
     }
 }
 
+/// 管理者が利用停止にしたボードの画面。
+pub fn show_suspended(document: &Document) {
+    let Some(root) = document.get_element_by_id("home") else {
+        return;
+    };
+    if let Some(body) = document.body() {
+        let _ = body.class_list().add_1("home-mode");
+    }
+    root.set_inner_html(
+        r#"<div class="home-card auth">
+  <h1>このボードは利用停止されています</h1>
+  <p class="muted">通報を受けて、管理者がこのボードを開けないようにしました。心当たりがない場合は、サーバーやチームの管理者に問い合わせてください。</p>
+  <p class="row"><a class="button" href="./">ボード一覧へ</a></p>
+</div>"#,
+    );
+    if let Ok(root) = root.dyn_into::<HtmlElement>() {
+        root.set_hidden(false);
+    }
+}
+
 /// ボード画面の上部(ボード名・アカウント・共有)。
 pub struct BoardChrome {
     window: Window,
@@ -96,6 +119,11 @@ pub struct BoardChrome {
     slack: Option<SlackSettings>,
     /// Slack の設定・テスト送信の結果(成功なら `Ok`)。
     slack_status: Option<Result<String, String>>,
+    /// GitHub のつながり(`None` は API のない古いサーバー、`Some(None)` はつながっていない)。
+    github: Option<Option<GithubLink>>,
+    github_status: Option<Result<String, String>>,
+    /// 暗号化ボードの鍵(リンクの `#k=` に載せる形)。共有リンクに付ける。
+    pub e2e_key: Option<String>,
 }
 
 pub type SharedChrome = Rc<RefCell<BoardChrome>>;
@@ -120,6 +148,9 @@ impl BoardChrome {
             share_error: None,
             slack: None,
             slack_status: None,
+            github: None,
+            github_status: None,
+            e2e_key: None,
         }));
         chrome.borrow().render_header();
         install(&chrome);
@@ -214,14 +245,34 @@ impl BoardChrome {
             loc.origin().unwrap_or_default(),
             loc.pathname().unwrap_or_default()
         );
-        format!("{base}{}", board_url(&self.room, Some(key)))
+        format!(
+            "{base}{}{}",
+            board_url(&self.room, Some(key)),
+            self.fragment()
+        )
+    }
+
+    /// 暗号化ボードなら、鍵を載せたフラグメント(`#k=…`。ブラウザはサーバーに送らない)。
+    fn fragment(&self) -> String {
+        self.e2e_key
+            .as_ref()
+            .map(|k| format!("#k={k}"))
+            .unwrap_or_default()
+    }
+
+    fn is_e2e(&self) -> bool {
+        self.info.as_ref().is_some_and(|i| i.e2e.is_some())
     }
 
     /// 埋め込み用の iframe のコード。
     fn embed_code(&self, key: &str) -> String {
+        let loc = self.window.location();
         format!(
-            r#"<iframe src="{}&embed=1" width="800" height="600" style="border:0" allow="clipboard-write; fullscreen" title="グラボード"></iframe>"#,
-            self.link_url(key)
+            r#"<iframe src="{}{}{}&embed=1{}" width="800" height="600" style="border:0" allow="clipboard-write; fullscreen" title="グラボード"></iframe>"#,
+            loc.origin().unwrap_or_default(),
+            loc.pathname().unwrap_or_default(),
+            board_url(&self.room, Some(key)),
+            self.fragment(),
         )
     }
 
@@ -281,6 +332,7 @@ impl BoardChrome {
             None => String::new(),
         };
         let public = match &sh.public {
+            _ if self.is_e2e() => r#"<p class="muted small">暗号化ボードは Web に公開できません(公開ページはサーバーが中身を描くため)。</p>"#.to_string(),
             Some(p) => format!(
                 r#"<div class="row"><input class="grow" readonly value="{url}" data-copy /><button data-action="copy-public">コピー</button></div>
 <div class="row"><a class="small" href="{url}" target="_blank" rel="noopener">公開ページを開く</a><span class="grow"></span><button class="link small" data-action="regenerate-public">URL を作り直す</button></div>"#,
@@ -302,6 +354,11 @@ impl BoardChrome {
                 opts = options(Some(*role), false)
             ));
         }
+        let e2e_note = if self.is_e2e() {
+            r#"<p class="muted small e2e-note">🔒 暗号化ボードです。上のリンクの # 以降に復号の鍵が入っています(サーバーには送られません)。招待したメンバーにも、このリンクか鍵のパネルの鍵付きリンクを渡してください。メンバーを外したら、鍵のパネルから鍵を作り直してください。</p>"#
+        } else {
+            ""
+        };
         let err = self
             .share_error
             .as_ref()
@@ -312,6 +369,7 @@ impl BoardChrome {
 <section>
   <label class="field">リンクを知っている人<select data-link-role>{link_opts}</select></label>
   {link}
+  {e2e_note}
 </section>
 <section class="public-share">
   <label class="row switch"><strong class="grow">Web に公開{public_hint}</strong><input type="checkbox" data-public {public_checked} /></label>
@@ -331,19 +389,85 @@ impl BoardChrome {
   <label class="field">他のサイトに埋め込む(iframe)<select data-embed-role>{embed_opts}</select></label>
   {embed}
 </section>
-<section data-slot="slack"></section>"#,
+<section data-slot="slack"></section>
+<section data-slot="github"></section>"#,
             embed_opts = options(sh.embed.as_ref().map(|l| l.role), true)
                 .replace("オフ(招待した人だけ)", "オフ"),
             link_opts = options(sh.link.as_ref().map(|l| l.role), true),
             invite_opts = options(Some(Role::Editor), false),
-            public_checked = if sh.public.is_some() { "checked" } else { "" },
+            public_checked = if sh.public.is_some() { "checked" } else if self.is_e2e() { "disabled" } else { "" },
             public_hint = crate::hint::html(
                 "オンにすると、ログインしていない人も見られる閲覧専用のページができます(編集・コメントはできません)。SNS やチャットに貼るとプレビュー画像が出ます。"
             ),
         ));
-        if let Ok(Some(section)) = panel.query_selector("[data-slot=slack]") {
+        // 暗号化ボードでは通知する出来事(コメント・バージョン)がないので出さない。
+        if let Ok(Some(section)) = panel.query_selector("[data-slot=slack]")
+            && !self.is_e2e()
+        {
             section.set_inner_html(&self.slack_html());
         }
+        // 暗号化ボードはサーバーが中身を読めないので、GitHub で管理できない。
+        if let Ok(Some(section)) = panel.query_selector("[data-slot=github]")
+            && !self.is_e2e()
+        {
+            section.set_inner_html(&self.github_html());
+        }
+    }
+
+    /// GitHub で管理する設定欄。
+    fn github_html(&self) -> String {
+        let Some(link) = &self.github else {
+            return String::new();
+        };
+        let l = link.as_ref();
+        let value = |v: Option<&str>| escape(v.unwrap_or(""));
+        let status = match &self.github_status {
+            Some(Ok(m)) => format!(r#"<p class="muted small">{}</p>"#, escape(m)),
+            Some(Err(m)) => format!(r#"<p class="form-error">{}</p>"#, escape(m)),
+            None => String::new(),
+        };
+        let base = http::base();
+        let origin = if base.is_empty() {
+            self.window.location().origin().unwrap_or_default()
+        } else {
+            base
+        };
+        let hook_url = format!("{origin}/api/github/webhook");
+        let off = if l.is_some() {
+            r#"<button type="button" class="quiet" data-action="github-off">外す</button>"#
+        } else {
+            ""
+        };
+        format!(
+            r#"<strong>GitHub で管理</strong>
+<p class="muted small">ボードを差分の読みやすいテキスト(1 要素 1 行の JSON)としてリポジトリに置き、コミット・プルリクエストで管理します。同期は「履歴」から編集者ができます。</p>
+<form data-form="github" class="stack">
+  <input name="repo" autocomplete="off" required placeholder="owner/name か https://github.com/owner/name" aria-label="リポジトリ" value="{repo}" />
+  <div class="row"><input class="grow" name="branch" autocomplete="off" placeholder="ブランチ(省略時は既定)" aria-label="ブランチ" value="{branch}" /><input class="grow" name="path" autocomplete="off" placeholder="boards/{room}.graboard.json" aria-label="ファイルの場所" value="{path}" /></div>
+  <input name="token" type="password" autocomplete="off" placeholder="{token_ph}" aria-label="GitHub のトークン" />
+  <label class="check"><input type="checkbox" name="auto_pull" {auto} /> GitHub への push を自動で取り込む</label>
+  <p class="muted small">トークンは fine-grained の個人アクセストークンで、このリポジトリの Contents と Pull requests を読み書きできるものにしてください(保存後は表示しません)。自動で取り込むには、リポジトリの Settings → Webhooks に <code translate="no">{hook}</code>(Content type は application/json、Secret はサーバー管理者に確認)を登録します。</p>
+  <div class="row"><button type="submit">保存</button>{off}</div>
+</form>
+{status}"#,
+            repo = value(l.map(|l| l.repo.as_str())),
+            branch = value(l.map(|l| l.branch.as_str())),
+            path = value(l.map(|l| l.path.as_str())),
+            room = escape(&self.room),
+            token_ph = if l.is_some_and(|l| l.has_token) {
+                "保存済み。変えるときだけ入力"
+            } else if l.is_some_and(|l| l.writable) {
+                "サーバーのトークンを使います(ボード専用にするなら入力)"
+            } else {
+                "トークン(github_pat_…)"
+            },
+            auto = if l.is_some_and(|l| l.auto_pull) {
+                "checked"
+            } else {
+                ""
+            },
+            hook = escape(&hook_url),
+        )
     }
 
     /// Slack 通知の設定欄。
@@ -398,8 +522,12 @@ async fn load_sharing(chrome: SharedChrome) {
     let slack = http::get::<SlackSettings>(&http::board_path(&room, None, "/slack"))
         .await
         .ok();
+    let github = http::get::<Option<GithubLink>>(&http::board_path(&room, None, "/github"))
+        .await
+        .ok();
     let mut c = chrome.borrow_mut();
     c.slack = slack;
+    c.github = github;
     match res {
         Ok(sh) => {
             c.sharing = Some(sh);
@@ -488,6 +616,61 @@ fn update_slack(chrome: &SharedChrome, req: Option<SetSlack>) {
         c.slack_status = Some(status);
         c.render_share();
     });
+}
+
+/// GitHub のつながりを変える(`None` なら外す)。
+fn update_github(chrome: &SharedChrome, req: Option<SetGithub>) {
+    let chrome = chrome.clone();
+    {
+        let mut c = chrome.borrow_mut();
+        c.github_status = Some(Ok("リポジトリを確かめています…".into()));
+        c.render_share();
+    }
+    wasm_bindgen_futures::spawn_local(async move {
+        let room = chrome.borrow().room.clone();
+        let path = http::board_path(&room, None, "/github");
+        let status = match req {
+            Some(body) => match http::send::<_, GithubLink>("PUT", &path, &body).await {
+                Ok(link) => {
+                    let msg = format!("{} の {} につなぎました", link.repo, link.branch);
+                    chrome.borrow_mut().github = Some(Some(link));
+                    Ok(msg)
+                }
+                Err(e) => Err(e.message()),
+            },
+            None => match http::send_empty("DELETE", &path).await {
+                Ok(()) => {
+                    chrome.borrow_mut().github = Some(None);
+                    Ok("GitHub から外しました(リポジトリのファイルはそのままです)".into())
+                }
+                Err(e) => Err(e.message()),
+            },
+        };
+        let mut c = chrome.borrow_mut();
+        c.github_status = Some(status);
+        c.render_share();
+    });
+}
+
+fn github_form(form: &Element) -> SetGithub {
+    let input = |name: &str| {
+        form.query_selector(&format!("[name={name}]"))
+            .ok()
+            .flatten()
+            .and_then(|e| e.dyn_into::<HtmlInputElement>().ok())
+    };
+    let text = |name: &str| {
+        input(name)
+            .map(|i| i.value().trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
+    SetGithub {
+        repo: text("repo").unwrap_or_default(),
+        branch: text("branch"),
+        path: text("path"),
+        token: text("token"),
+        auto_pull: input("auto_pull").is_some_and(|i| i.checked()),
+    }
 }
 
 fn slack_form(form: &Element) -> SetSlack {
@@ -697,6 +880,7 @@ fn install(chrome: &SharedChrome) {
                 );
             }
             Some("slack-test") => update_slack(&ch, None),
+            Some("github-off") => update_github(&ch, None),
             Some("slack-off") => update_slack(
                 &ch,
                 Some(SetSlack {
@@ -790,6 +974,10 @@ fn install(chrome: &SharedChrome) {
         };
         if form.get_attribute("data-form").as_deref() == Some("slack") {
             update_slack(&ch, Some(slack_form(&form)));
+            return;
+        }
+        if form.get_attribute("data-form").as_deref() == Some("github") {
+            update_github(&ch, Some(github_form(&form)));
             return;
         }
         let input = form

@@ -964,6 +964,258 @@ SSO 自動参加	SSO auto-join
 グラボードのサーバーのディスク	Graboard server disk
 サーバーのディレクトリ	Server directory
 保存場所の変更	Data location changed
+運用	Operations
+エラー	Errors
+バックアップ	Backups
+解決済みも表示	Show resolved
+更新	Refresh
+· Slack 通知:	· Slack alerts:
+· ログ形式:	· Log format:
+有効	On
+エラーの記録はありません。	No errors recorded.
+未解決のエラーはありません。	No open errors.
+場所	Location
+最初	First seen
+最後	Last seen
+版	Version
+利用者	User
+ボード	Board
+ページ	Page
+ブラウザ	Browser
+未解決に戻す	Reopen
+解決済みにする	Mark resolved
+記録を消す	Delete record
+定期	Scheduled
+手動	Manual
+復元の前	Before restore
+ダウンロード	Download
+ボードを戻す…	Restore a board…
+まだバックアップがありません。	No backups yet.
+取っています…	Backing up…
+今すぐバックアップ	Back up now
+種類	Type
+大きさ	Size
+{n} 件	{n}
+保存先:	Location:
+定期バックアップは止めています(手動だけ)	Scheduled backups are off (manual only)
+{n} 時間ごと	Every {n} h
+定期と手動それぞれ {n} 個まで残す	Keeps up to {n} of each (scheduled and manual)
+次回	Next
+今もある	Exists
+削除済み	Deleted
+このサーバーにない	Not on this server
+戻す	Restore
+今の中身を置き換えます(今の状態はバージョン履歴に残ります)	Replaces the current content (the current state is kept in version history)
+コメント・バージョン履歴・メンバーごと作り直します	Recreates it with comments, version history and members
+このバックアップにボードはありません。	This backup has no boards.
+ボードを作り直しました。オーナーのボード一覧に戻っています。	The board was recreated and is back in its owner's board list.
+ボードの中身を戻しました。戻す前の状態はバージョン履歴にあります。	The board content was restored. The previous state is in version history.
+バックアップ作成	Backup created
+バックアップから復元	Restored from backup
+# 自作テンプレートのギャラリー
+標準	Standard
+チーム	Team
+自分	Mine
+テンプレートの種類	Template type
+＋ テンプレートに保存	+ Save as template
+テンプレートに保存	Save as template
+テンプレートを編集	Edit template
+{n} 回使用	Used {n}×
+自分だけ	Only me
+チームに公開中	Shared with the team
+編集・公開先の変更	Edit or change sharing
+編集	Edit
+ボードに置く	Place on the board
+要素 {n} 個	{n} elements
+選んでいる {n} 個の要素を保存します。	Saves the {n} selected elements.
+何も選んでいないので、ボード全体({n} 個の要素)を保存します。	Nothing is selected, so the whole board ({n} elements) will be saved.
+名前	Name
+説明	Description
+分類	Category
+公開先	Share with
+作った人だけ(公開をやめる)	Only the creator (stop sharing)
+例: 週次定例の振り返り	e.g. Weekly retro
+どんな場面で使うか	When to use it
+例: 振り返り	e.g. Retrospective
+チームに公開すると、メンバー全員の「チーム」タブに並び、誰でもボードに置けます。	Shared templates appear in every member's Team tab, and anyone on the team can place them.
+変更を保存	Save changes
+保存	Save
+削除	Delete
+自分のテンプレート	My templates
+チームのテンプレート	Team templates
+保存しました	Saved
+チームに公開しました	Shared with the team
+更新しました	Updated
+削除しました	Deleted
+保存する要素がありません	There is nothing to save
+保存する要素がありません。付箋や図形を置いてから保存してください	There is nothing to save. Add sticky notes or shapes first.
+チームに入ると、チームで公開されたテンプレートがここに並びます。チームはボード一覧で作れます。	Templates shared with your teams appear here. You can create a team from the board list.
+まだチームに公開されたテンプレートはありません。よく使う配置を選んで「＋ テンプレートに保存」から公開できます。	No team templates yet. Select a layout you use often and share it with "+ Save as template".
+まだ自作のテンプレートはありません。よく使う配置を選んで「＋ テンプレートに保存」を押すと、ここに並びます。	No templates of your own yet. Select a layout you use often and press "+ Save as template".
+テンプレートから作る	From a template
+テンプレートギャラリー	Template gallery
+閉じる	Close
+標準のテンプレート	Standard templates
+ボードでよく使う配置を選び、テンプレートのメニューの「＋ テンプレートに保存」を押すと、ここに並びます。チームに公開すると、メンバー全員が使えます。	Select a layout on a board and press "+ Save as template" in the Templates menu to add it here. Share it with a team so every member can use it.
+選ぶと新しいボードを作って置きます。チームのテンプレートはそのチームのボードになります。	Pick one to create a new board with it. Team templates create a board in that team.
+テンプレート作成	Template created
+テンプレートの変更	Template changed
+テンプレート削除	Template deleted
+会議	Meeting
+AI ファシリテーターとリアルタイム議事録	AI facilitator and live minutes
+会議の機能	Meeting tools
+進行	Agenda
+文字起こし	Transcript
+目的	Goal
+時間	Time
+例: 来期の重点施策を 3 つに絞る	e.g. Narrow next term's priorities down to 3
+話したいこと(1 行に 1 つ、任意)	Topics to cover (one per line, optional)
+話したいこと	Topics to cover
+AI で進行案を作る	Plan with AI
+目的・時間・メモとボードの内容から、議題と時間配分を提案します	Proposes an agenda and time allocation from the goal, length, notes and the board
+議題	Agenda
+会議を始める	Start meeting
+最初の議題から始め、全員に見えるタイマーを動かします	Starts with the first item and runs the shared timer
+次の議題へ	Next item
+最後の議題を終える	Finish the last item
+AI に助言をもらう	Ask AI for advice
+今の議題の発言とボードから、論点の整理と次の一手を提案します	Organizes the discussion points and suggests the next move from what was said and the board
+会議を終えてまとめる	End and summarize
+文字起こしとボードから、決定事項とアクションをまとめてボードに置きます	Summarizes decisions and action items from the transcript and the board, and places them on the board
+議題を片付ける	Clear agenda
+自動で更新	Auto-update
+発言が増えていれば、1 分ごとに AI が議事録を書き直します	AI rewrites the minutes every minute while new remarks come in
+今すぐ更新	Update now
+ボードに置く	Place on board
+今の議事録をボードの右に並べます	Places the current minutes to the right of the board
+● 文字起こしを始める	● Start transcribing
+■ 文字起こしを止める	■ Stop transcribing
+文字起こしを全員の画面から消す	Delete the transcript for everyone
+ブラウザの音声認識を使い、各自のマイクの声だけを文字にします(Chrome・Edge では音声がブラウザの提供元のサーバーで認識されます)。文字にした発言はボードと一緒に保存され、参加者全員に見えます。	Uses the browser's speech recognition to transcribe only your own microphone (in Chrome and Edge, audio is recognized on the browser vendor's servers). Transcribed remarks are saved with the board and visible to everyone.
+目的と時間を入れて「AI で進行案を作る」を押すと、議題と時間配分を提案します。	Enter a goal and length, then press "Plan with AI" to get an agenda and time allocation.
+文字起こしやボードの内容から、会議中に議事録を書き進めます。「自動で更新」を入れると、発言が増えるたびに 1 分ごとに書き直します。	Writes the minutes during the meeting from the transcript and the board. Turn on "Auto-update" to rewrite them every minute as new remarks come in.
+まだ発言はありません。「文字起こしを始める」を押して話すと、ここに出ます。	No remarks yet. Press "Start transcribing" and speak to see them here.
+あなたの声を文字にしています。ほかの参加者も各自で始めると、発言者ごとに記録されます	Transcribing your voice. When other participants start too, remarks are recorded per speaker
+ミュート中は文字にしません	Not transcribing while muted
+このブラウザは音声の文字起こしに対応していません(Chrome・Edge・Safari で使えます)	This browser does not support speech transcription (use Chrome, Edge or Safari)
+マイクの使用が許可されていません。ブラウザの設定で許可してください	Microphone access is blocked. Allow it in your browser settings
+マイクが見つかりません	No microphone found
+音声認識のサービスにつながりません	Cannot reach the speech recognition service
+この言語の音声認識に対応していません	Speech recognition does not support this language
+文字起こしが止まりました。もう一度始めてください	Transcription stopped. Please start it again
+音声認識を始められません	Could not start speech recognition
+AI が議事録を更新しています…	AI is updating the minutes…
+この画面から 1 分ごとに更新します	Updating every minute from this screen
+議事録を更新しました	Updated the minutes
+まだ議事録がありません。「今すぐ更新」で作れます	No minutes yet. Press "Update now" to create them
+議事録を更新中です。少し待ってからもう一度押してください	Updating the minutes. Wait a moment and try again
+AI が会議のまとめ(決定事項・アクション)を書いています…	AI is summarizing the meeting (decisions and action items)…
+AI ファシリテーター	AI facilitator
+議題から話がそれています	The discussion has drifted from the agenda
+論点	Discussion points
+まだ決まっていないこと	Still undecided
+次の一手	Next move
+話し合ったこと	Discussed
+決定事項	Decisions
+アクション	Action items
+やること	Task
+担当	Owner
+期限	Due
+未解決の課題	Open questions
+終了	Ended
+合計	Total
+分	min
+この議題を消す	Remove this item
+会議の目的を書いてください	Please enter the meeting goal
+AI が議題と時間配分を考えています…	AI is planning the agenda and timing…
+進行案を作れませんでした	Could not create a plan
+AI が使えないので、メモの行を議題にして時間を均等に割りました	AI is unavailable, so each note line became an item with equal time
+進行案を作りました。分数は直せます。「会議を始める」で最初の議題のタイマーが動きます	Plan created. You can adjust the minutes. "Start meeting" starts the timer for the first item
+AI が議論を整理しています…	AI is organizing the discussion…
+議題の時間を過ぎました。AI ファシリテーターの助言を会議パネルに出しました	Time is up for this item. The AI facilitator's advice is in the meeting panel
+助言を会議パネルに出しました	Advice is in the meeting panel
+会議を始めました。文字起こしを始めると、発言が議事録に入ります	Meeting started. Start transcribing to get remarks into the minutes
+議題はすべて終わりました。「会議を終えてまとめる」で議事録をボードに置けます	All items are done. Press "End and summarize" to place the minutes on the board
+会議が終わったので文字起こしを止めました	The meeting ended, so transcription stopped
+文字起こしは共同編集のボードで、編集できる人だけ使えます	Transcription is available on shared boards to people who can edit
+文字起こしを全員の画面から消します。よろしいですか?	Delete the transcript for everyone?
+# 会議と予定(Zoom・Meet・Teams・カレンダー)
+会議に参加	Join meeting
+予定・参加	Schedule & join
+Zoom・Meet・Teams の会議とカレンダーの予定	Zoom, Meet and Teams meetings and calendar events
+次の会議	Next meeting
+会議の時間です	The meeting is starting
+開催中	Live
+まもなく開始	Starting soon
+終わりました	Ended
+時刻は未定	Time not set
+Zoom に参加 ↗	Join Zoom ↗
+Google Meet に参加 ↗	Join Google Meet ↗
+Microsoft Teams に参加 ↗	Join Microsoft Teams ↗
+オンライン会議 に参加 ↗	Join online meeting ↗
+会議 に参加 ↗	Join meeting ↗
+オンライン会議	Online meeting
+カレンダー	Calendar
+Google カレンダーに追加 ↗	Add to Google Calendar ↗
+.ics を保存(Outlook・Teams)	Save .ics (Outlook, Teams)
+予定の説明にボードの URL が入るので、カレンダーからボードを開けます。	The event description includes the board URL, so people can open the board from their calendar.
+カレンダーの予定を開く ↗	Open calendar event ↗
+会議の参加者に知らせる	Tell meeting participants
+招待文をコピー	Copy invitation
+Zoom・Meet・Teams の会議のチャットに貼ると、参加者がそこからボードを開けます。Teams ではチャネルやチャットの「+」から「Web サイト」タブにボードの URL を追加できます。参加者がボードを開けるよう、共有の設定も確かめてください。	Paste it into the Zoom, Meet or Teams meeting chat so participants can open the board from there. In Teams you can also add the board URL as a "Website" tab with "+" in a channel or chat. Check the sharing settings so participants can open the board.
+編集	Edit
+紐づけを外す	Unlink
+が設定	set this up
+まだ会議は紐づけられていません。編集できる人が Zoom・Meet・Teams の会議やカレンダーの予定を紐づけられます。	No meeting is linked yet. Editors can link a Zoom, Meet or Teams meeting or a calendar event.
+会議の URL	Meeting URL
+予定の名前	Event name
+例: 週次定例	e.g. Weekly sync
+終わり	End
+カレンダーの予定のリンク(任意)	Calendar event link (optional)
+Google カレンダーの予定を開き、「︙」→「予定の公開」などでリンクをコピーして貼ると、ボードから予定に戻れます。	Open the event in Google Calendar, copy its link (for example from "⋮" → "Publish event") and paste it here to get back to the event from the board.
+紐づけを外しました	Unlinked
+会議の URL か予定を入れてください	Enter a meeting URL or event details
+開始の時刻を入れると保存できます	Set a start time to save the event
+会議の URL は https:// で始まる形で入力してください	Enter a meeting URL that starts with https://
+会議の URL は Zoom・Google Meet・Microsoft Teams のものを入力してください	Enter a Zoom, Google Meet or Microsoft Teams meeting URL
+予定の URL は Google カレンダーか Outlook の予定のリンクを入力してください	Enter a Google Calendar or Outlook event link
+終わりの時刻は開始より後にしてください	The end time must be after the start time
+終わりだけでなく開始の時刻も入れてください	Enter a start time as well as an end time
+予定の長さは 24 時間までにしてください	Events can be up to 24 hours long
+会議を紐づけられるのは、ログインして作ったボードだけです	Meetings can only be linked to boards created while signed in
+プラン: 無料	Plan: Free
+プラン: プロ	Plan: Pro
+料金プラン	Plans
+今月の AI 機能	AI this month
+利用中	Current
+今のプラン	Current plan
+プロにアップグレード	Upgrade to Pro
+お支払いの管理	Manage billing
+無料	Free
+プロ	Pro
+{n} / 無制限	{n} / unlimited
+ボード {n} 個	{n} boards
+ボード 無制限	Unlimited boards
+AI 機能 月 {n} 回	AI {n} times / month
+AI 機能 無制限	Unlimited AI
+ボードのメンバー {n} 人まで	Up to {n} members per board
+ボードのメンバー 無制限	Unlimited members per board
+動画メモ {n} MB まで	Video memos up to {n} MB per board
+動画メモ 無制限	Unlimited video memos
+次の更新日: {n}年{n}月{n}日	Renews on {2}/{3}/{1}
+{n}年{n}月{n}日 に無料プランに戻ります(解約の予定)。	Returns to the Free plan on {2}/{3}/{1} (cancellation scheduled).
+お支払いを確認できていません。「お支払いの管理」から支払い方法を更新してください。	We couldn't confirm your payment. Update your payment method in "Manage billing".
+テストモードです。申し込んでも実際の請求は発生しません。	Test mode: you won't actually be charged.
+プランはボードのオーナーに付きます。メンバー数・動画メモはボードごと、AI 機能はオーナーの月ごとの回数で数えます。プランを下げても、今あるボードはそのまま残ります。	Plans belong to the board owner. Members and video memos are counted per board, AI per owner per month. Downgrading keeps your existing boards.
+お申し込みありがとうございます。プロプランになりました。	Thanks! You're now on the Pro plan.
+申し込みを取りやめました。プランは変わっていません。	Checkout canceled. Your plan hasn't changed.
+解約しました。無料プランに戻りました。	Subscription canceled. You're back on the Free plan.
+無料プランで持てるボードは {n} 個までです。ホーム画面の「プラン」からプロにすると増やせます	The Free plan allows up to {n} boards. Upgrade to Pro from "Plan" on the home screen for more.
+無料プランで 1 つのボードに招待できるのは {n} 人までです。ホーム画面の「プラン」からプロにすると増やせます	The Free plan allows up to {n} members per board. Upgrade to Pro from "Plan" on the home screen for more.
+無料プランで 1 つのボードに置ける動画メモは合計 {n} MB までです。ホーム画面の「プラン」からプロにすると増やせます	The Free plan allows up to {n} MB of video memos per board. Upgrade to Pro from "Plan" on the home screen for more.
+無料プランの AI 機能は 1 か月 {n} 回までです(今月の分を使い切りました)。ホーム画面の「プラン」からプロにすると増やせます	The Free plan includes {n} AI uses per month, and you've used them all. Upgrade to Pro from "Plan" on the home screen for more.
+このボードで AI 機能を使うにはログインしてください	Log in to use AI on this board
+料金プランの変更	Plan changed
 タグ・フォルダ	Tags & folder
 タグとフォルダを変える	Edit tags and folder
 お気に入りにする	Add to favorites
@@ -1004,3 +1256,300 @@ SSO 自動参加	SSO auto-join
 ボードに機能を足す WASM プラグインです。入れたプラグインは自分だけが使えます。ボードを開き、右上の「プラグイン」から実行します。作り方は docs/plugins.md にあります。	WASM plugins add features to boards. Plugins you add are only available to you. Open a board and run them from "Plugins" at the top right. See docs/plugins.md for how to build one.
 使えるプラグインはまだありません。	No plugins yet.
 ボード一覧の「開発者向け」から自分のプラグイン(.wasm)を入れるか、サーバーの管理者に PLUGIN_DIR を設定してもらってください。	Add your own (.wasm) from "For developers" on the board list, or ask the server admin to set PLUGIN_DIR.
+GitHub で管理	Manage on GitHub
+ボードを差分の読みやすいテキスト(1 要素 1 行の JSON)としてリポジトリに置き、コミット・プルリクエストで管理します。同期は「履歴」から編集者ができます。	Keeps the board in a repository as diff-friendly text (JSON, one element per line) so you can manage it with commits and pull requests. Editors can sync from History.
+owner/name か https://github.com/owner/name	owner/name or https://github.com/owner/name
+リポジトリ	Repository
+ブランチ(省略時は既定)	Branch (default if empty)
+ブランチ	Branch
+ファイルの場所	File path
+GitHub のトークン	GitHub token
+保存済み。変えるときだけ入力	Saved. Enter only to change
+サーバーのトークンを使います(ボード専用にするなら入力)	Uses the server's token (enter one to use a board-specific token)
+トークン(github_pat_…)	Token (github_pat_…)
+GitHub への push を自動で取り込む	Pull in pushes to GitHub automatically
+トークンは fine-grained の個人アクセストークンで、このリポジトリの Contents と Pull requests を読み書きできるものにしてください(保存後は表示しません)。自動で取り込むには、リポジトリの Settings → Webhooks に	Use a fine-grained personal access token with read/write access to Contents and Pull requests for this repository (it is not shown after saving). To pull in pushes automatically, add
+(Content type は application/json、Secret はサーバー管理者に確認)を登録します。	under Settings → Webhooks of the repository (Content type: application/json; ask your server admin for the secret).
+外す	Disconnect
+リポジトリを確かめています…	Checking the repository…
+GitHub から外しました(リポジトリのファイルはそのままです)	Disconnected from GitHub (the file in the repository is kept)
+同期	Sync
+プルリクエストにする	Open a pull request
+変更を確かめる	Check for changes
+コミットメッセージ(省略可)	Commit message (optional)
+コミットメッセージ	Commit message
+上書きする	Overwrite
+リポジトリの内容をボードに読み込む	Load the repository file into the board
+ボードの内容をリポジトリに書く	Write the board to the repository
+リポジトリのファイルの内容でボードを上書きします。今の状態はバージョン履歴に残ります。	This replaces the board with the repository file. The current state is kept in version history.
+ボードの今の状態でリポジトリのファイルを上書きします。GitHub 側の変更は取り込みません。	This replaces the repository file with the current board. Changes on GitHub are not merged.
+やめる	Cancel
+まだ同期していません	Not synced yet
+最後の同期:	Last synced:
+書き込みに使うトークンがありません。ボードのオーナーが共有パネルの「GitHub で管理」で設定してください。	There is no token to write with. The board owner can set one under "Manage on GitHub" in the share panel.
+GitHub と同期しています…	Syncing with GitHub…
+GitHub の状態を確かめています…	Checking GitHub…
+リポジトリにはまだファイルがありません。同期すると作ります	The repository has no file yet. Sync to create it
+ボードとリポジトリは同じです	The board and the repository are the same
+ボードに、まだリポジトリにない変更があります	The board has changes that are not in the repository yet
+リポジトリに、まだボードにない変更があります	The repository has changes that are not on the board yet
+ボードとリポジトリの両方に変更があります。同期するとマージします	Both the board and the repository have changes. Sync to merge them
+変更はありません。ボードとリポジトリは同じです	No changes. The board and the repository are the same
+プルリクエストを開く	Open pull request
+コミットしました	Committed
+プルリクエストを出しました	Opened a pull request
+Mermaid で書き出し(選択 / 全体)	Export Mermaid (selection / all)
+PlantUML で書き出し(選択 / 全体)	Export PlantUML (selection / all)
+draw.io で書き出し(選択 / 全体)	Export draw.io (selection / all)
+Mermaid をコピー	Copy as Mermaid
+PlantUML をコピー	Copy as PlantUML
+クリップボードにコピーしました	Copied to clipboard
+書き出せる図形がありません	There are no shapes to export
+Mermaid の図にクラス・エンティティがありません	The Mermaid diagram has no classes or entities
+Mermaid のシーケンス図に参加者がありません	The Mermaid sequence diagram has no participants
+PlantUML のシーケンス図に参加者がありません	The PlantUML sequence diagram has no participants
+シーケンス図はノードと矢印の図として読めません	A sequence diagram can't be read as a node-and-arrow diagram
+# ブラウザ内 AI
+ブラウザ内 AI	On-device AI
+音声や手書きを、この端末の中だけで文字にする(サーバーに送らない)	Turn speech and handwriting into text on this device only (nothing is sent to the server)
+音声と手書きを、この端末の中だけで文字にします。内容はサーバーにも AI の会社にも送られません。	Speech and handwriting are turned into text on this device only. Nothing is sent to the server or to an AI company.
+クラウド AI を使わない(この端末)	Don't use cloud AI (this device)
+オンにすると、要約・図の生成・議事録などサーバーの Claude を使う機能を止め、「AI で整形」も端末内で読みます。	When on, features that use Claude on the server (summaries, diagram generation, minutes…) are blocked, and “AI cleanup” reads ink on this device instead.
+音声の文字起こし	Speech to text
+モデル	Model
+自動	Auto
+軽い(tiny・約 150 MB)	Light (tiny, about 150 MB)
+標準(base・約 290 MB、日本語向き)	Standard (base, about 290 MB, better for Japanese)
+モデルを準備	Prepare model
+● 録音して文字起こし	● Record and transcribe
+■ 録音を止める	■ Stop recording
+付箋にしてボードに置く	Put on the board as a sticky
+話すたびに付箋で置く	Add a sticky for each utterance
+手書きの文字	Handwriting
+手書きの線を選んで書式バーの「図形に整形」を押すと、図形と文字(英数字・かな・小学校で習う漢字)に整えます。読み間違えた字は、線を選んで正しい文字を教えると次から読めるようになります。	Select ink and press “Clean up shapes” in the format bar to turn it into shapes and text (letters, digits, kana and elementary-school kanji). If a character is misread, select the ink and teach the correct text; it will be read correctly next time.
+選んだ手書きの正しい文字	Correct text for the selected ink
+覚える	Teach
+まだ字を教えていません	You haven't taught any characters yet
+教えた字: {n} 個(この端末に保存)	Taught characters: {n} (saved on this device)
+覚えた字を忘れる	Forget taught characters
+保存したモデルを消す	Delete saved models
+モデルは未取得です。初回だけ約 {n} MB をダウンロードし、次からはこの端末に保存したものを使います	The model isn't downloaded yet. About {n} MB is downloaded once and kept on this device.
+モデルはこの端末に保存済みです。ネットワークなしで使えます	The model is saved on this device and works offline
+モデルを取得中… {n} MB / {n} MB	Downloading model… {n} MB / {n} MB
+モデルを取得中… {n} MB	Downloading model… {n} MB
+モデルを読み込み中…	Loading model…
+録音中・文字にしています…	Recording · transcribing…
+録音中です。話すと文字になります	Recording. Speak and it becomes text
+文字にしています…	Transcribing…
+準備できました。音声はこの端末の中だけで処理します	Ready. Audio is processed on this device only
+音声認識のモデルを読み込んでください	Load the speech model first
+モデルを読み込み中です	The model is loading
+ブラウザ内 AI の部品を起動できません	Couldn't start the on-device AI worker
+クラウド AI を使わない設定です。「ブラウザ内 AI」で切り替えられます	Cloud AI is turned off on this device. You can change this in “On-device AI”.
+教える手書きの線を選んでください	Select the ink to teach
+正しい文字を入れてください	Enter the correct text
+線を文字の数に区切れませんでした。1 行ずつ選んで教えてください	Couldn't split the ink into that many characters. Select one line at a time.
+{n} 字を覚えました。次から同じような字を読めます	Learned {n} characters. Similar handwriting will be read next time
+教えた字を忘れました	Forgot taught characters
+保存したモデルを消しました	Deleted saved models
+編集できないボードです	This board is read-only
+図形や文字として読める線がありませんでした	No ink could be read as shapes or text
+図形や文字として読める線がありませんでした。「AI で整形」も試せます	No ink could be read as shapes or text. Try “AI cleanup” too
+{n} 個の図形と {n} 行の文字に整えました(端末内で認識)。Ctrl/⌘+Z で戻せます	Cleaned up into {n} shapes and {n} lines of text (recognized on this device). Ctrl/⌘+Z to undo
+計算する装置	Compute device
+自動(NPU → GPU → CPU)	Auto (NPU → GPU → CPU)
+NPU や GPU があれば、音声を読む重い部分をそこで動かします(内容は端末の外に出ません)。WebNN でどの装置を使うかは最終的にブラウザが決めます	If an NPU or GPU is available, the heavy part of speech recognition runs there (nothing leaves this device). With WebNN, the browser makes the final choice of device
+CPU(wasm)で動かしています	Running on the CPU (wasm)
+このブラウザでは NPU / GPU を使えないので、CPU(wasm)で動かしています	This browser can't use an NPU / GPU, so it runs on the CPU (wasm)
+WebNN(NPU 優先)で動かしています(準備 {n} 秒)	Running on WebNN (NPU preferred) (prepared in {n} s)
+WebNN(GPU 優先)で動かしています(準備 {n} 秒)	Running on WebNN (GPU preferred) (prepared in {n} s)
+GPU(WebGPU)で動かしています(準備 {n} 秒)	Running on the GPU (WebGPU) (prepared in {n} s)
+WebNN(NPU 優先)の準備中…(初回はしばらくかかります)	Preparing WebNN (NPU preferred)… (the first time takes a while)
+WebNN(GPU 優先)の準備中…(初回はしばらくかかります)	Preparing WebNN (GPU preferred)… (the first time takes a while)
+GPU(WebGPU)の準備中…(初回はしばらくかかります)	Preparing the GPU (WebGPU)… (the first time takes a while)
+NPU / GPU を使う部品(ONNX Runtime Web)がサーバーにありません	The NPU / GPU runtime (ONNX Runtime Web) isn't installed on the server
+NPU / GPU を使う部品を起動できません	Couldn't start the NPU / GPU worker
+NPU / GPU を使う部品が止まりました	The NPU / GPU worker stopped
+PDF を読み込んでいます…	Reading the PDF…
+PDF のページを描いています {n} / {n}	Rendering PDF pages {n} / {n}
+PDF の {n} ページを取り込みました	Imported {n} PDF pages
+PDF の先頭 {n} ページを取り込みました(全 {n} ページ)	Imported the first {n} PDF pages (of {n})
+PDF の {n} ページを取り込みました({n} ページは描けませんでした)	Imported {n} PDF pages ({n} pages could not be rendered)
+PDF の取り込みをやめました	Stopped importing the PDF
+先頭の {n} 行を取り込みました(全 {n} 行)	Imported the first {n} rows (of {n})
+ファイルの処理中に止まりました	Processing stopped while reading the file
+ファイルの処理部品を起動できません	Could not start the file processor
+ファイルを処理できません	Could not process the file
+{n} ページ目がありません	Page {n} does not exist
+PDF がまだ届いていません	The PDF has not arrived yet
+# エンドツーエンド暗号化ボード
+暗号化	Encrypted
+🔒 暗号化	🔒 Encrypted
+エンドツーエンド暗号化	End-to-end encryption
+エンドツーエンド暗号化: サーバーの管理者にも中身は見えません	End-to-end encrypted: even server admins can't see the content
+エンドツーエンド暗号化ボード	End-to-end encrypted board
+エンドツーエンド暗号化(サーバーにも中身が見えない)	End-to-end encryption (even the server can't see the content)
+中身をこのブラウザで暗号化してから送ります。サーバーの管理者にも読めません。AI・コメント・履歴など、サーバーが中身を読む機能は使えなくなります	Content is encrypted in this browser before it is sent. Server admins can't read it. Features that need the server to read content (AI, comments, history…) are unavailable
+このボードの中身は、このブラウザで暗号化してからサーバーに送っています。サーバーの管理者にも読めません。鍵はリンクの # 以降と、開いた端末にだけあります。	This board's content is encrypted in this browser before it reaches the server. Server admins can't read it. The key lives only after the # in the link and on devices that opened it.
+鍵の指紋	Key fingerprint
+鍵の指紋:	Key fingerprint:
+一緒に使う人の画面と同じ表示なら、同じ鍵です。	If it matches what your collaborators see, you share the same key.
+鍵付きリンク	Link with key
+鍵だけではボードは開けません(招待か共有リンクの権限も必要です)。鍵をなくすと、誰も中身を読めなくなります。	The key alone can't open the board (an invitation or share-link permission is also needed). If the key is lost, nobody can read the content.
+鍵を作り直す	Rotate key
+メンバーを外したときや、鍵付きリンクが広まりすぎたときに。今の内容を新しい鍵で暗号化し直し、古い鍵では以後の内容を読めなくなります。ほかの人には新しい鍵付きリンクを渡し直してください。	Use this after removing a member or if the link spread too far. The current content is re-encrypted with a new key and the old key can no longer read anything after this. Send the new link to your collaborators.
+この種類のボードで使えない機能	Unavailable on this kind of board
+AI・コメント・バージョン履歴・Web 公開・動画メモ・課題カードは、サーバーが中身を読む必要があるため使えません。ボードのタイトルとカーソルの位置は暗号化されません。	AI, comments, version history, web publishing, video memos and issue cards need the server to read content, so they're unavailable. The board title and cursor positions are not encrypted.
+このボードを通報する	Report this board
+理由	Reason
+くわしく(任意)	Details (optional)
+何が問題か	What's wrong
+ボードの文字を添えて、管理者が内容を確かめられるようにする(添えなければ、暗号化されたボードの中身は管理者にも見えません)	Attach the board's text so admins can check it (otherwise admins can't see the encrypted content)
+通報する	Report
+違法な内容	Illegal content
+情報の持ち出し・漏えい	Data exfiltration or leak
+嫌がらせ・差別	Harassment or discrimination
+スパム・詐欺	Spam or fraud
+その他	Other
+鍵を作り直しています…	Rotating the key…
+鍵を作り直しました。上の新しい鍵付きリンクを、一緒に使う人に渡し直してください。	Key rotated. Send the new link above to your collaborators.
+通報しました。管理者が確認します。通報したことは、ほかの参加者には知らされません。	Report sent. An admin will review it. Other participants are not notified.
+このボードを開く	Open this board
+鍵付きリンク、または鍵	Link with key, or the key
+https://…#k=… または 43 文字の鍵	https://…#k=… or the 43-character key
+このボードの中身は暗号化されていて、サーバーの管理者にも読めません。開くには、共有された鍵付きリンク(# 以降に鍵が入っています)が必要です。	This board is encrypted and even server admins can't read it. To open it you need the shared link with the key (the key is after the #).
+手元の鍵ではこのボードを開けません。鍵が作り直されたか、別のボードの鍵かもしれません。	The key on this device can't open this board. It may have been rotated, or it belongs to another board.
+オーナーがこのボードの鍵を作り直しました。新しい鍵付きリンクをオーナーから受け取ってください。	The owner rotated this board's key. Ask the owner for the new link with the key.
+(共有した人の画面の表示と同じなら、正しい鍵です)	(If it matches what the sharer sees, it's the right key)
+鍵が違います。このボードの鍵付きリンクか確かめてください。	Wrong key. Make sure it's the link for this board.
+鍵の形式が違います。リンクをそのまま貼り付けてください。	The key format is wrong. Paste the whole link.
+このボードは利用停止されています	This board has been suspended
+通報を受けて、管理者がこのボードを開けないようにしました。心当たりがない場合は、サーバーやチームの管理者に問い合わせてください。	An admin blocked this board after a report. If you think this is a mistake, contact your server or team admin.
+暗号化ボードは Web に公開できません(公開ページはサーバーが中身を描くため)。	Encrypted boards can't be published to the web (the public page is rendered by the server).
+🔒 暗号化ボードです。上のリンクの # 以降に復号の鍵が入っています(サーバーには送られません)。招待したメンバーにも、このリンクか鍵のパネルの鍵付きリンクを渡してください。メンバーを外したら、鍵のパネルから鍵を作り直してください。	🔒 Encrypted board. The decryption key is after the # in the link above (it is never sent to the server). Give invited members this link or the link from the key panel. After removing a member, rotate the key from the key panel.
+通報	Reports
+全体の通報	All reports
+未対応	Open
+対応済み	Resolved
+問題なし	No issue
+利用停止にする	Suspend
+利用停止を解除	Lift suspension
+利用停止中	Suspended
+対応済みにする	Mark resolved
+添えられたボードの文字	Attached board text
+暗号化ボードで、文字は添えられていません(サーバーでは中身を確かめられません)。	Encrypted board with no text attached (the server can't check the content).
+通報はありません。	No reports.
+共有リンクから開いた人	Someone who opened the share link
+エンドツーエンド暗号化ボード(サーバー全体):	End-to-end encrypted boards (whole server):
+有効	On
+無効	Off
+オフにする	Turn off
+オンにする	Turn on
+暗号化ボードの中身はサーバーでは読めません。通報した人が添えた文字だけが確認の手がかりです。利用停止にすると、そのボードは誰も開けなくなり、つないでいる人も切断されます(内容は消えません)。	The server can't read encrypted boards. Text attached by the reporter is the only evidence. Suspending blocks everyone from the board and disconnects current users (content is kept).
+🔒 暗号化ボード	🔒 Encrypted boards
+許可(メンバーがこのチームで作れます。中身は管理者にも見えません)	Allowed (members can create them in this team; admins can't see the content)
+許可していません	Not allowed
+許可する	Allow
+禁止する	Disallow
+🔒 このチームでは暗号化ボードを作れます。	🔒 This team can create encrypted boards.
+暗号化ボード作成	Encrypted board created
+暗号化ボードに参加	Joined encrypted board
+暗号化ボードの鍵の作り直し	Encrypted board key rotated
+ボードの通報	Board reported
+ボードの利用停止	Board suspended
+ボードの利用停止を解除	Board suspension lifted
+通報への対応	Report handled
+サーバーの設定変更	Server settings changed
+# 直接接続(P2P)
+直接つなぐ	Connect directly
+直接つなぐ(P2P)	Connect directly (P2P)
+直接つなぐ · {n}台	Direct · {n}
+サーバーを通さず、同じネットワークの端末と直接つないで編集する	Edit together by connecting straight to devices on the same network, without the server
+サーバーを通さず、同じ Wi-Fi・LAN の端末や同じパソコンのタブと直接つないで一緒に編集します。サーバーが止まっていても使えます。ボードの中身はサーバーに送りません(使った記録だけが操作ログに残ります)。	Edit together by connecting directly to devices on the same Wi-Fi or LAN, or other tabs on this computer, without going through the server. Works even when the server is down. Board content is never sent to the server (only a usage record is kept in the audit log).
+招待する	Invite
+招待された	Got an invite
+招待コードを作る	Create invite code
+招待コードを作っています…	Creating invite code…
+1. このリンクを相手に渡します(相手のスマホのカメラで QR コードを読んでも開けます)。	1. Give this link to the other person (they can also open it by scanning the QR code with their phone camera).
+2. 相手の画面に出た応答コードを貼って、つなぎます。	2. Paste the reply code shown on their screen to connect.
+リンクをコピー	Copy link
+招待をやめる	Cancel invite
+応答コード(GB1. で始まる文字)	Reply code (starts with GB1.)
+応答コード	Reply code
+招待リンク	Invite link
+つなぐ	Connect
+受け取った招待リンクかコードを貼る	Paste the invite link or code you received
+招待リンクかコード	Invite link or code
+参加する	Join
+応答コードを作っています…	Creating reply code…
+この応答コードを、招待した人に渡してください(チャットで送るか、相手の画面の欄に貼ってもらいます)。	Give this reply code to the person who invited you (send it in chat, or have them paste it into their screen).
+応答コードをコピー	Copy reply code
+やめる	Cancel
+直接つないだ端末	Connected devices
+名前のない端末	Unnamed device
+切断	Disconnect
+通報	Report
+理由	Reason
+補足(任意)。ボードの中身は送られません	Details (optional). Board content is not sent
+補足	Details
+通報して切断	Report and disconnect
+通報は管理者の操作ログに残ります。	Reports are kept in the admin's audit log.
+招待した相手は、このボードをあなたと同じように見て編集できます。知らない人にはリンクやコードを渡さないでください。つながるのは同じネットワークの端末どうしです。	Anyone you invite can view and edit this board just like you. Don't give the link or code to people you don't know. Only devices on the same network can connect.
+応答コードを待っています	Waiting for reply code
+つないでいます…	Connecting…
+つながっています	Connected
+つながっています(相手はサーバーにも接続中)	Connected (they're also on the server)
+切れました	Disconnected
+相手とつながりました	Connected
+コピーしました	Copied
+招待を受け取りました	Invite received
+通報して切断しました。管理者が操作ログで確認します	Reported and disconnected. An admin will review it in the audit log
+切断しました。通報はサーバーにつながったときに送ります	Disconnected. The report will be sent when you're back online
+このボードでは直接接続を使えません	Direct connection isn't available for this board
+このサーバーでは直接接続(P2P)が止められています	Direct connection (P2P) is turned off on this server
+嫌がらせ・迷惑な行為	Harassment or abuse
+違法・有害な内容	Illegal or harmful content
+情報の持ち出し・なりすまし	Data leak or impersonation
+宣伝・スパム	Advertising or spam
+その他	Other
+グラボードの接続コードではありません	This isn't a Graboard connection code
+コードが途中で切れているか、壊れています	The code is cut off or damaged
+これは応答コードです。「招待する」の欄に貼ってください	This is a reply code. Paste it under "Invite"
+これは招待コードです。応答コードを貼ってください	This is an invite code. Paste the reply code instead
+この応答コードに合う招待が見つかりません(使い済みか、別の招待への応答です)	No invite matches this reply code (it was already used or is for another invite)
+この端末のネットワークが見つかりません(Wi-Fi か LAN につないでください)	No network found on this device (connect to Wi-Fi or a LAN)
+直接つなげるのは {n} 台までです	You can connect directly to up to {n} devices
+チームのボードで直接接続(P2P)を許可	Allow direct connection (P2P) on team boards
+直接接続ではボードの中身がサーバーを通りません。使った記録(誰がいつ)と通報は操作ログに残ります。	With direct connection, board content doesn't pass through the server. Usage records (who and when) and reports are kept in the audit log.
+このチームでは直接接続(P2P)が止められています	Direct connection (P2P) is turned off for this team
+直接接続(P2P)の設定変更	Direct connection (P2P) setting changed
+直接接続の招待	Direct connection invite
+直接接続で参加	Joined via direct connection
+直接接続でつながった	Connected directly
+直接接続の切断	Direct connection ended
+直接接続の相手を通報	Direct connection peer reported
+外部と通信する	Connect to the internet
+データを保存する	Store data
+ボードの要素(付箋・図形・文字など)を読みます	Reads the board's elements (stickies, shapes, text and so on)
+ボードの要素を作る・変える・消すことができます	Can create, change and delete elements on the board
+書かれた接続先にボードの内容を送ったり、そこからデータを取ったりできます	Can send board content to the listed hosts and fetch data from them
+このプラグイン専用の場所に、あなたごとのデータ(設定など)を残せます	Can keep your own data (such as settings) in a place only this plugin uses
+(サーバーの設定で使えません)	(not allowed by this server)
+選んだ権限を許可	Allow selected
+許可しない	Don't allow
+保存	Save
+最初に戻す	Reset
+ボードの読み書き以外の許可を取り消し、次の実行でまた確認します	Revokes everything except reading and editing the board, and asks again next time
+保存したデータを消す({n} KB)	Delete saved data ({n} KB)
+許可していません	Not allowed
+このプラグインは外部との通信やデータの保存を求めています。ログインすると、許可してから実行できます。	This plugin wants to connect to the internet or store data. Sign in to allow it and run it.
+権限の確認	Permission request
+このプラグインは次の権限を求めています。	This plugin is asking for the following permissions.
+許可するものを選んでください。許可しなかった権限は、プラグインからは使えません。	Choose what to allow. The plugin can't use anything you don't allow.
+権限の設定	Permissions
+先に権限を許可するかどうか決めてください	Decide on the permissions first
+外部との通信 {n} 件	Network requests: {n}
+失敗	Failed
+権限の設定を保存しました	Permissions saved
+権限の設定を最初に戻しました	Permissions reset
+保存したデータを消しました	Saved data deleted

@@ -20,6 +20,8 @@ pub const HEADER: Rgba8 = Rgba8::hex(0xe8f0fe);
 pub const ENTITY_HEADER: Rgba8 = Rgba8::hex(0xe6f4ea);
 /// ライフラインの頭の色。
 pub const PARTICIPANT: Rgba8 = Rgba8::hex(0xfef7e0);
+/// インターフェースの名前の区画の 1 行目。
+pub const INTERFACE_MARK: &str = "«interface»";
 /// 区画の文字の大きさ。
 const FONT: f32 = 16.0;
 /// 区画の上下の余白の合計(図形の内側の余白 12 の 2 倍)。
