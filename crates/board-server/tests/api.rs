@@ -1194,3 +1194,240 @@ async fn security_headers_and_csp() {
     assert_eq!(res.headers()["x-content-type-options"], "nosniff");
     assert!(!res.headers().contains_key("content-security-policy"));
 }
+
+#[tokio::test]
+async fn search_labels_and_folders() {
+    use board_core::api::SearchHit;
+    let s = start(Config::default()).await;
+    let alice = s.signup("alice").await;
+    let bob = s.signup("bob").await;
+    let create = |title: &'static str| {
+        let s = &s;
+        let alice = alice.clone();
+        async move {
+            let (_, b, _) = s
+                .call(
+                    "POST",
+                    "/api/boards",
+                    Some(&alice),
+                    Some(json!({ "title": title })),
+                )
+                .await;
+            serde_json::from_value::<BoardInfo>(b).unwrap()
+        }
+    };
+    let plan = create("新規企画").await;
+    let weekly = create("定例ミーティング").await;
+
+    // 中身に「リリース手順」と書いた付箋を置く。
+    let (mut ws, mut board) = s.connect(&weekly.id, Some(&alice), None).await.unwrap();
+    let id = board.alloc_id();
+    let mut sticky = Shape::sticky(id, Vec2::ZERO, Rgba8::WHITE);
+    sticky.text = "来週のリリース手順を決める".into();
+    board.push(sticky);
+    for u in board.take_outgoing() {
+        ws.send(WsMessage::Binary(Message::Update(u).encode().into()))
+            .await
+            .unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let search = |q: &'static str, who: String| {
+        let s = &s;
+        async move {
+            let (status, v, _) = s
+                .call("GET", &format!("/api/search?q={q}"), Some(&who), None)
+                .await;
+            assert_eq!(status, StatusCode::OK, "{v}");
+            serde_json::from_value::<Vec<SearchHit>>(v).unwrap()
+        }
+    };
+    // 中身の文字で見つかり、要素の ID が付く(カタカナはひらがなでも探せる)。
+    let hits = search("%E3%82%8A%E3%82%8A%E3%83%BC%E3%81%99", alice.clone()).await; // りりーす
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].board.id, weekly.id);
+    assert_eq!(hits[0].matches[0].element, Some(format!("{:x}", id.0)));
+    // 開けない人には出ない。
+    assert!(search("%E4%BC%81%E7%94%BB", bob.clone()).await.is_empty()); // 企画
+
+    // タグ・お気に入り・フォルダ。
+    let (status, info, _) = s
+        .call(
+            "PUT",
+            &format!("/api/boards/{}/labels", plan.id),
+            Some(&alice),
+            Some(json!({"favorite": true, "tags": ["#営業", "営業", " Q3 "], "folder": "2026年"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{info}");
+    let info: BoardInfo = serde_json::from_value(info).unwrap();
+    assert!(info.labels.favorite);
+    assert_eq!(info.labels.tags, vec!["営業", "Q3"]);
+    assert_eq!(info.labels.folder.as_deref(), Some("2026年"));
+    let hits = search("%23q3", alice.clone()).await; // #q3
+    assert_eq!(hits.len(), 1);
+    assert_eq!(hits[0].board.id, plan.id);
+    // bob は開けないボードに印を付けられない。
+    let (status, _, _) = s
+        .call(
+            "PUT",
+            &format!("/api/boards/{}/labels", plan.id),
+            Some(&bob),
+            Some(json!({"favorite": true})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // 開き直しても印は消えず、最後に開いた時刻が付く。
+    s.call(
+        "GET",
+        &format!("/api/boards/{}", plan.id),
+        Some(&alice),
+        None,
+    )
+    .await;
+    let (_, list, _) = s.call("GET", "/api/boards", Some(&alice), None).await;
+    let list: Vec<BoardInfo> = serde_json::from_value(list).unwrap();
+    let p = list.iter().find(|b| b.id == plan.id).unwrap();
+    assert!(p.labels.favorite && p.labels.opened > 0);
+    assert_eq!(p.labels.folder.as_deref(), Some("2026年"));
+
+    // フォルダの名前を変える・なくす。
+    let (status, v, _) = s
+        .call(
+            "POST",
+            "/api/folders/rename",
+            Some(&alice),
+            Some(json!({"from": "2026年", "to": "アーカイブ"})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(v["changed"], 1);
+    s.call(
+        "POST",
+        "/api/folders/rename",
+        Some(&alice),
+        Some(json!({"from": "アーカイブ", "to": ""})),
+    )
+    .await;
+    let (_, list, _) = s.call("GET", "/api/boards", Some(&alice), None).await;
+    let list: Vec<BoardInfo> = serde_json::from_value(list).unwrap();
+    assert!(list.iter().all(|b| b.labels.folder.is_none()));
+}
+
+#[tokio::test]
+async fn templates_published_to_team() {
+    let s = start(Config::default()).await;
+    let alice = s.signup("alice").await;
+    let bob = s.signup("bob").await;
+    let carol = s.signup("carol").await;
+    let (_, team, _) = s
+        .call(
+            "POST",
+            "/api/teams",
+            Some(&alice),
+            Some(json!({"name": "開発部"})),
+        )
+        .await;
+    let tid = team["id"].as_str().unwrap().to_string();
+    s.call(
+        "PUT",
+        &format!("/api/teams/{tid}/members"),
+        Some(&alice),
+        Some(json!({"login": "bob", "role": "member"})),
+    )
+    .await;
+
+    // bob が選んだ要素をチームに公開する。
+    let mut board = Board::new();
+    let ids =
+        board_core::templates::insert(&mut board, board_core::templates::Template::Kpt, Vec2::ZERO);
+    let data = board_core::arrange::copy(&board, &ids).unwrap();
+    let (status, t, _) = s
+        .call(
+            "POST",
+            "/api/templates",
+            Some(&bob),
+            Some(json!({"title": "定例の振り返り", "category": "振り返り", "team": tid, "data": data})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::CREATED, "{t}");
+    let id = t["id"].as_str().unwrap().to_string();
+    assert_eq!(t["team_name"], "開発部");
+    assert_eq!(t["owner_name"], "BOB");
+    assert!(t["preview"].as_str().unwrap().starts_with("<svg"));
+
+    // チーム外の人は公開先にできないし、見られない。
+    let (status, _, _) = s
+        .call(
+            "POST",
+            "/api/templates",
+            Some(&carol),
+            Some(json!({"title": "x", "team": tid, "data": data})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (_, list, _) = s.call("GET", "/api/templates", Some(&carol), None).await;
+    assert_eq!(list.as_array().unwrap().len(), 0);
+    let (status, _, _) = s
+        .call(
+            "POST",
+            &format!("/api/templates/{id}/use"),
+            Some(&carol),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // alice(チームのオーナー)は使えて、回数が増える。管理者なので消せる。
+    let (_, list, _) = s.call("GET", "/api/templates", Some(&alice), None).await;
+    assert_eq!(list[0]["id"], id.as_str());
+    assert_eq!(list[0]["can_edit"], true);
+    let (status, used, _) = s
+        .call(
+            "POST",
+            &format!("/api/templates/{id}/use"),
+            Some(&alice),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(used["template"]["uses"], 1);
+    assert_eq!(used["data"], data.as_str());
+
+    // bob が名前を変え、自分だけに戻す。
+    let (status, t, _) = s
+        .call(
+            "PATCH",
+            &format!("/api/templates/{id}"),
+            Some(&bob),
+            Some(json!({"title": "定例の KPT", "team": ""})),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{t}");
+    assert_eq!(t["title"], "定例の KPT");
+    assert_eq!(t["uses"], 1);
+    assert!(t.get("team").is_none());
+    let (_, list, _) = s.call("GET", "/api/templates", Some(&alice), None).await;
+    assert_eq!(list.as_array().unwrap().len(), 0);
+
+    // 操作ログに残る。
+    let (_, log, _) = s
+        .call("GET", &format!("/api/audit?team={tid}"), Some(&alice), None)
+        .await;
+    let actions: Vec<&str> = log
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["action"].as_str().unwrap())
+        .collect();
+    assert!(actions.contains(&"template.create"), "{actions:?}");
+    assert!(actions.contains(&"template.update"), "{actions:?}");
+
+    let (status, _, _) = s
+        .call("DELETE", &format!("/api/templates/{id}"), Some(&bob), None)
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (_, list, _) = s.call("GET", "/api/templates", Some(&bob), None).await;
+    assert_eq!(list.as_array().unwrap().len(), 0);
+}

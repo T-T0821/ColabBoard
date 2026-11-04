@@ -1,0 +1,10 @@
+{
+  "name": "グラボード",
+  "short_name": "グラボード",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "lang": "ja"
+}

@@ -9,7 +9,10 @@
 
 use std::collections::BTreeMap;
 
-use board_core::api::{BoardInfo, LinkShare, PublicShare, Role, Sharing, TeamRole};
+use board_core::api::{
+    BoardInfo, BoardLabels, LinkShare, PublicShare, Role, SetLabels, Sharing, TeamRole,
+    clean_folder, clean_tags,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::auth::{now_ms, random_hex, random_id};
@@ -35,6 +38,9 @@ pub struct BoardMeta {
     /// Slack 通知の送り先。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slack: Option<crate::slack::SlackHook>,
+    /// 紐づけた会議(Zoom・Meet・Teams)とカレンダーの予定。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meeting_link: Option<board_core::meeting_link::MeetingLink>,
     /// Web に公開中か(公開ページの URL の鍵)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public: Option<PublicShare>,
@@ -70,6 +76,7 @@ impl BoardMeta {
             updated: self.updated,
             key,
             team: self.team.clone(),
+            labels: BoardLabels::default(),
         }
     }
 
@@ -79,14 +86,31 @@ impl BoardMeta {
     }
 }
 
-/// ユーザーのボード一覧に載せる印(作った・招待された・開いた)。
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+/// ユーザーのボード一覧に載せる印(作った・招待された・開いた)と、自分用の整理。
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct UserBoard {
-    /// 最後に開いた(または一覧に加わった)時刻。
+    /// 最後に開いた(または一覧に加わった)時刻。開かずに整理だけしたチームのボードは 0。
     pub opened: u64,
     /// 共有リンクで開いたときの鍵。
     #[serde(default)]
     pub key: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub favorite: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+}
+
+impl UserBoard {
+    pub fn labels(&self) -> BoardLabels {
+        BoardLabels {
+            favorite: self.favorite,
+            tags: self.tags.clone(),
+            folder: self.folder.clone(),
+            opened: self.opened,
+        }
+    }
 }
 
 /// 誰が、どの鍵で開こうとしているか。
@@ -207,6 +231,7 @@ pub fn create(
             link: None,
             embed: None,
             slack: None,
+            meeting_link: None,
             public: None,
             deleted: false,
             team: team.map(str::to_string),
@@ -226,8 +251,16 @@ pub fn create(
     }
 }
 
-/// ユーザーのボード一覧に載せる(すでにあれば開いた時刻を更新)。
+fn user_board(store: &Store, login: &str, id: &str) -> Result<Option<UserBoard>, StoreError> {
+    match store.get_pair_bytes(USER_BOARDS, login, id)? {
+        Some(b) => Ok(Some(serde_json::from_slice(&b)?)),
+        None => Ok(None),
+    }
+}
+
+/// ユーザーのボード一覧に載せる(すでにあれば開いた時刻を更新。お気に入りなどはそのまま)。
 pub fn remember(store: &Store, login: &str, id: &str, key: Option<&str>) -> Result<(), StoreError> {
+    let old = user_board(store, login, id)?.unwrap_or_default();
     store.put_pair(
         USER_BOARDS,
         login,
@@ -235,8 +268,52 @@ pub fn remember(store: &Store, login: &str, id: &str, key: Option<&str>) -> Resu
         &UserBoard {
             opened: now_ms(),
             key: key.map(str::to_string),
+            ..old
         },
     )
+}
+
+/// 自分用のお気に入り・タグ・フォルダを変える。一覧に載っていなければ(開いたことのないチームのボード)載せる。
+pub fn set_labels(
+    store: &Store,
+    login: &str,
+    id: &str,
+    req: &SetLabels,
+) -> Result<BoardLabels, StoreError> {
+    let mut ub = user_board(store, login, id)?.unwrap_or_default();
+    if let Some(f) = req.favorite {
+        ub.favorite = f;
+    }
+    if let Some(tags) = &req.tags {
+        ub.tags = clean_tags(tags);
+    }
+    if let Some(folder) = &req.folder {
+        ub.folder = clean_folder(folder);
+    }
+    store.put_pair(USER_BOARDS, login, id, &ub)?;
+    Ok(ub.labels())
+}
+
+/// フォルダの名前を変える(`to` が空ならフォルダをなくす)。変えたボードの数を返す。
+pub fn rename_folder(
+    store: &Store,
+    login: &str,
+    from: &str,
+    to: &str,
+) -> Result<usize, StoreError> {
+    let Some(from) = clean_folder(from) else {
+        return Ok(0);
+    };
+    let to = clean_folder(to);
+    let mut n = 0;
+    for (id, mut ub) in store.scan_pair::<UserBoard>(USER_BOARDS, login)? {
+        if ub.folder.as_deref() == Some(from.as_str()) {
+            ub.folder = to.clone();
+            store.put_pair(USER_BOARDS, login, &id, &ub)?;
+            n += 1;
+        }
+    }
+    Ok(n)
 }
 
 /// ユーザーが持っている(削除していない)ボードの数。
@@ -304,7 +381,16 @@ pub fn list_for(
                     anonymous_boards,
                 )?
                 .is_none_or(|r| r < role);
-                m.info(role, if need_key { ub.key.clone() } else { None })
+                let updated = m.updated;
+                let mut info = m.info(role, if need_key { ub.key.clone() } else { None });
+                info.labels = ub.labels();
+                // 整理だけして開いていないチームのボードは更新時刻の順に。
+                if ub.opened == 0 {
+                    seen.insert(id);
+                    out.push((updated, info));
+                    continue;
+                }
+                info
             }
             // 情報のないボードは名前を ID にしておく。
             None => {
@@ -320,6 +406,7 @@ pub fn list_for(
                     updated: ub.opened,
                     key: None,
                     team: None,
+                    labels: ub.labels(),
                 }
             }
         };
@@ -414,6 +501,7 @@ mod tests {
             }),
             embed: None,
             slack: None,
+            meeting_link: None,
             public: None,
             deleted: false,
             team: None,

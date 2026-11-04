@@ -320,3 +320,195 @@ async fn ask_and_minutes_read_the_board() {
     );
     assert!(md.contains("| 計測 | — | — |"));
 }
+
+/// ルームのボードに文字起こしと議題を書き込む。
+fn seed_meeting(m: &board_server::room::Membership) {
+    use board_core::meeting::{AgendaItem, Meeting};
+    let mut b = Board::new();
+    b.apply_remote(&m.room.snapshot()).unwrap();
+    b.add_transcript("ua", "佐藤", "今日は来期の方針を決めます", 1_000.0);
+    b.add_transcript("ub", "鈴木", "速度改善を最優先にしたいです", 65_000.0);
+    b.add_transcript("ua", "佐藤", "では計測は鈴木さんにお願いします", 125_000.0);
+    let mut meeting = Meeting {
+        goal: "来期の方針を決める".into(),
+        agenda: vec![
+            AgendaItem {
+                title: "振り返り".into(),
+                minutes: 10,
+                goal: String::new(),
+            },
+            AgendaItem {
+                title: "方針".into(),
+                minutes: 20,
+                goal: "1 つに絞る".into(),
+            },
+        ],
+        ..Default::default()
+    };
+    meeting.start(1_000.0);
+    meeting.advance(61_000.0);
+    b.set_meeting(Some(&meeting));
+    for u in b.take_outgoing() {
+        m.room.apply(&u).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn minutes_read_the_transcript() {
+    let hub = Arc::new(Hub::new(Arc::new(Store::memory())));
+    let (m, _ids) = seed(&hub, "live-room");
+    seed_meeting(&m);
+    let (url, seen) = fake_claude(json!({
+        "title": "方針会議", "summary": "速度改善を優先。", "topics": [],
+        "decisions": ["速度改善を最優先"],
+        "actions": [{ "task": "計測", "owner": "鈴木", "due": "" }],
+        "open_questions": [],
+    }))
+    .await;
+    let app = router(
+        hub.clone(),
+        Config {
+            ai: ai(&url),
+            ..Config::default()
+        },
+    );
+    let (status, body) = post_json(&app, "/api/boards/live-room/ai/minutes", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["lines"], 3);
+    assert_eq!(body["minutes"]["actions"][0]["owner"], "鈴木");
+    assert!(
+        body["markdown"]
+            .as_str()
+            .unwrap()
+            .contains("| 計測 | 鈴木 | — |")
+    );
+    let prompt = seen.lock().unwrap()[0].1["messages"][0]["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(prompt.contains("<transcript>"), "{prompt}");
+    assert!(
+        prompt.contains(r#"<say t="01:04" who="鈴木">速度改善を最優先にしたいです</say>"#),
+        "{prompt}"
+    );
+    assert!(prompt.contains("もっと速く"), "ボードも読む");
+    let system = seen.lock().unwrap()[0].1["system"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(system.contains("<transcript>"));
+}
+
+#[tokio::test]
+async fn facilitator_plans_and_checks() {
+    let hub = Arc::new(Hub::new(Arc::new(Store::memory())));
+    let (m, _ids) = seed(&hub, "facil-room");
+    let (url, seen) = fake_claude(json!({
+        "agenda": [
+            { "title": "目的の確認", "minutes": 5, "goal": "" },
+            { "title": "アイデア出し", "minutes": 30, "goal": "案を 10 個" },
+            { "title": "まとめ", "minutes": 5, "goal": "担当を決める" },
+        ],
+        "tips": "最後の 5 分は必ず残す",
+    }))
+    .await;
+    let app = router(
+        hub.clone(),
+        Config {
+            ai: ai(&url),
+            ..Config::default()
+        },
+    );
+    // 目的がなければ Claude を呼ばずに断る。
+    let (status, _) = post_json(
+        &app,
+        "/api/boards/facil-room/ai/facilitate",
+        json!({ "mode": "plan", "goal": " ", "minutes": 30 }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, body) = post_json(
+        &app,
+        "/api/boards/facil-room/ai/facilitate",
+        json!({ "mode": "plan", "goal": "新機能のアイデアを出す", "minutes": 30, "notes": "- 予算" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let total: u64 = body["agenda"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["minutes"].as_u64().unwrap())
+        .sum();
+    assert_eq!(total, 30, "分の合計を会議の長さにそろえる");
+    let prompt = seen.lock().unwrap()[0].1["messages"][0]["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(prompt.contains("<minutes>30</minutes>"), "{prompt}");
+    assert!(prompt.contains("- 予算"));
+
+    // 議題がまだなければ助言は断る。
+    let (status, _) = post_json(
+        &app,
+        "/api/boards/facil-room/ai/facilitate",
+        json!({ "mode": "check" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    seed_meeting(&m);
+    let (url, seen) = fake_claude(json!({
+        "focus": "速度改善を優先するか",
+        "points": ["速度改善を最優先にしたい", " "],
+        "open": ["期限"],
+        "suggestion": "期限を決めましょう",
+        "time_advice": "残り 18 分です",
+        "off_track": false,
+    }))
+    .await;
+    let app = router(
+        hub.clone(),
+        Config {
+            ai: ai(&url),
+            ..Config::default()
+        },
+    );
+    let (status, body) = post_json(
+        &app,
+        "/api/boards/facil-room/ai/facilitate",
+        json!({ "mode": "check", "now": 181_000.0 }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["points"], json!(["速度改善を最優先にしたい"]));
+    assert_eq!(body["suggestion"], "期限を決めましょう");
+    let prompt = seen.lock().unwrap()[0].1["messages"][0]["content"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(
+        prompt.contains(
+            r#"<item state="current" planned_min="20" spent_min="2" goal="1 つに絞る">方針</item>"#
+        ),
+        "{prompt}"
+    );
+    assert!(prompt.contains("計測は鈴木さんにお願いします"));
+}
+
+#[tokio::test]
+async fn facilitator_plan_works_without_ai() {
+    let hub = Arc::new(Hub::new(Arc::new(Store::memory())));
+    let (_m, _ids) = seed(&hub, "noai-room");
+    let app = router(hub.clone(), Config::default());
+    let (status, body) = post_json(
+        &app,
+        "/api/boards/noai-room/ai/facilitate",
+        json!({ "mode": "plan", "goal": "定例", "minutes": 20, "notes": "共有\n相談" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["fallback"], true);
+    assert_eq!(body["agenda"][0]["title"], "共有");
+    assert_eq!(body["agenda"][1]["minutes"], 10);
+}
