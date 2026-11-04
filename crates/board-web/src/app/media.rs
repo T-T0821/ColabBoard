@@ -1,166 +1,205 @@
-//! 画像・PDF・マークダウンの挿入(貼り付け・ドロップ・ファイル選択)。
+//! 画像・PDF・マークダウン・表の挿入(貼り付け・ドロップ・ファイル選択)。
 //!
-//! 画像は image クレート(Pure Rust)でデコードし、大きすぎれば縮めて保存し直す。
+//! 重い処理(大きな画像のデコードと縮小、PDF のページの描画、巨大な CSV・Excel の読み取り)は
+//! [`super::file_worker`] で複数の Web Worker に並行して任せ、画面のスレッドを止めない。
+//! 数百ページの PDF は、先にページの大きさの枠を並べ、描けたページから順に画像に差し替える。
 //! 保存した画像はボードの要素として同期される。
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use board_core::{ImageData, Shape, Vec2};
+use board_core::{ElementId, ImageData, Shape, Vec2, pdf_pages};
+use board_files::picture::prepare_image;
 use web_sys::{DragEvent, File, HtmlInputElement, MouseEvent};
 
+use super::file_worker::{self, Picture};
 use super::{App, by_id, listen};
 
-/// 保存する画像の一辺の上限(ピクセル)。
-const MAX_PIXELS: u32 = 1600;
-/// これより小さい PNG / JPEG はそのまま保存する(バイト)。
-const KEEP_BYTES: usize = 600 * 1024;
 /// 置いたときの一辺の上限(ワールド単位)。
 const MAX_WORLD: f32 = 480.0;
 
-/// 保存用のバイト列と、画像の大きさ(ピクセル)。
-pub fn prepare_image(bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), String> {
-    let format = image::guess_format(bytes).map_err(|e| e.to_string())?;
-    let img = image::load_from_memory(bytes).map_err(|e| e.to_string())?;
-    let (w, h) = (img.width(), img.height());
-    if w == 0 || h == 0 {
-        return Err("画像の大きさが 0 です".into());
+/// 画像を縮める(Worker で。Worker が使えなければこのスレッドで)。
+async fn shrink_image(bytes: &[u8]) -> Result<Picture, String> {
+    match file_worker::image(bytes).await {
+        Ok(p) => Ok(p),
+        Err(_) => prepare_image(bytes).map(|(data, w, h)| Picture { data, w, h }),
     }
-    let small = w.max(h) <= MAX_PIXELS && bytes.len() <= KEEP_BYTES;
-    if small && matches!(format, image::ImageFormat::Png | image::ImageFormat::Jpeg) {
-        return Ok((bytes.to_vec(), w, h));
-    }
-    let img = if w.max(h) > MAX_PIXELS {
-        img.resize(
-            MAX_PIXELS,
-            MAX_PIXELS,
-            image::imageops::FilterType::Triangle,
-        )
-    } else {
-        img
-    };
-    let (w, h) = (img.width(), img.height());
-    let mut out = std::io::Cursor::new(Vec::new());
-    if img.color().has_alpha() {
-        img.to_rgba8()
-            .write_to(&mut out, image::ImageFormat::Png)
-            .map_err(|e| e.to_string())?;
-    } else {
-        let rgb = img.to_rgb8();
-        image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 85)
-            .encode_image(&rgb)
-            .map_err(|e| e.to_string())?;
-    }
-    Ok((out.into_inner(), w, h))
 }
 
-/// PDF の取り込み部品(別の wasm、`crates/board-pdf`)を Web Worker で動かす。
-/// 本体の wasm に入れると約 3 MB 重くなるので、PDF が貼られたときに初めて読み込む。
-#[wasm_bindgen::prelude::wasm_bindgen(inline_js = r#"
-export function render_pdf_in_worker(url, bytes) {
-  // bytes は wasm のメモリを指すので、先に写しておく。
-  const copy = bytes.slice();
-  return new Promise((resolve, reject) => {
-    let w;
-    try { w = new Worker(url); } catch (e) { reject(String(e)); return; }
-    const done = (f, v) => { w.terminate(); f(v); };
-    w.onmessage = (e) => {
-      const d = e.data || {};
-      if (d.ready) { w.postMessage(copy, [copy.buffer]); return; }
-      if (d.error) done(reject, d.error);
-      else done(resolve, d.pages || []);
-    };
-    w.onerror = (e) => { e.preventDefault(); done(reject, 'PDF の読み込み部品を起動できません'); };
-  });
-}
-"#)]
-extern "C" {
-    #[wasm_bindgen::prelude::wasm_bindgen(catch)]
-    fn render_pdf_in_worker(
-        url: &str,
-        bytes: &[u8],
-    ) -> Result<js_sys::Promise, wasm_bindgen::JsValue>;
+/// PDF の取り込みの進み具合(ページごとの仕事で共有する)。
+struct PdfJob {
+    doc: u32,
+    /// ページの枠の ID(ページ順)。
+    ids: Vec<ElementId>,
+    done: Cell<usize>,
+    failed: Cell<usize>,
+    /// PDF の全ページ数(取り込む上限を超えることがある)。
+    total: usize,
+    closed: Cell<bool>,
 }
 
-/// PDF の各ページを JPEG にする(Web Worker で)。
-async fn render_pdf(bytes: &[u8]) -> Result<Vec<Vec<u8>>, String> {
-    let err = |e: wasm_bindgen::JsValue| {
-        e.as_string()
-            .unwrap_or_else(|| "PDF を読めません".to_string())
-    };
-    let promise = render_pdf_in_worker("board-pdf_loader.js", bytes).map_err(err)?;
-    let pages = wasm_bindgen_futures::JsFuture::from(promise)
-        .await
-        .map_err(err)?;
-    Ok(js_sys::Array::from(&pages)
-        .iter()
-        .map(|p| js_sys::Uint8Array::new(&p).to_vec())
-        .collect())
+impl PdfJob {
+    fn close(&self) {
+        if !self.closed.replace(true) {
+            file_worker::pdf_close(self.doc);
+        }
+    }
 }
 
-/// PDF を読み込み、各ページを横に並べて置く。
+/// PDF を読み込み、ページの枠を先に並べてから、描けたページから順に画像にする。
 async fn insert_pdf(app: &Rc<RefCell<App>>, bytes: &[u8], at: Vec2) {
     if !app.borrow().can_edit() {
         return;
     }
-    match render_pdf(bytes).await {
-        Ok(pages) => app.borrow_mut().insert_pdf_pages(pages, at),
+    let document = app.borrow().document.clone();
+    super::ink_ui::toast(&document, "PDF を読み込んでいます…", "busy");
+    let doc = file_worker::pdf_open(bytes);
+    let (sizes, total) = match file_worker::pdf_info(doc).await {
+        Ok(v) => v,
         Err(e) => {
+            file_worker::pdf_close(doc);
+            super::ink_ui::toast(&document, &e, "error");
             log::warn!("{e}");
-            super::show_error(&e);
+            return;
         }
+    };
+    let ids = app.borrow_mut().place_pdf_frames(&sizes, at);
+    if ids.is_empty() {
+        file_worker::pdf_close(doc);
+        return;
+    }
+    let pixels = board_files::page_pixels(ids.len());
+    let job = Rc::new(PdfJob {
+        doc,
+        ids,
+        done: Cell::new(0),
+        failed: Cell::new(0),
+        total,
+        closed: Cell::new(false),
+    });
+    pdf_progress(&document, &job);
+    // ページごとの仕事を全部並べる。Worker が空いた順に、前のページから描いていく。
+    for page in 0..job.ids.len() {
+        let app = app.clone();
+        let job = job.clone();
+        let document = document.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let id = job.ids[page];
+            match file_worker::pdf_page(job.doc, page, pixels).await {
+                Ok(pic) => {
+                    let mut a = app.borrow_mut();
+                    a.fill_pdf_page(id, pic);
+                    // 取り込んだページが全部消された(Undo・削除)なら、残りのページは描かない。
+                    if !job.ids.iter().any(|id| a.board.get(*id).is_some()) {
+                        job.close();
+                    }
+                }
+                Err(e) if e == file_worker::CANCELLED => {}
+                Err(e) => {
+                    log::warn!("PDF の {} ページ目: {e}", page + 1);
+                    job.failed.set(job.failed.get() + 1);
+                }
+            }
+            job.done.set(job.done.get() + 1);
+            pdf_progress(&document, &job);
+        });
+    }
+}
+
+/// PDF の進み具合をお知らせに出す。終わったら PDF を Worker から捨てる。
+fn pdf_progress(document: &web_sys::Document, job: &PdfJob) {
+    let (done, n) = (job.done.get(), job.ids.len());
+    if done < n {
+        if !job.closed.get() {
+            let msg = format!("PDF のページを描いています {done} / {n}");
+            super::ink_ui::toast(document, &msg, "busy");
+        }
+        return;
+    }
+    let cancelled = job.closed.get();
+    job.close();
+    if cancelled {
+        super::ink_ui::toast(document, "PDF の取り込みをやめました", "done");
+        return;
+    }
+    let failed = job.failed.get();
+    let msg = if failed > 0 {
+        format!(
+            "PDF の {} ページを取り込みました({failed} ページは描けませんでした)",
+            n - failed
+        )
+    } else if job.total > n {
+        format!(
+            "PDF の先頭 {n} ページを取り込みました(全 {} ページ)",
+            job.total
+        )
+    } else {
+        format!("PDF の {n} ページを取り込みました")
+    };
+    super::ink_ui::toast(document, &msg, if failed > 0 { "error" } else { "done" });
+}
+
+/// CSV・表計算のファイルを Worker で読んで並べる。
+async fn insert_table(app: &Rc<RefCell<App>>, bytes: &[u8], csv: bool, at: Vec2) {
+    if !app.borrow().can_edit() {
+        return;
+    }
+    let keep = board_core::tabular::MAX_ROWS;
+    let sheets = match file_worker::table(bytes, csv, keep).await {
+        Ok(s) => s,
+        Err(e) => {
+            super::show_error(&e);
+            return;
+        }
+    };
+    let total = sheets.iter().map(|(_, t)| *t).max().unwrap_or(0);
+    let sheets = sheets.into_iter().map(|(s, _)| s).collect();
+    let mut a = app.borrow_mut();
+    if !a.insert_sheets(sheets, at) {
+        super::show_error("シートが空です");
+        return;
+    }
+    if total > keep {
+        let msg = format!("先頭の {keep} 行を取り込みました(全 {total} 行)");
+        super::ink_ui::toast(&a.document, &msg, "done");
     }
 }
 
 impl App {
-    /// PDF の各ページ(JPEG)を横に並べて置く。
-    fn insert_pdf_pages(&mut self, pages: Vec<Vec<u8>>, at: Vec2) {
+    /// PDF のページの枠(描き終わるまでの仮の四角形)を並べる。ページ順の ID を返す。
+    /// 枠は 1 回の操作として置くので、Undo 1 回で PDF ごと取り消せる。
+    fn place_pdf_frames(&mut self, sizes: &[(f32, f32)], at: Vec2) -> Vec<ElementId> {
         if !self.can_edit() {
-            return;
-        }
-        let mut items = Vec::new();
-        for page in pages {
-            let Ok((data, w, h)) = prepare_image(&page) else {
-                continue;
-            };
-            let mut size = Vec2::new(w as f32, h as f32);
-            size *= MAX_WORLD * 1.25 / size.max_element();
-            items.push((data, size));
-        }
-        const GAP: f32 = 40.0;
-        let total: f32 = items.iter().map(|(_, s)| s.x).sum::<f32>()
-            + GAP * items.len().saturating_sub(1) as f32;
-        let mut x = at.x - total * 0.5;
-        let mut ids = Vec::new();
-        let mut shapes = Vec::new();
-        for (data, size) in items {
-            let id = self.board.alloc_id();
-            let pos = Vec2::new(x, at.y - size.y * 0.5);
-            shapes.push(Shape::image(id, pos, size, ImageData::new(data)).into());
-            ids.push(id);
-            x += size.x + GAP;
+            return Vec::new();
         }
         self.board.end_gesture();
-        self.board.push_many(shapes);
+        let ids = pdf_pages::place_frames(&mut self.board, sizes, at);
         self.board.end_gesture();
-        self.editor.set_selection(ids);
+        // 画面に収まらなければ、PDF 全体が見えるまで引いて、ページが埋まっていく様子を見せる。
+        if let Some(b) = self.board.bounds_of(&ids) {
+            let (vmin, vmax) = self.camera.visible_world_rect();
+            if b.min.x < vmin.x || b.min.y < vmin.y || b.max.x > vmax.x || b.max.y > vmax.y {
+                self.camera.fit(b.min, b.max, 48.0);
+            }
+        }
+        self.editor.set_selection(ids.clone());
         self.dirty = true;
+        ids
     }
 
-    /// 画像をワールド座標 `at` を中心に置く。
-    pub(super) fn insert_image(&mut self, bytes: &[u8], at: Vec2) {
-        if !self.can_edit() {
+    /// 描けた PDF のページで、ページの枠を差し替える。
+    fn fill_pdf_page(&mut self, id: ElementId, pic: Picture) {
+        if pdf_pages::fill_page(&mut self.board, id, ImageData::new(pic.data)) {
+            self.dirty = true;
+        }
+    }
+
+    /// 縮めた画像をワールド座標 `at` を中心に置く。
+    fn place_image(&mut self, pic: Picture, at: Vec2) {
+        if !self.can_edit() || pic.w == 0 || pic.h == 0 {
             return;
         }
-        let (data, w, h) = match prepare_image(bytes) {
-            Ok(v) => v,
-            Err(e) => {
-                log::warn!("画像を読めません: {e}");
-                super::show_error(&format!("画像を読めません: {e}"));
-                return;
-            }
-        };
-        let mut size = Vec2::new(w as f32, h as f32);
+        let mut size = Vec2::new(pic.w as f32, pic.h as f32);
         let m = size.max_element();
         if m > MAX_WORLD {
             size *= MAX_WORLD / m;
@@ -171,7 +210,7 @@ impl App {
             id,
             at - size * 0.5,
             size,
-            ImageData::new(data),
+            ImageData::new(pic.data),
         ));
         self.board.end_gesture();
         self.editor.set_selection(vec![id]);
@@ -179,20 +218,20 @@ impl App {
     }
 
     /// 取り込んだマークダウンの画像の仮置きを、読み込んだ画像に差し替える。
-    fn replace_placeholder(&mut self, placeholder: board_core::ElementId, bytes: &[u8]) {
+    fn replace_placeholder(&mut self, placeholder: ElementId, pic: Picture) {
         let Some(rect) = self.board.get(placeholder).map(|e| e.bounds()) else {
             return;
         };
-        let Ok((data, w, h)) = prepare_image(bytes) else {
+        if pic.w == 0 {
             return;
-        };
+        }
         let width = rect.size().x;
-        let size = Vec2::new(width, width * h as f32 / w as f32);
+        let size = Vec2::new(width, width * pic.h as f32 / pic.w as f32);
         let id = self.board.alloc_id();
         self.board.end_gesture();
         self.board.remove(&[placeholder]);
         self.board
-            .push(Shape::image(id, rect.min, size, ImageData::new(data)));
+            .push(Shape::image(id, rect.min, size, ImageData::new(pic.data)));
         self.board.end_gesture();
         let mut sel = self.editor.selection().to_vec();
         if let Some(p) = sel.iter_mut().find(|p| **p == placeholder) {
@@ -208,17 +247,28 @@ impl App {
     }
 }
 
-/// ファイルを読み込んで画像として置く(複数なら少しずつずらす)。
-pub fn insert_files(app: &Rc<RefCell<App>>, files: Vec<File>, at: Option<Vec2>) {
-    let files: Vec<File> = files.into_iter().filter(is_supported).collect();
-    if files.is_empty() {
+/// 画像を縮めてから置く。
+async fn insert_image(app: &Rc<RefCell<App>>, bytes: &[u8], at: Vec2) {
+    if !app.borrow().can_edit() {
         return;
     }
-    let app = app.clone();
-    wasm_bindgen_futures::spawn_local(async move {
-        for (i, f) in files.into_iter().enumerate() {
+    match shrink_image(bytes).await {
+        Ok(pic) => app.borrow_mut().place_image(pic, at),
+        Err(e) => {
+            log::warn!("画像を読めません: {e}");
+            super::show_error(&format!("画像を読めません: {e}"));
+        }
+    }
+}
+
+/// ファイルを読み込んで置く(複数なら少しずつずらす)。重いファイルは並行して処理する。
+pub fn insert_files(app: &Rc<RefCell<App>>, files: Vec<File>, at: Option<Vec2>) {
+    let files: Vec<File> = files.into_iter().filter(is_supported).collect();
+    for (i, f) in files.into_iter().enumerate() {
+        let app = app.clone();
+        wasm_bindgen_futures::spawn_local(async move {
             let Ok(buf) = wasm_bindgen_futures::JsFuture::from(f.array_buffer()).await else {
-                continue;
+                return;
             };
             let bytes = js_sys::Uint8Array::new(&buf).to_vec();
             let base = {
@@ -234,26 +284,18 @@ pub fn insert_files(app: &Rc<RefCell<App>>, files: Vec<File>, at: Option<Vec2>) 
                     );
                 }
             } else if super::imports::is_csv(&f.name(), &f.type_()) {
-                app.borrow_mut()
-                    .insert_csv(&super::imports::decode_text(&bytes), base);
+                insert_table(&app, &bytes, true, base).await;
             } else if super::imports::is_spreadsheet(&f.name()) {
-                match super::imports::read_spreadsheet(bytes) {
-                    Ok(sheets) => {
-                        if !app.borrow_mut().insert_sheets(sheets, base) {
-                            super::show_error("シートが空です");
-                        }
-                    }
-                    Err(e) => super::show_error(&e),
-                }
+                insert_table(&app, &bytes, false, base).await;
             } else if is_markdown(&f) {
                 insert_markdown(&app, &String::from_utf8_lossy(&bytes), Some(base));
             } else if is_pdf(&f) {
                 insert_pdf(&app, &bytes, base).await;
             } else {
-                app.borrow_mut().insert_image(&bytes, base);
+                insert_image(&app, &bytes, base).await;
             }
-        }
-    });
+        });
+    }
 }
 
 fn is_pdf(f: &File) -> bool {
@@ -299,8 +341,10 @@ pub fn insert_markdown(app: &Rc<RefCell<App>>, md: &str, at: Option<Vec2>) -> bo
             let Some(bytes) = fetch_bytes(&img.url).await else {
                 return;
             };
-            app.borrow_mut()
-                .replace_placeholder(img.placeholder, &bytes);
+            let Ok(pic) = shrink_image(&bytes).await else {
+                return;
+            };
+            app.borrow_mut().replace_placeholder(img.placeholder, pic);
         });
     }
     true
@@ -401,26 +445,4 @@ pub fn install(app: &Rc<RefCell<App>>) -> Result<(), String> {
         })?;
     }
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn png(w: u32, h: u32) -> Vec<u8> {
-        let img = image::RgbaImage::from_pixel(w, h, image::Rgba([10, 20, 30, 128]));
-        let mut out = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut out, image::ImageFormat::Png).unwrap();
-        out.into_inner()
-    }
-
-    #[test]
-    fn small_images_are_kept_and_large_ones_shrunk() {
-        let small = png(40, 20);
-        let (bytes, w, h) = prepare_image(&small).unwrap();
-        assert_eq!((bytes, w, h), (small, 40, 20));
-        let (_, w, h) = prepare_image(&png(3200, 800)).unwrap();
-        assert_eq!((w, h), (1600, 400));
-        assert!(prepare_image(b"not an image").is_err());
-    }
 }
