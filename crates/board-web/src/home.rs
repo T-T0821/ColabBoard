@@ -298,6 +298,7 @@ impl Home {
             .filter(|i| i.get_attribute("data-input").as_deref() == Some("search"))
             .map(|i| i.selection_start().ok().flatten());
         self.root.set_inner_html(&html);
+        crate::notify_settings::mount(&self.root, self.me.is_some());
         crate::developer::mount(&self.root, self.me.is_some());
         if let Some(caret) = typing {
             if let Ok(Some(el)) = self.root.query_selector("[data-input=search]")

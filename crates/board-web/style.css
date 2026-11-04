@@ -1297,6 +1297,18 @@ body:not([data-comments="on"]) #comment-pins { display: none; }
 .comment-pin:active { transform: none; }
 .comment-pin[data-state="open"] { background: var(--accent-hover); box-shadow: 0 0 0 4px var(--accent-ring), 0 3px 10px rgba(16, 20, 40, 0.25); }
 .comment-pin[data-state="resolved"] { background: var(--faint); }
+/* 期限: 24 時間以内は黄、過ぎたら赤の輪 */
+.comment-pin[data-due="soon"] { box-shadow: 0 0 0 3px var(--warning), 0 3px 10px rgba(16, 20, 40, 0.25); }
+.comment-pin[data-due="overdue"] { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft), 0 3px 10px rgba(16, 20, 40, 0.25); }
+.due-row { display: flex; align-items: center; gap: 6px; margin: 2px 0 6px; }
+.due-field { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
+.due-field input { flex: 1 1 auto; font: inherit; padding: 3px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel-solid); color: var(--text); min-width: 0; }
+form[data-form="comment"] .due-field { margin: 4px 0; }
+.due-badge { display: inline-block; padding: 1px 6px; border-radius: 999px; font-size: 11px; font-weight: 600; background: var(--surface-hover); color: var(--muted); white-space: nowrap; }
+.due-badge[data-due="soon"] { background: var(--warning); color: #3d2a00; }
+.due-badge[data-due="overdue"] { background: var(--danger); color: #fff; }
+.due-text { color: var(--warning); }
+.due-text.overdue { color: var(--danger); }
 
 .comment-popover {
   width: min(340px, calc(100vw - 16px));
@@ -1776,6 +1788,12 @@ body.embed-mode .history-panel { display: none !important; }
 .home-card .team-members button { height: 28px; padding: 0 10px; }
 
 /* ---- 開発者向け(API トークンとプラグイン) ---- */
+.notify-kinds { display: flex; flex-wrap: wrap; gap: 6px 16px; }
+.notify-kinds label.check { display: inline-flex; flex-direction: row; align-items: center; gap: 6px; }
+.home-card .notify-kinds input[type="checkbox"] { width: auto; height: auto; margin: 0; flex: none; }
+.notify-ok { color: var(--success-text); }
+.notify-warn { color: var(--danger-text); }
+.notify-settings + .dev-tools { margin-top: 12px; }
 .dev-tools { margin-top: 24px; border-top: 1px solid var(--border); padding-top: 16px; }
 .dev-tools > summary { cursor: pointer; color: var(--muted); font-weight: 500; }
 .dev-tools[open] > summary { color: var(--text); }
