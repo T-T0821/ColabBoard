@@ -8,8 +8,9 @@ use std::rc::Rc;
 use board_core::api::{
     AuditEvent, BoardInfo, Login, MatchKind, Me, NewBoard, NewTeam, RenameFolder, Role, SearchHit,
     SetBoardTeam, SetLabels, SetTeamMember, SetTeamStorage, Signup, SsoStatus, StorageLocation,
-    Team, TeamInfo, TeamRole, TeamSso,
+    Team, TeamInfo, TeamRole, TeamSso, UserTemplate,
 };
+use board_core::templates::{Category, Template};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{Document, Element, HtmlElement, HtmlInputElement, Window};
@@ -60,6 +61,14 @@ struct Home {
     locations: Vec<StorageLocation>,
     /// 保存場所を移している最中か。
     moving: bool,
+    /// 開いているテンプレートギャラリー(自作テンプレートの一覧。`None` は閉じている)。
+    gallery: Option<Option<Vec<UserTemplate>>>,
+    /// 料金プラン(使わないサーバーなら `None`)。
+    billing: Option<board_core::api::Billing>,
+    /// プランのパネルを開いているか。
+    plan_open: bool,
+    /// 決済の画面から戻ったときの知らせ。
+    notice: Option<&'static str>,
     /// 検索欄の文字。
     query: String,
     /// 検索結果(検索していなければ `None`)。
@@ -164,6 +173,17 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
     let next = safe_next(params.as_ref().and_then(|p| p.get("next")));
     // SSO から戻ってきたときの失敗の理由。
     let sso_error = params.as_ref().and_then(|p| p.get("sso_error"));
+    // 決済の画面から戻ってきたとき。知らせを出して、URL からは消す(読み直しで二度出さない)。
+    let notice = params
+        .as_ref()
+        .and_then(|p| p.get("billing"))
+        .and_then(|b| crate::billing::notice_for(&b));
+    if notice.is_some()
+        && let Ok(history) = window.history()
+    {
+        let path = window.location().pathname().unwrap_or_else(|_| "/".into());
+        let _ = history.replace_state_with_url(&JsValue::NULL, "", Some(&path));
+    }
     let sso = if me.is_none() {
         http::get::<SsoStatus>("/sso").await.unwrap_or(SsoStatus {
             password_login: true,
@@ -195,6 +215,10 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         sso,
         locations: Vec::new(),
         moving: false,
+        gallery: None,
+        billing: None,
+        plan_open: notice.is_some(),
+        notice,
         query: String::new(),
         hits: None,
         search_seq: 0,
@@ -278,6 +302,7 @@ impl Home {
             .filter(|i| i.get_attribute("data-input").as_deref() == Some("search"))
             .map(|i| i.selection_start().ok().flatten());
         self.root.set_inner_html(&html);
+        crate::notify_settings::mount(&self.root, self.me.is_some());
         crate::developer::mount(&self.root, self.me.is_some());
         if let Some(caret) = typing {
             if let Ok(Some(el)) = self.root.query_selector("[data-input=search]")
@@ -632,8 +657,11 @@ impl Home {
     <h1>グラボード</h1>
     <span class="me">{name} <span class="muted">@{login}</span></span>
     {admin}
+    {plan}
     <button type="button" class="quiet" data-action="logout">ログアウト</button>
   </header>
+  {notice}
+  {plan_panel}
   {search}
   {tabs}
   {folders}
@@ -641,8 +669,10 @@ impl Home {
   <form data-form="create" class="create"{searching}>
     <input name="title" maxlength="80" placeholder="{placeholder}" />
     <button type="submit" class="primary" {busy}>ボードを作る</button>
+    <button type="button" data-action="gallery" aria-expanded="{gallery_open}">テンプレートから作る</button>
   </form>
   {err}
+  {gallery}
   {team_panel}
   {audit}
   <ul class="boards">{rows}</ul>
@@ -652,6 +682,19 @@ impl Home {
             busy = if self.busy { "disabled" } else { "" },
             err = self.error_html(),
             tabs = self.render_tabs(),
+            plan = self
+                .billing
+                .as_ref()
+                .map(|b| crate::billing::header_button(b, self.plan_open))
+                .unwrap_or_default(),
+            plan_panel = match &self.billing {
+                Some(b) if self.plan_open => crate::billing::panel(b, self.busy),
+                _ => String::new(),
+            },
+            notice = self
+                .notice
+                .map(|n| format!(r#"<p class="plan-notice" role="status">{n}</p>"#))
+                .unwrap_or_default(),
             folders = self.render_folders(),
             searching = if self.hits.is_some() { " hidden" } else { "" },
             recent = self.render_recent(),
@@ -666,6 +709,108 @@ impl Home {
                 ""
             },
             audit = self.render_audit(),
+            gallery_open = self.gallery.is_some(),
+            gallery = self.render_gallery(me),
+        )
+    }
+
+    /// テンプレートギャラリー。選ぶと新しいボードを作り、そのテンプレートを置いて開く。
+    fn render_gallery(&self, me: &Me) -> String {
+        let Some(list) = &self.gallery else {
+            return String::new();
+        };
+        let card = |t: &UserTemplate| {
+            let mut meta = String::new();
+            if !t.category.is_empty() {
+                meta.push_str(&format!(
+                    r#"<span class="chip" translate="no">{}</span>"#,
+                    escape(&t.category)
+                ));
+            }
+            meta.push_str(&format!(
+                r#"<span translate="no">{}</span><span>{} 回使用</span>"#,
+                escape(&t.owner_name),
+                t.uses
+            ));
+            format!(
+                r#"<button type="button" class="gallery-card" data-action="from-template" data-id="u:{id}" data-team="{team}" data-title="{title}"><span class="template-thumb">{preview}</span><strong translate="no">{title}</strong><span class="template-desc" translate="no">{desc}</span><span class="template-meta">{meta}</span></button>"#,
+                id = escape(&t.id),
+                team = escape(t.team.as_deref().unwrap_or("")),
+                title = escape(&t.title),
+                desc = escape(&t.description),
+                // 縮小図はサーバーが数値と色だけで作ったもの。
+                preview = if t.preview.starts_with("<svg") {
+                    t.preview.as_str()
+                } else {
+                    ""
+                },
+            )
+        };
+        let mut html = String::new();
+        match list {
+            None => html.push_str(r#"<p class="muted small">読み込み中…</p>"#),
+            Some(list) => {
+                for team in &self.teams {
+                    let cards: String = list
+                        .iter()
+                        .filter(|t| t.team.as_deref() == Some(team.id.as_str()))
+                        .map(card)
+                        .collect();
+                    if !cards.is_empty() {
+                        html.push_str(&format!(
+                            r#"<h3><span translate="no">{}</span> <span class="muted small">チームのテンプレート</span></h3><div class="gallery-grid">{cards}</div>"#,
+                            escape(&team.name)
+                        ));
+                    }
+                }
+                let mine: String = list
+                    .iter()
+                    .filter(|t| t.team.is_none() && t.owner == me.login)
+                    .map(card)
+                    .collect();
+                if !mine.is_empty() {
+                    html.push_str(&format!(
+                        r#"<h3>自分のテンプレート</h3><div class="gallery-grid">{mine}</div>"#
+                    ));
+                }
+                if list.is_empty() {
+                    html.push_str(r#"<p class="muted small">ボードでよく使う配置を選び、テンプレートのメニューの「＋ テンプレートに保存」を押すと、ここに並びます。チームに公開すると、メンバー全員が使えます。</p>"#);
+                }
+            }
+        }
+        html.push_str("<h3>標準のテンプレート</h3>");
+        for c in Category::ALL {
+            let items: String = Template::ALL
+                .iter()
+                .filter(|t| t.category() == c)
+                .map(|t| {
+                    format!(
+                        r#"<button type="button" class="chip-button" data-action="from-template" data-id="{}" data-title="{}" title="{}">{}</button>"#,
+                        t.name(),
+                        escape(t.title()),
+                        escape(t.description()),
+                        escape(t.title())
+                    )
+                })
+                .collect();
+            html.push_str(&format!(
+                r#"<div class="gallery-builtin"><span class="muted small">{}</span><div>{items}</div></div>"#,
+                escape(c.title())
+            ));
+        }
+        format!(
+            r#"<section class="home-gallery" aria-label="テンプレートギャラリー">
+  <header><h2>テンプレートギャラリー</h2><button type="button" class="quiet" data-action="close-gallery">閉じる</button></header>
+  <p class="muted small">{lead}</p>
+  {html}
+</section>"#,
+            lead = match self.current_team() {
+                Some(t) => format!(
+                    "選ぶと新しいボードを作って置きます。チームのテンプレートはそのチームの、それ以外は「{}」のボードになります。",
+                    escape(&t.name)
+                ),
+                None => "選ぶと新しいボードを作って置きます。チームのテンプレートはそのチームのボードになります。".into(),
+            },
         )
     }
 
@@ -963,7 +1108,9 @@ async fn reload(home: Shared) {
     } else {
         Vec::new()
     };
+    let billing = crate::billing::load().await;
     let mut h = home.borrow_mut();
+    h.billing = billing;
     if !locations.is_empty() {
         h.locations = locations;
     }
@@ -1068,6 +1215,10 @@ fn install(home: &Shared) -> Result<(), String> {
                         Err(e) => {
                             let mut hm = h.borrow_mut();
                             hm.busy = false;
+                            // プランの上限なら、プランのパネルも開いて見せる。
+                            if matches!(e, HttpError::Status(402, _)) && hm.billing.is_some() {
+                                hm.plan_open = true;
+                            }
                             hm.error = Some(e.message());
                             hm.render();
                         }
@@ -1215,6 +1366,35 @@ fn install(home: &Shared) -> Result<(), String> {
                 hm.error = None;
                 hm.render();
             }
+            "plan" => {
+                let mut hm = h.borrow_mut();
+                hm.plan_open = !hm.plan_open;
+                hm.notice = None;
+                hm.render();
+            }
+            "plan-upgrade" | "plan-manage" => {
+                let kind = if action == "plan-upgrade" {
+                    "checkout"
+                } else {
+                    "portal"
+                };
+                let h = h.clone();
+                h.borrow_mut().busy = true;
+                h.borrow().render();
+                wasm_bindgen_futures::spawn_local(async move {
+                    match crate::billing::start(kind).await {
+                        Ok(url) => {
+                            let _ = h.borrow().window.location().set_href(&url);
+                        }
+                        Err(e) => {
+                            let mut hm = h.borrow_mut();
+                            hm.busy = false;
+                            hm.error = Some(e.message());
+                            hm.render();
+                        }
+                    }
+                });
+            }
             "anonymous" => {
                 let room = random_room();
                 navigate(&h.borrow().window, &board_url(&room, None));
@@ -1283,6 +1463,65 @@ fn install(home: &Shared) -> Result<(), String> {
                 let mut hm = h.borrow_mut();
                 hm.audit = None;
                 hm.render();
+            }
+            "gallery" | "close-gallery" => {
+                if action == "close-gallery" || h.borrow().gallery.is_some() {
+                    let mut hm = h.borrow_mut();
+                    hm.gallery = None;
+                    hm.render();
+                    return;
+                }
+                {
+                    let mut hm = h.borrow_mut();
+                    hm.gallery = Some(None);
+                    hm.render();
+                }
+                let h = h.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    let list = http::get::<Vec<UserTemplate>>("/templates")
+                        .await
+                        .unwrap_or_default();
+                    let mut hm = h.borrow_mut();
+                    if hm.gallery.is_some() {
+                        hm.gallery = Some(Some(list));
+                        hm.render();
+                    }
+                });
+            }
+            "from-template" => {
+                let Some(template) = id.filter(|t| !t.is_empty()) else {
+                    return;
+                };
+                if h.borrow().busy {
+                    return;
+                }
+                let title = el.get_attribute("data-title").unwrap_or_default();
+                let team = el
+                    .get_attribute("data-team")
+                    .filter(|t| !t.is_empty())
+                    .or_else(|| h.borrow().filter.team().map(str::to_string));
+                h.borrow_mut().busy = true;
+                let h = h.clone();
+                wasm_bindgen_futures::spawn_local(async move {
+                    match http::send::<_, BoardInfo>("POST", "/boards", &NewBoard { title, team })
+                        .await
+                    {
+                        Ok(b) => navigate(
+                            &h.borrow().window,
+                            &format!(
+                                "{}&template={}",
+                                board_url(&b.id, None),
+                                http::encode(&template)
+                            ),
+                        ),
+                        Err(e) => {
+                            let mut hm = h.borrow_mut();
+                            hm.busy = false;
+                            hm.error = Some(e.message());
+                            hm.render();
+                        }
+                    }
+                });
             }
             "new-team" | "cancel-team" => {
                 let mut hm = h.borrow_mut();

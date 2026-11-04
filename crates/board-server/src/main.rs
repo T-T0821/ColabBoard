@@ -18,6 +18,7 @@
 //! - `SLACK_WEBHOOK_PREFIXES`(既定 `https://hooks.slack.com/`): Slack 通知を送ってよい URL の先頭(カンマ区切り)。
 //! - `PLUGIN_DIR`: ここにある `*.wasm` をサーバーのプラグインとして読み込む(全員が使える)。
 //! - `USER_PLUGINS`(既定 `1`): `0` で各自がプラグインを入れるのを禁止する。
+//! - `MEETING_HOSTS`: ボードに紐づける会議の URL として、Zoom・Meet・Teams のほかに受け付けるドメイン(カンマ区切り、例 `webex.com,whereby.com`)。
 //! - `GITHUB_TOKEN` / `GITHUB_API_URL`: 課題カードで GitHub を引くとき(トークンなしでも公開リポジトリは読める)。
 //! - `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN`: 課題カードで Jira を引くとき。
 //! - `ICE_SERVERS`: 音声通話で使う STUN / TURN サーバー(`RTCIceServer` の JSON 配列)。
@@ -31,7 +32,16 @@
 //!   `OIDC_ALLOWED_DOMAINS`(ログインできるメールのドメイン、`,` 区切り)も設定できる。
 //! - `STORAGE_LOCATIONS`: チームが選べるデータの保存場所(S3 互換・ディレクトリ)。書き方は
 //!   [`board_server::storage`] を参照。
+//! - 料金プラン: `BILLING=mock`(テスト決済)か、`STRIPE_SECRET_KEY`・`STRIPE_WEBHOOK_SECRET`・
+//!   `STRIPE_PRICE_PRO` で Stripe。上限は `FREE_BOARDS` などで変えられる。
+//!   [`board_server::billing::BillingConfig::from_env`] と docs/billing.md を参照。
 //! - `PASSWORD_LOGIN`(既定 `1`): `0` でパスワードのログインとアカウント作成を止める(SSO のみ)。
+//! - `SMTP_URL`・`MAIL_FROM`: そろえるとメンション・期限などをメールでも知らせる
+//!   (例 `SMTP_URL=smtps://user:pass@smtp.example.com`、`MAIL_FROM=グラボード <noreply@example.com>`)。
+//! - `PUSH_NOTIFICATIONS`(既定 `1`): `0` でスマホ・PC へのプッシュ通知(Web Push)を止める。
+//!   `VAPID_PRIVATE_KEY`・`VAPID_SUBJECT`・`PUSH_ALLOWED_HOSTS` も設定できる([`board_server::notify`])。
+//! - `DUE_REMIND_HOURS`(既定 `24`): コメントの期限の何時間前に知らせるか。
+//! - `NOTIFY_UTC_OFFSET`(既定 `+09:00`): 通知メールに書く時刻のタイムゾーン。
 //! - `RUST_LOG`(既定 `info`)
 //!
 //! `board-server healthcheck` は自分の `/healthz` を確かめて終了コードで返す(コンテナの死活監視用)。
@@ -131,6 +141,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     store.set_locations(locations);
     let hub = Arc::new(Hub::new(Arc::new(store)));
     let flusher = spawn_flusher(hub.clone());
+    let notifier = Arc::new(board_server::notify::Notifier::new(
+        board_server::notify::NotifyConfig::from_env(),
+        hub.store(),
+    )?);
+    tracing::info!(
+        "通知: メール {}・プッシュ通知 {}",
+        if notifier.email_available() {
+            "有効"
+        } else {
+            "無効(SMTP_URL と MAIL_FROM で有効)"
+        },
+        if notifier.push_key().is_some() {
+            "有効"
+        } else {
+            "無効"
+        },
+    );
+    let due_checker = board_server::notify::spawn_due_checker(
+        hub.store().clone(),
+        notifier.clone(),
+        flag("ANONYMOUS_BOARDS", true),
+    );
     let config = Config {
         static_dir,
         max_message_bytes,
@@ -144,6 +176,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         slack: board_server::slack::SlackConfig::from_env(),
         plugins: board_server::plugins::PluginConfig::from_env(),
         issues: board_server::issues::IssuesConfig::from_env(),
+        meeting_hosts: board_server::meeting_link::hosts_from_env(),
         embed_origins: std::env::var("EMBED_ALLOWED_ORIGINS")
             .ok()
             .map(|v| v.replace(',', " ").trim().to_string())
@@ -162,6 +195,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }),
         password_login: flag("PASSWORD_LOGIN", true),
         limits: board_server::guard::Limits::from_env(flag("COOKIE_SECURE", false)),
+        notifier,
+        billing: {
+            let b = board_server::billing::BillingConfig::from_env();
+            match b.mode.name() {
+                "off" => {}
+                "mock" => tracing::warn!(
+                    "料金プラン: テスト決済(BILLING=mock)。本番では使わないでください"
+                ),
+                _ => tracing::info!("料金プラン: Stripe で支払い"),
+            }
+            b
+        },
     };
     if !config.password_login && config.oidc.is_none() {
         tracing::warn!(
@@ -198,6 +243,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     flusher.abort();
     pruner.abort();
+    due_checker.abort();
     // 終了前に未保存の変更を書き出す。
     tokio::task::spawn_blocking(move || hub.flush()).await?;
     tracing::info!("停止しました");
