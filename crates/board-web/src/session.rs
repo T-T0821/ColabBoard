@@ -122,8 +122,6 @@ pub struct BoardChrome {
     /// GitHub のつながり(`None` は API のない古いサーバー、`Some(None)` はつながっていない)。
     github: Option<Option<GithubLink>>,
     github_status: Option<Result<String, String>>,
-    /// 暗号化ボードの鍵(リンクの `#k=` に載せる形)。共有リンクに付ける。
-    pub e2e_key: Option<String>,
 }
 
 pub type SharedChrome = Rc<RefCell<BoardChrome>>;
@@ -150,7 +148,6 @@ impl BoardChrome {
             slack_status: None,
             github: None,
             github_status: None,
-            e2e_key: None,
         }));
         chrome.borrow().render_header();
         install(&chrome);
@@ -245,34 +242,14 @@ impl BoardChrome {
             loc.origin().unwrap_or_default(),
             loc.pathname().unwrap_or_default()
         );
-        format!(
-            "{base}{}{}",
-            board_url(&self.room, Some(key)),
-            self.fragment()
-        )
-    }
-
-    /// 暗号化ボードなら、鍵を載せたフラグメント(`#k=…`。ブラウザはサーバーに送らない)。
-    fn fragment(&self) -> String {
-        self.e2e_key
-            .as_ref()
-            .map(|k| format!("#k={k}"))
-            .unwrap_or_default()
-    }
-
-    fn is_e2e(&self) -> bool {
-        self.info.as_ref().is_some_and(|i| i.e2e.is_some())
+        format!("{base}{}", board_url(&self.room, Some(key)))
     }
 
     /// 埋め込み用の iframe のコード。
     fn embed_code(&self, key: &str) -> String {
-        let loc = self.window.location();
         format!(
-            r#"<iframe src="{}{}{}&embed=1{}" width="800" height="600" style="border:0" allow="clipboard-write; fullscreen" title="グラボード"></iframe>"#,
-            loc.origin().unwrap_or_default(),
-            loc.pathname().unwrap_or_default(),
-            board_url(&self.room, Some(key)),
-            self.fragment(),
+            r#"<iframe src="{}&embed=1" width="800" height="600" style="border:0" allow="clipboard-write; fullscreen" title="グラボード"></iframe>"#,
+            self.link_url(key)
         )
     }
 
@@ -332,7 +309,6 @@ impl BoardChrome {
             None => String::new(),
         };
         let public = match &sh.public {
-            _ if self.is_e2e() => r#"<p class="muted small">暗号化ボードは Web に公開できません(公開ページはサーバーが中身を描くため)。</p>"#.to_string(),
             Some(p) => format!(
                 r#"<div class="row"><input class="grow" readonly value="{url}" data-copy /><button data-action="copy-public">コピー</button></div>
 <div class="row"><a class="small" href="{url}" target="_blank" rel="noopener">公開ページを開く</a><span class="grow"></span><button class="link small" data-action="regenerate-public">URL を作り直す</button></div>"#,
@@ -354,11 +330,6 @@ impl BoardChrome {
                 opts = options(Some(*role), false)
             ));
         }
-        let e2e_note = if self.is_e2e() {
-            r#"<p class="muted small e2e-note">🔒 暗号化ボードです。上のリンクの # 以降に復号の鍵が入っています(サーバーには送られません)。招待したメンバーにも、このリンクか鍵のパネルの鍵付きリンクを渡してください。メンバーを外したら、鍵のパネルから鍵を作り直してください。</p>"#
-        } else {
-            ""
-        };
         let err = self
             .share_error
             .as_ref()
@@ -369,7 +340,6 @@ impl BoardChrome {
 <section>
   <label class="field">リンクを知っている人<select data-link-role>{link_opts}</select></label>
   {link}
-  {e2e_note}
 </section>
 <section class="public-share">
   <label class="row switch"><strong class="grow">Web に公開{public_hint}</strong><input type="checkbox" data-public {public_checked} /></label>
@@ -395,21 +365,15 @@ impl BoardChrome {
                 .replace("オフ(招待した人だけ)", "オフ"),
             link_opts = options(sh.link.as_ref().map(|l| l.role), true),
             invite_opts = options(Some(Role::Editor), false),
-            public_checked = if sh.public.is_some() { "checked" } else if self.is_e2e() { "disabled" } else { "" },
+            public_checked = if sh.public.is_some() { "checked" } else { "" },
             public_hint = crate::hint::html(
                 "オンにすると、ログインしていない人も見られる閲覧専用のページができます(編集・コメントはできません)。SNS やチャットに貼るとプレビュー画像が出ます。"
             ),
         ));
-        // 暗号化ボードでは通知する出来事(コメント・バージョン)がないので出さない。
-        if let Ok(Some(section)) = panel.query_selector("[data-slot=slack]")
-            && !self.is_e2e()
-        {
+        if let Ok(Some(section)) = panel.query_selector("[data-slot=slack]") {
             section.set_inner_html(&self.slack_html());
         }
-        // 暗号化ボードはサーバーが中身を読めないので、GitHub で管理できない。
-        if let Ok(Some(section)) = panel.query_selector("[data-slot=github]")
-            && !self.is_e2e()
-        {
+        if let Ok(Some(section)) = panel.query_selector("[data-slot=github]") {
             section.set_inner_html(&self.github_html());
         }
     }

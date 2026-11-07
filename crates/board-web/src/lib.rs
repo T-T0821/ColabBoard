@@ -11,8 +11,6 @@ mod billing;
 #[cfg(target_arch = "wasm32")]
 mod developer;
 #[cfg(target_arch = "wasm32")]
-mod e2e;
-#[cfg(target_arch = "wasm32")]
 mod error_report;
 #[cfg(target_arch = "wasm32")]
 mod hint;
@@ -29,9 +27,9 @@ mod local_ai;
 #[cfg(target_arch = "wasm32")]
 mod net;
 #[cfg(target_arch = "wasm32")]
-mod p2p;
-#[cfg(target_arch = "wasm32")]
 mod ops;
+#[cfg(target_arch = "wasm32")]
+mod p2p;
 #[cfg(target_arch = "wasm32")]
 mod presence;
 #[cfg(target_arch = "wasm32")]

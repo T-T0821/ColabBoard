@@ -1089,7 +1089,7 @@ mod tests {
     fn setup() -> (Arc<Hub>, BoardMeta) {
         let store = Arc::new(Store::memory());
         crate::auth::signup(&store, "alice", "Alice", "password-123").unwrap();
-        let meta = boards::create(&store, "alice", "企画会議", None, None).unwrap();
+        let meta = boards::create(&store, "alice", "企画会議", None).unwrap();
         store.save(&meta.id, &board_state("最初")).unwrap();
         store
             .put_seq(

@@ -10,7 +10,6 @@ use yrs::types::ToJson;
 use yrs::updates::decoder::Decode;
 use yrs::{Any, Doc, Map, MapPrelim, Out, ReadTxn, StateVector, Transact, Update};
 
-use crate::sealed::{self, CompactError, SealedLog};
 use crate::store::Store;
 
 /// ボードの要素を入れるルートマップの名前(`board_core::Board` と同じ)。
@@ -55,50 +54,17 @@ pub struct Room {
     unversioned: AtomicBool,
     /// 最後にバージョンを作った時刻(UNIX ミリ秒。0 はまだ調べていない)。
     last_version: AtomicU64,
-    /// エンドツーエンド暗号化ボードなら、暗号文のログ。このとき `doc` は使わない(空のまま)。
-    sealed: Option<Mutex<SealedLog>>,
 }
 
-/// 暗号化ボードでは使えない操作。
-pub const SEALED_ERROR: &str = "エンドツーエンド暗号化ボードの中身はサーバーでは読めません";
-
 impl Room {
-    fn new(name: String, saved: Option<Vec<u8>>, e2e: bool) -> Self {
+    fn new(name: String, saved: Option<Vec<u8>>) -> Self {
         let doc = Doc::new();
-        // 暗号化ボード: 保存データは暗号文のログ。新しいボードでも案内の付箋は置かない(サーバーは書けない)。
-        let sealed_saved = saved.as_deref().is_some_and(sealed::is_sealed);
-        if e2e || sealed_saved {
-            let log = match saved.as_deref() {
-                Some(bytes) if sealed_saved => SealedLog::decode(bytes).unwrap_or_else(|e| {
-                    tracing::error!(room = %name, "{e}");
-                    SealedLog::default()
-                }),
-                Some(_) => {
-                    tracing::error!(room = %name, "暗号化ボードに平文の保存データがあるので使いません");
-                    SealedLog::default()
-                }
-                None => SealedLog::default(),
-            };
-            return Self::with(name, doc, Some(Mutex::new(log)));
-        }
         let initial = match saved {
             Some(state) => Some(state),
             // 新しいルームには案内の付箋を置いておく。
             None => Board::welcome().encode_diff(None).ok(),
         };
-        let room = Self::with(name, doc, None);
-        if let Some(state) = initial
-            && let Err(e) = room.apply(&state)
-        {
-            tracing::error!(room = %room.name, "保存データを読み込めません: {e}");
-        }
-        // 読み込んだだけではバージョンを作らない。
-        room.unversioned.store(false, Ordering::Release);
-        room
-    }
-
-    fn with(name: String, doc: Doc, sealed: Option<Mutex<SealedLog>>) -> Self {
-        Self {
+        let room = Self {
             name,
             doc,
             lock: Mutex::new(()),
@@ -110,91 +76,15 @@ impl Room {
             peers: AtomicUsize::new(0),
             unversioned: AtomicBool::new(false),
             last_version: AtomicU64::new(0),
-            sealed,
+        };
+        if let Some(state) = initial
+            && let Err(e) = room.apply(&state)
+        {
+            tracing::error!(room = %room.name, "保存データを読み込めません: {e}");
         }
-    }
-
-    /// エンドツーエンド暗号化ボードか。
-    pub fn is_sealed(&self) -> bool {
-        self.sealed.is_some()
-    }
-
-    /// 暗号化ボードの初回同期のメッセージ(エンコード済み)。暗号化ボードでなければ `None`。
-    pub fn sealed_sync(&self, you: u32) -> Option<Vec<u8>> {
-        let log = self.sealed.as_ref()?.lock().unwrap();
-        Some(
-            board_core::protocol::Message::SealedSync {
-                you,
-                base: log.base,
-                blobs: log.entries.iter().map(|e| e.to_vec()).collect(),
-            }
-            .encode(),
-        )
-    }
-
-    /// 暗号文をログに足し、送り主以外に配る。付けた通し番号を返す。
-    pub fn append_sealed(&self, from: u32, blob: Vec<u8>) -> Result<u64, String> {
-        let mut log = self
-            .sealed
-            .as_ref()
-            .ok_or("暗号化ボードではありません")?
-            .lock()
-            .unwrap();
-        let seq = log.append(Arc::from(blob.as_slice()));
-        self.dirty.store(true, Ordering::Release);
-        // 番号順に届くよう、ログを持ったまま配る。
-        self.broadcast(
-            from,
-            Arc::from(board_core::protocol::Message::Sealed { seq, blob }.encode()),
-        );
-        Ok(seq)
-    }
-
-    /// ログの先頭をまとめる(クライアントが全体を暗号化して送ってきたもの)。
-    pub fn compact_sealed(&self, base: u64, upto: u64, blob: Vec<u8>) -> Result<(), String> {
-        let mut log = self
-            .sealed
-            .as_ref()
-            .ok_or("暗号化ボードではありません")?
-            .lock()
-            .unwrap();
-        match log.compact(base, upto, Arc::from(blob)) {
-            Ok(()) => {
-                self.dirty.store(true, Ordering::Release);
-                Ok(())
-            }
-            // ほかの人が先にまとめただけなら気にしなくてよい。
-            Err(CompactError::Stale) => Ok(()),
-            Err(CompactError::Range) => Err("まとめる範囲が正しくありません".into()),
-        }
-    }
-
-    /// ログ全体を 1 つの暗号文にする(鍵の作り直し)。
-    pub fn reset_sealed(&self, blob: Vec<u8>) -> Result<(), String> {
-        let mut log = self
-            .sealed
-            .as_ref()
-            .ok_or("暗号化ボードではありません")?
-            .lock()
-            .unwrap();
-        log.reset(Arc::from(blob));
-        self.dirty.store(true, Ordering::Release);
-        Ok(())
-    }
-
-    /// ログの件数(まとめるかの目安)。
-    pub fn sealed_len(&self) -> usize {
-        self.sealed
-            .as_ref()
-            .map_or(0, |l| l.lock().unwrap().entries.len())
-    }
-
-    /// 保存するバイト列(平文のボードは yrs v1 更新、暗号化ボードはログ)。
-    pub fn persisted(&self) -> Vec<u8> {
-        match &self.sealed {
-            Some(log) => log.lock().unwrap().encode(),
-            None => self.snapshot(),
-        }
+        // 読み込んだだけではバージョンを作らない。
+        room.unversioned.store(false, Ordering::Release);
+        room
     }
 
     /// ボードの中身(要素)を、昔の状態(yrs v1 更新)と同じにする。
@@ -202,9 +92,6 @@ impl Room {
     ///
     /// 戻すのは要素だけ。タイマーや投票の状態は今のままにする。
     pub fn restore(&self, old_state: &[u8]) -> Result<Vec<u8>, String> {
-        if self.is_sealed() {
-            return Err(SEALED_ERROR.into());
-        }
         let old = Doc::new();
         old.transact_mut()
             .apply_update(Update::decode_v1(old_state).map_err(|e| e.to_string())?)
@@ -278,9 +165,6 @@ impl Room {
 
     /// 更新を取り込む。
     pub fn apply(&self, update: &[u8]) -> Result<(), String> {
-        if self.is_sealed() {
-            return Err(SEALED_ERROR.into());
-        }
         let update = Update::decode_v1(update).map_err(|e| e.to_string())?;
         let _g = self.lock.lock().unwrap();
         let mut txn = self.doc.transact_mut();
@@ -414,20 +298,12 @@ impl Hub {
                         None
                     }
                 };
-                let e2e = match crate::boards::get(&self.store, name) {
-                    Ok(meta) => meta.is_some_and(|m| m.e2e.is_some()),
-                    Err(e) => {
-                        tracing::error!(room = name, "ボードの情報を読めません: {e}");
-                        false
-                    }
-                };
                 tracing::info!(
                     room = name,
                     restored = saved.is_some(),
-                    e2e,
                     "ルームを開きました"
                 );
-                Arc::new(Room::new(name.to_string(), saved, e2e))
+                Arc::new(Room::new(name.to_string(), saved))
             })
             .clone();
         // ルームの片付け(`flush`)と競合しないよう、ロックを持ったまま数える。
@@ -493,7 +369,7 @@ impl Hub {
             self.auto_version(room, None);
             return;
         }
-        let state = room.persisted();
+        let state = room.snapshot();
         match store.save(&room.name, &state) {
             Ok(()) => tracing::debug!(room = %room.name, bytes = state.len(), "保存しました"),
             Err(e) => {
@@ -507,10 +383,6 @@ impl Hub {
 
     /// 自動のバージョン: 変更があり、前回から一定時間たったか、全員が抜けたときに作る。
     fn auto_version(&self, room: &Room, state: Option<&[u8]>) {
-        // 暗号化ボードは中身を読めないので、サーバーではバージョンを作らない。
-        if room.is_sealed() {
-            return;
-        }
         if !room.unversioned.load(Ordering::Acquire) {
             return;
         }
@@ -562,34 +434,16 @@ impl Hub {
     }
 
     /// ボードの今の状態。開いていればメモリから、なければ保存データから。
-    ///
-    /// 暗号化ボードは中身を読めないので `None`(検索・公開ページ・バージョンなどに出さない)。
     pub fn current_state(&self, name: &str) -> Result<Option<Vec<u8>>, crate::store::StoreError> {
         if let Some(room) = self.get(name) {
-            if room.is_sealed() {
-                return Ok(None);
-            }
             return Ok(Some(room.snapshot()));
         }
-        Ok(self.store.load(name)?.filter(|b| !sealed::is_sealed(b)))
-    }
-
-    /// 暗号化ボードの鍵を作り直した: ログを新しい鍵の暗号文 1 つにし、保存して全員をつなぎ直させる。
-    pub fn reset_sealed(&self, name: &str, blob: Vec<u8>) -> Result<(), String> {
-        let member = self.join(name);
-        member.room.reset_sealed(blob)?;
-        member.room.kick_all();
-        drop(member);
-        self.flush();
-        Ok(())
+        self.store.load(name)
     }
 
     /// ボードの中身を読む(REST API・プラグイン用)。開いていなければ開く。
     pub fn read<R>(&self, name: &str, f: impl FnOnce(&Board) -> R) -> Result<R, String> {
         let member = self.join(name);
-        if member.room.is_sealed() {
-            return Err(SEALED_ERROR.into());
-        }
         let mut board = Board::new();
         board.apply_remote(&member.room.snapshot())?;
         Ok(f(&board))
@@ -605,9 +459,6 @@ impl Hub {
         f: impl FnOnce(&mut Board) -> Result<R, E>,
     ) -> Result<R, E> {
         let member = self.join(name);
-        if member.room.is_sealed() {
-            return Err(E::from(SEALED_ERROR.to_string()));
-        }
         let mut board = Board::new();
         board.apply_remote(&member.room.snapshot())?;
         let out = f(&mut board)?;

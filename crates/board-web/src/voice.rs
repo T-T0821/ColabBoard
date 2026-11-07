@@ -196,7 +196,7 @@ impl VoiceCall {
 
     fn on_net(&self, e: &NetEvent) -> bool {
         match e {
-            NetEvent::Message(Message::Sync { you, .. } | Message::SealedSync { you, .. }) => {
+            NetEvent::Message(Message::Sync { you, .. }) => {
                 let mut i = self.0.borrow_mut();
                 i.me = *you;
                 // つなぎ直したときは参加者番号が変わるので、通話中なら名乗り直す

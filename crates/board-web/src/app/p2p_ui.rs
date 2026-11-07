@@ -17,7 +17,7 @@ use board_core::api::{
     MAX_REPORT_NOTE_CHARS, P2pEvent, P2pEventKind, P2pPolicy, P2pReport, ReportReason,
 };
 use board_core::p2p::{self as core, Code, CodeKind, LINK_PARAM, PEER_ID_BASE, PeerMsg, Source};
-use board_core::protocol::Presence;
+use board_core::protocol::{Message, Presence};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::JsCast;
 use web_sys::{Document, Element, HtmlElement, HtmlSelectElement, HtmlTextAreaElement};
@@ -189,8 +189,7 @@ impl App {
         if route.server
             && let Some(net) = &self.net
         {
-            // 暗号化ボードなら暗号化してから送る。
-            net.send(&self.wire_update(update.to_vec()));
+            net.send(&Message::Update(update.to_vec()));
         }
         if let Some(p) = &self.p2p {
             if route.peers.is_empty() {

@@ -257,7 +257,7 @@ pub async fn lookup(
     Json(req): Json<IssueQuery>,
 ) -> ApiResult<Json<Vec<IssueLookup>>> {
     let user = api::current_user(&state, &headers)?;
-    let (meta, role) = api::board_access(
+    let (_, role) = api::board_access(
         &state,
         &id,
         user.as_ref().map(|u| u.login.as_str()),
@@ -266,8 +266,6 @@ pub async fn lookup(
     if !role.can_edit() {
         return Err(Error::forbidden());
     }
-    // 課題の URL もボードの中身なので、暗号化ボードではサーバーに渡さない。
-    crate::e2e::require_plain(meta.as_ref())?;
     if req.urls.len() > MAX_URLS * 10 {
         return Err(Error::bad_request("URL が多すぎます"));
     }
