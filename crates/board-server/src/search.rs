@@ -385,7 +385,6 @@ mod tests {
                 folder: folder.map(str::to_string),
                 opened: 0,
             },
-            e2e: None,
         }
     }
 

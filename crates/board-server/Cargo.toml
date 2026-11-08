@@ -40,7 +40,6 @@ lettre = { version = "0.11.23", default-features = false, features = ["smtp-tran
 embed = ["dep:rust-embed"]
 
 [dev-dependencies]
-board-e2e = { path = "../board-e2e" }
 tokio-tungstenite = "0.28"
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }

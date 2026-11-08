@@ -380,36 +380,19 @@ async fn create_board(
         ));
     }
     crate::billing::check_new_board(&state, &user.login)?;
-    let team = match &req.team {
-        Some(team) => Some(crate::teams::member_team(state.store(), team, &user.login)?.0),
-        None => None,
-    };
-    if let Some(key_id) = &req.e2e {
-        crate::e2e::check_allowed(&state, team.as_ref())?;
-        if !crate::e2e::valid_key_id(key_id) {
-            return Err(Error::bad_request("鍵の指紋の形式が違います"));
-        }
+    if let Some(team) = &req.team {
+        crate::teams::member_team(state.store(), team, &user.login)?;
     }
-    let meta = boards::create(
-        state.store(),
-        &user.login,
-        &req.title,
-        req.team.as_deref(),
-        req.e2e.clone(),
-    )?;
-    tracing::info!(board = %meta.id, owner = %user.login, e2e = meta.e2e.is_some(), "ボード作成");
+    let meta = boards::create(state.store(), &user.login, &req.title, req.team.as_deref())?;
+    tracing::info!(board = %meta.id, owner = %user.login, "ボード作成");
     audit::record(
         &state,
         &headers,
-        Entry::new(if meta.e2e.is_some() {
-            "board.e2e.create"
-        } else {
-            "board.create"
-        })
-        .actor(&user.login)
-        .board(&meta.id)
-        .team(meta.team.as_deref())
-        .detail(&meta.title),
+        Entry::new("board.create")
+            .actor(&user.login)
+            .board(&meta.id)
+            .team(meta.team.as_deref())
+            .detail(&meta.title),
     );
     Ok((StatusCode::CREATED, Json(meta.info(Role::Owner, None))))
 }
@@ -439,7 +422,6 @@ async fn board_info(
             key: None,
             team: None,
             labels: Default::default(),
-            e2e: None,
         },
     }))
 }
@@ -634,14 +616,7 @@ async fn set_board_team(
     let user = require_user(&state, &headers)?;
     let mut meta = owned_board(&state, &id, &user, None, Role::Owner)?;
     if let Some(team) = &req.team {
-        let (team, _) = crate::teams::member_team(state.store(), team, &user.login)?;
-        // 暗号化ボードは、暗号化ボードを許可していないチームには移せない。
-        if meta.e2e.is_some() && meta.team.as_deref() != Some(team.id.as_str()) && !team.e2e {
-            return Err(Error::new(
-                StatusCode::FORBIDDEN,
-                "このチームでは暗号化ボードは許可されていません",
-            ));
-        }
+        crate::teams::member_team(state.store(), team, &user.login)?;
     }
     let old_team = meta.team.clone();
     if meta.team != req.team {
@@ -697,10 +672,6 @@ async fn set_public(
 ) -> ApiResult<Json<Sharing>> {
     let user = require_user(&state, &headers)?;
     let mut meta = owned_board(&state, &id, &user, None, Role::Owner)?;
-    // 公開ページはサーバーが中身を描くので、暗号化ボードでは使えない。
-    if req.enabled {
-        crate::e2e::require_plain(Some(&meta))?;
-    }
     let before = meta.public.clone();
     boards::set_public(&mut meta, req.enabled, req.regenerate);
     meta.updated = auth::now_ms();
@@ -742,8 +713,6 @@ async fn post_comment(
     if !role.can_comment() {
         return Err(Error::forbidden());
     }
-    // コメントはサーバーに平文で残るので、暗号化ボードでは使わない。
-    crate::e2e::require_plain(meta.as_ref())?;
     let (posted, sent) = comments::post(
         state.store(),
         meta.as_ref(),
@@ -770,11 +739,10 @@ async fn edit_comment(
     Json(req): Json<EditComment>,
 ) -> ApiResult<Json<Comment>> {
     let user = require_user(&state, &headers)?;
-    let (meta, role) = board_access(&state, &id, Some(&user.login), q.key.as_deref())?;
+    let (_, role) = board_access(&state, &id, Some(&user.login), q.key.as_deref())?;
     if !role.can_comment() {
         return Err(Error::forbidden());
     }
-    crate::e2e::require_plain(meta.as_ref())?;
     let c = comments::edit(state.store(), &id, cid, &user, role, req)?;
     state.hub.refresh(&id, TOPIC_COMMENTS);
     Ok(Json(c))
@@ -824,12 +792,10 @@ fn require_editor(
     user: Option<&UserRecord>,
     key: Option<&str>,
 ) -> ApiResult<()> {
-    let (meta, role) = board_access(state, id, user.map(|u| u.login.as_str()), key)?;
+    let (_, role) = board_access(state, id, user.map(|u| u.login.as_str()), key)?;
     if !role.can_edit() {
         return Err(Error::forbidden());
     }
-    // バージョンはサーバーが中身を写して作るので、暗号化ボードでは使えない。
-    crate::e2e::require_plain(meta.as_ref())?;
     Ok(())
 }
 

@@ -237,7 +237,6 @@ impl Client {
             &NewBoard {
                 title: title.to_string(),
                 team: None,
-                e2e: None,
             },
         )
         .await
@@ -251,7 +250,6 @@ impl Client {
             &NewBoard {
                 title: title.to_string(),
                 team: Some(team.to_string()),
-                e2e: None,
             },
         )
         .await

@@ -376,13 +376,11 @@ pub(crate) fn authorize(
 ) -> Result<(Arc<Ai>, Board), AiError> {
     let ai = state.config.ai.clone().ok_or(AiError::Disabled)?;
     let user = api::current_user(state, headers).map_err(AiError::Api)?;
-    let (meta, role) = api::board_access(state, room, user.as_ref().map(|u| u.login.as_str()), key)
+    let (_, role) = api::board_access(state, room, user.as_ref().map(|u| u.login.as_str()), key)
         .map_err(AiError::Api)?;
     if !role.can_edit() {
         return Err(AiError::Forbidden);
     }
-    // 暗号化ボードの中身は AI(外部のサービス)にも渡さない。
-    crate::e2e::require_plain(meta.as_ref()).map_err(AiError::Api)?;
     let board = room_board(&state.hub, room)?;
     Ok((ai, board))
 }

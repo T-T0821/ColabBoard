@@ -174,7 +174,7 @@ pub async fn generate(
         )));
     }
     let user = api::current_user(&state, &headers).map_err(AiError::Api)?;
-    let (meta, role) = api::board_access(
+    let (_, role) = api::board_access(
         &state,
         &room,
         user.as_ref().map(|u| u.login.as_str()),
@@ -184,7 +184,6 @@ pub async fn generate(
     if !role.can_edit() {
         return Err(AiError::Forbidden);
     }
-    crate::e2e::require_plain(meta.as_ref()).map_err(AiError::Api)?;
     if !ai.try_acquire(&room) {
         return Err(AiError::Busy);
     }
