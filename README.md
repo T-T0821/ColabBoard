@@ -137,8 +137,6 @@ Miro や FigJam のように、Web 上で複数人が同時に編集できるホ
 | --- | --- |
 | **Slack 通知** | オーナーは「共有」パネルで Slack の Incoming Webhook URL を登録すると、コメント・メンション・名前を付けたバージョンの保存(と復元)をチャンネルに流せる。送る出来事は選べて、「テスト送信」で届くか確かめられる。URL は保存後は末尾しか表示しない |
 | **GitHub でボードを管理** | ボードを差分の読みやすいテキスト(`.graboard.json`。1 要素 1 行の JSON、画像は `assets/` に別ファイル)としてリポジトリに置く。オーナーが「共有」パネルでリポジトリ・ブランチ・ファイルの場所をつなぎ、編集者は「履歴」から同期・プルリクエスト作成ができる。同期は最後の同期時点・ボード・リポジトリの 3 方向マージで、GitHub 側の編集もボードに取り込む(取り込む前の状態は版の履歴に残る)。Webhook で push を自動で取り込める。詳しくは [docs/github.md](docs/github.md) |
-| **会議・カレンダー連携(Zoom・Google Meet・Teams)** | 上部の「会議」から、ボードに会議の参加 URL と予定(名前・開始・終わり・カレンダーの予定のリンク)を紐づけられる(編集者以上)。開始 15 分前からボタンが「会議に参加」に変わり、開催中は色が付く。パネルからは会議への参加、Google カレンダーへの追加(予定の説明にボードの URL が入る)、`.ics` の保存(Outlook・Apple カレンダー・Teams)、会議のチャットに貼る招待文のコピーができ、参加者はそこからボードを開ける。Teams ではチャネルやチャットの「Web サイト」タブにボードの URL を追加でき、埋め込み用の鍵を使った `&embed=1` の URL なら会議アプリの中でもログインなしで表示できる。受け付ける会議の URL は Zoom・Meet・Teams のものだけで、`MEETING_HOSTS` で Webex などを足せる。誰かが変えると開いている全員の表示が変わる |
-| **GitHub・Jira の課題カード** | 課題やプルリクエストの URL(`https://github.com/…/issues/12`、`…/pull/34`、`https://…atlassian.net/browse/PROJ-5`)を貼ると、番号・タイトル・状態・担当者を書いたカードになる(複数行まとめて貼れる)。色は状態ごと(オープン=緑、進行中=青、完了・マージ=紫、対応しないで閉じた=灰)。ボードを開いている間は 2 分ごとに状態を引き直して全員のカードを書き換える。クリックで課題を開く |
 
 ### 性能確認・動作環境
 
@@ -278,7 +276,6 @@ iOS Safari・Android Chrome で動く(WebGPU がなければ WebGL2 で描く)�
 ## セルフホスト
 
 詳しい手順(Docker / systemd / リバースプロキシ / バックアップ)は [docs/self-hosting.md](docs/self-hosting.md)。
-Google Cloud に置くなら、Terraform 一式が [deploy/gcp](deploy/gcp/README.md) にある(HTTPS・バックアップ・死活監視込み)。
 
 ```sh
 docker compose up -d          # → http://localhost:8080(データは colabboard-data ボリューム)
@@ -323,16 +320,11 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `PUSH_ALLOWED_HOSTS` | Google・Mozilla・Apple・Microsoft のプッシュサービス | プッシュ通知を送ってよいホスト(カンマ区切り。`.example.com` でその下すべて) |
 | `DUE_REMIND_HOURS` | `24` | コメントの期限の何時間前に「近づいています」と知らせるか |
 | `NOTIFY_UTC_OFFSET` | `+09:00` | 通知メールに書く期限の時刻のタイムゾーン |
-| `GITHUB_TOKEN` | なし | 課題カードで GitHub を引くときのトークン(非公開リポジトリ用。なくても公開リポジトリは読める) |
-| `GITHUB_API_URL` | `https://api.github.com` | GitHub Enterprise などの API の場所 |
+| `GITHUB_TOKEN` / `GITHUB_API_URL` | なし / `https://api.github.com` | ボードの GitHub 管理で使うサーバーのトークンと、GitHub Enterprise などの API の場所 |
 | `GITHUB_SYNC_REPOS` | なし | ボードの GitHub 管理でサーバーの `GITHUB_TOKEN` を使ってよいリポジトリ(`owner/name` か `owner/*` のカンマ区切り)。それ以外はボードごとのトークンが要る |
 | `GITHUB_WEBHOOK_SECRET` | なし | `POST /api/github/webhook` の署名の鍵。設定すると GitHub への push をボードに自動で取り込める |
 | `GITHUB_WEB_URL` | `https://github.com` | ファイル・コミットを開くリンクの土台(GitHub Enterprise 用) |
-| `JIRA_BASE_URL` | なし | 課題カードで引く Jira のサイト(`https://example.atlassian.net`)。これ以外のサイトの URL は引かない |
-| `JIRA_EMAIL` / `JIRA_API_TOKEN` | なし | Jira の API トークン(3 つそろうと Jira 連携が有効になる) |
-| `JIRA_API_URL` | `JIRA_BASE_URL` | Jira の API を別の場所(プロキシなど)経由で呼ぶとき |
 | `EMBED_ALLOWED_ORIGINS` | `*` | ボードを iframe で埋め込んでよいサイト(空白区切り。例 `https://wiki.example.com https://*.example.org`) |
-| `MEETING_HOSTS` | なし | ボードに紐づける会議の URL として、Zoom・Meet・Teams のほかに受け付けるドメイン(カンマ区切り。例 `webex.com,whereby.com`。サブドメインも含む) |
 | `SLACK_WEBHOOK_PREFIXES` | `https://hooks.slack.com/` | Slack 通知を送ってよい Webhook URL の先頭(カンマ区切り)。これ以外の URL は登録できない |
 | `PLUGIN_DIR` | なし | ここにある `*.wasm` をサーバーのプラグインとして読み込む(全員が使える) |
 | `USER_PLUGINS` | `1` | `0` にすると各自がプラグインを入れるのを禁止(サーバーのプラグインだけになる) |
@@ -347,12 +339,9 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | `OIDC_NAME` / `OIDC_SCOPES` | `SSO` / `openid email profile` | ログイン画面のボタンの名前と、IdP に求めるスコープ |
 | `OIDC_ALLOWED_DOMAINS` | なし | SSO でログインできるメールのドメイン(カンマ区切り。確認済みのメールだけ) |
 | `PASSWORD_LOGIN` | `1` | `0` でパスワードのログインとアカウント作成を止める(SSO だけにする) |
-| `STORAGE_LOCATIONS` | なし | チームが選べるデータの保存場所(下の「組織で使う」を参照) |
 | `P2P_ENABLED` | `1` | `0` にするとサーバーを通さない直接接続(P2P)をすべてのボードで止める。チームごとにはチームの設定で止められる |
-| `LOG_FORMAT` | `text` | `gcp` で Cloud Logging の構造化ログ(ERROR は Error Reporting に載る)、`json` で一般的な JSON |
-| `SENTRY_DSN` / `ERROR_SLACK_WEBHOOK` | なし | エラーを Sentry へ送る / 新しい種類のエラーを Slack に知らせる(下の「運用」を参照) |
+| `LOG_FORMAT` | `text` | `json` で 1 行 1 件の JSON(Datadog・Loki などに送るとき) |
 | `BACKUP_LOCATION` / `BACKUP_INTERVAL_HOURS` / `BACKUP_KEEP` | `DATA_DIR/backups` / `24` / `14` | 定期バックアップの置き場所(`file://` か `s3://`。GCS も可)・間隔・残す数 |
-| `BILLING` / `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` / `STRIPE_PRICE_PRO` | なし | 料金プラン(無料・プロ)と Stripe での支払い。既定は使わない。`BILLING=mock` でキーなしのテスト決済。上限の変え方と設定手順は [docs/billing.md](docs/billing.md) |
 | `ICE_SERVERS` | Google の公開 STUN | 音声通話の STUN / TURN サーバー(`RTCIceServer` の JSON 配列)。会社のネットワーク越しなど直接つながらない相手と話すなら TURN を足す。例: `[{"urls":"turn:turn.example.com:3478","username":"u","credential":"p"}]` |
 
 ### アカウントと権限
@@ -368,39 +357,22 @@ HTTPS で公開するときは前段にリバースプロキシ(WebSocket の `/
 | **ログインなしのボード** | ログインせずに `?room=` で開いたボードは、これまでどおり誰でも編集できる。 |
 | **API の一覧** | API の一覧は `crates/board-core/src/api.rs` にある。 |
 
-### 組織で使う(チーム・SSO・操作ログ・保存場所)
+### 組織で使う(チーム・SSO・操作ログ)
 
 | 機能 | 内容 |
 | --- | --- |
 | **チーム** | ホームの「＋ チーム」で作り、ログイン名でメンバーを招待する。役割は メンバー / 管理者 / オーナー。チームのボードはメンバー全員が開け(既定は編集可、ボードごとに下げられる)、管理者はチームのボードすべてを管理できる。チームを消すとボードは作った人の個人ボードに戻る。 |
 | **SSO** | `OIDC_*` を設定すると、Okta・Entra ID・Google Workspace・Keycloak などでログインできる(認可コード + PKCE、ID トークンの署名を JWKS で検証)。初回ログインでアカウントができ、メールのドメインがチームの「SSO 自動参加ドメイン」と合えばそのチームに入る。同名のパスワードのアカウントには結びつけない。 |
-| **操作ログ** | ログイン(失敗も)・ボードやチームの作成と削除・共有設定・復元・API トークン・保存場所の変更を、接続元 IP とともに記録する。チームの管理者はチームのログ、サーバー管理者は全体のログをホームから見て CSV / JSON Lines で書き出せる。 |
-| **通報と利用停止** | ボードを開ける人は `POST /api/boards/{id}/reports` で通報でき、サーバー管理者(チームのボードはチームの管理者も)のボード一覧の「通報」に届く。管理者はボードを利用停止にでき、そのボードは誰も開けなくなり、つないでいる人も切断される(内容は消えない。解除もできる)。通報・利用停止・対応は操作ログに残る。 |
-| **データの保存場所** | 管理者が `STORAGE_LOCATIONS` に保存場所を用意すると、チームのオーナーがチームのボードの中身(とバージョン履歴)を置く場所を選べる。切り替えると中身を移し、元の場所からは消す。ボード名・メンバー・コメント・操作ログはこのサーバーに残る。 |
+| **操作ログ** | ログイン(失敗も)・ボードやチームの作成と削除・共有設定・復元・API トークンを、接続元 IP とともに記録する。チームの管理者はチームのログ、サーバー管理者は全体のログをホームから見て CSV / JSON Lines で書き出せる。 |
 
-```sh
-STORAGE_LOCATIONS='tokyo=s3://graboard-tokyo/prod?region=ap-northeast-1&label=東京(AWS);r2=s3://graboard?endpoint=https://<account>.r2.cloudflarestorage.com&region=auto&label=Cloudflare R2;nas=file:///mnt/nas/graboard?label=社内 NAS'
-STORAGE_TOKYO_ACCESS_KEY_ID=…  STORAGE_TOKYO_SECRET_ACCESS_KEY=…   # なければ AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
-```
-
-`s3://` は S3 互換ストレージ(AWS S3・Cloudflare R2・MinIO・Backblaze B2・Wasabi など、署名は AWS Signature V4)、`file://` はサーバーから見えるディレクトリ。`endpoint` を省くと AWS、`style=virtual` で仮想ホスト形式の URL にする。
-
-### 料金プラン(Stripe)
-
-- サービスとして公開するなら、無料・プロの 2 つのプランでボード数・AI 機能の回数・ボードのメンバー数・動画メモの容量に上限を付けられる(既定は使わない)。
-- 支払いは Stripe Checkout、支払い方法の変更や解約はカスタマーポータル。プランの切り替えは署名を確かめた Webhook だけで行う。
-- `BILLING=mock` にすると、Stripe のキーなしで申し込みから解約までの流れを試せる。
-- 詳しくは [docs/billing.md](docs/billing.md)。
-
-### 運用(エラー監視・バックアップ)
+### 運用(バックアップ)
 
 サーバー管理者(`ADMIN_LOGINS`)はボード一覧の「運用」から使う。
 
-- **エラー監視**: サーバーのログの ERROR・パニックと、利用者のブラウザで起きたエラー(JavaScript のエラー・wasm のパニック)を集め、同じものはまとめて回数と最新の詳細(スタック・ページ・ブラウザ・ボード)を見られる。直したら「解決済み」にし、再発すると未解決に戻る。`SENTRY_DSN` で Sentry へ、`ERROR_SLACK_WEBHOOK` で新しいエラーを Slack へ。Google Cloud では `LOG_FORMAT=gcp` で Error Reporting に載る
 - **定期バックアップ**: 全データを 1 ファイルにまとめて、24 時間ごとに `BACKUP_LOCATION`(別ディスク・S3 互換・Google Cloud Storage)へ残す。運用の画面から今すぐ取る・ダウンロードもできる
 - **復元**: バックアップを選んでボードを 1 つ戻せる(削除したボードはコメント・履歴ごと作り直し、今あるボードは中身を戻して戻す前を履歴に残す)。全体はサーバーを止めて `board-server restore <ID> --yes`
 
-詳しくは [docs/self-hosting.md](docs/self-hosting.md#エラー監視)。
+詳しくは [docs/self-hosting.md](docs/self-hosting.md#バックアップと復元)。
 
 ### 外部からの操作(REST API)
 

@@ -68,7 +68,7 @@
 //! | `GET` | `/api/audit/export?team=&format=csv\|jsonl` | 操作ログの書き出し(CSV か JSON Lines) |
 //!
 //!
-//! エラー監視とバックアップ(サーバー管理者向け)は [`ops`] を参照。
+//! バックアップ(サーバー管理者向け)は [`ops`] を参照。
 //!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
 
