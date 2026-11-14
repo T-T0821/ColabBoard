@@ -32,7 +32,6 @@ pub mod guard;
 pub mod issues;
 pub mod local_ai;
 pub mod media;
-pub mod meeting_link;
 pub mod notify;
 pub mod og;
 
@@ -98,8 +97,6 @@ pub struct Config {
     pub github: github::GithubConfig,
     /// 音声通話の ICE サーバー(`RTCIceServer` の配列)。`GET /api/rtc` で配る。
     pub ice_servers: serde_json::Value,
-    /// 会議の URL として受け付ける、Zoom・Meet・Teams 以外のドメイン(`MEETING_HOSTS`)。
-    pub meeting_hosts: Vec<String>,
     /// `?embed=1` のページを iframe で埋め込んでよいサイト(CSP の `frame-ancestors` の値)。
     /// それ以外のページは同じサイトからしか埋め込めない。
     pub embed_origins: String,
@@ -162,7 +159,6 @@ impl Default for Config {
             issues: issues::IssuesConfig::default(),
             github: github::GithubConfig::default(),
             ice_servers: default_ice_servers(),
-            meeting_hosts: Vec::new(),
             embed_origins: "*".into(),
             admins: Vec::new(),
             trust_proxy: false,

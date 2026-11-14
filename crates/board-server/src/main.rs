@@ -23,7 +23,6 @@
 //!   設定しなければ、プラグインが宣言し実行する人が許可した公開の HTTPS の先ならどこでも。
 //! - `PLUGIN_NETWORK_INSECURE`(既定 `0`): `1` で http:// と内部のアドレスへの接続も許す(開発用。本番では使わない)。
 //! - `PLUGIN_STORAGE`(既定 `1`): `0` でプラグインの保存領域を使えなくする。
-//! - `MEETING_HOSTS`: ボードに紐づける会議の URL として、Zoom・Meet・Teams のほかに受け付けるドメイン(カンマ区切り、例 `webex.com,whereby.com`)。
 //! - `GITHUB_TOKEN` / `GITHUB_API_URL`: 課題カードで GitHub を引くとき(トークンなしでも公開リポジトリは読める)。
 //! - `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN`: 課題カードで Jira を引くとき。
 //! - `ICE_SERVERS`: 音声通話で使う STUN / TURN サーバー(`RTCIceServer` の JSON 配列)。
@@ -188,7 +187,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         plugins: board_server::plugins::PluginConfig::from_env(),
         issues: board_server::issues::IssuesConfig::from_env(),
         github: board_server::github::GithubConfig::from_env(),
-        meeting_hosts: board_server::meeting_link::hosts_from_env(),
         embed_origins: std::env::var("EMBED_ALLOWED_ORIGINS")
             .ok()
             .map(|v| v.replace(',', " ").trim().to_string())

@@ -41,9 +41,6 @@ pub struct BoardMeta {
     /// GitHub のリポジトリとのつながり。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub github: Option<crate::github::GithubHook>,
-    /// 紐づけた会議(Zoom・Meet・Teams)とカレンダーの予定。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub meeting_link: Option<board_core::meeting_link::MeetingLink>,
     /// Web に公開中か(公開ページの URL の鍵)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public: Option<PublicShare>,
@@ -235,7 +232,6 @@ pub fn create(
             embed: None,
             slack: None,
             github: None,
-            meeting_link: None,
             public: None,
             deleted: false,
             team: team.map(str::to_string),
@@ -506,7 +502,6 @@ mod tests {
             embed: None,
             slack: None,
             github: None,
-            meeting_link: None,
             public: None,
             deleted: false,
             team: None,
