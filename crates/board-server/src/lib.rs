@@ -26,10 +26,10 @@ pub mod boards;
 pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
-pub mod logging;
 pub mod github;
 pub mod guard;
 pub mod local_ai;
+pub mod logging;
 pub mod media;
 pub mod notify;
 pub mod og;

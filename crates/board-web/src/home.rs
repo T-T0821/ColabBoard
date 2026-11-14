@@ -6,10 +6,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use board_core::api::{
-    AuditEvent, BoardInfo, Login, MatchKind, Me, NewBoard, NewTeam, RenameFolder,
-    Role, SearchHit, SetBoardTeam, SetLabels, SetTeamMember, SetTeamP2p,
-    Signup, SsoStatus, Team, TeamInfo, TeamRole, TeamSso,
-    UserTemplate,
+    AuditEvent, BoardInfo, Login, MatchKind, Me, NewBoard, NewTeam, RenameFolder, Role, SearchHit,
+    SetBoardTeam, SetLabels, SetTeamMember, SetTeamP2p, Signup, SsoStatus, Team, TeamInfo,
+    TeamRole, TeamSso, UserTemplate,
 };
 use board_core::templates::{Category, Template};
 use wasm_bindgen::JsCast;

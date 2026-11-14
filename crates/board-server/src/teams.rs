@@ -11,9 +11,7 @@ use axum::Router;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, put};
-use board_core::api::{
-    NewTeam, SetTeamMember, Team, TeamInfo, TeamRole, TeamSso,
-};
+use board_core::api::{NewTeam, SetTeamMember, Team, TeamInfo, TeamRole, TeamSso};
 use serde::{Deserialize, Serialize};
 
 use crate::AppState;

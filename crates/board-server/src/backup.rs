@@ -46,10 +46,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::api::Error;
+use crate::api::require_admin;
 use crate::audit::{self, Entry as AuditEntry};
 use crate::auth::{UserRecord, now_ms};
 use crate::boards::{self, BoardMeta};
-use crate::api::require_admin;
 use crate::room::Hub;
 use crate::storage::{self, Blob, DirBlob};
 use crate::store::{

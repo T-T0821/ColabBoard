@@ -35,12 +35,10 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-
 use redb::backends::InMemoryBackend;
 use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
-use serde::de::DeserializeOwned;
 use serde::Serialize;
-
+use serde::de::DeserializeOwned;
 
 const ROOMS: TableDefinition<&str, &[u8]> = TableDefinition::new("rooms");
 pub(crate) const USERS: TableDefinition<&str, &[u8]> = TableDefinition::new("users");
@@ -167,10 +165,7 @@ impl Store {
         txn.open_table(PUSH_SUBS)?;
         txn.open_table(SERVER_KEYS)?;
         txn.commit()?;
-        Ok(Self {
-            db,
-            persistent,
-        })
+        Ok(Self { db, persistent })
     }
 
     /// redb そのもの(バックアップで全テーブルを読み書きする)。
