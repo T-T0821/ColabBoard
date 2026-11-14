@@ -14,8 +14,8 @@ fn to_rgb(img: &RgbaImage) -> Vec<u8> {
     let mut out = Vec::with_capacity(img.width() as usize * img.height() as usize * 3);
     for p in img.pixels() {
         let a = p.0[3] as u32;
-        for i in 0..3 {
-            out.push(((p.0[i] as u32 * a + 255 * (255 - a)) / 255) as u8);
+        for &c in &p.0[..3] {
+            out.push(((c as u32 * a + 255 * (255 - a)) / 255) as u8);
         }
     }
     out
