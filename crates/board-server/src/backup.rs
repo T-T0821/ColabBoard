@@ -49,7 +49,7 @@ use crate::api::Error;
 use crate::audit::{self, Entry as AuditEntry};
 use crate::auth::{UserRecord, now_ms};
 use crate::boards::{self, BoardMeta};
-use crate::errors::require_admin;
+use crate::api::require_admin;
 use crate::room::Hub;
 use crate::storage::{self, Blob, DirBlob};
 use crate::store::{
@@ -287,7 +287,7 @@ pub fn dump(store: &Store) -> Result<(Vec<u8>, DumpStats), StoreError> {
     let header = Header {
         format: FORMAT,
         created: now_ms(),
-        release: crate::errors::RELEASE.into(),
+        release: crate::logging::RELEASE.into(),
         tables,
         skipped: stats.skipped.clone(),
     };
@@ -574,7 +574,7 @@ pub fn restore_board(
         .filter(|m| !m.deleted)
         .ok_or(RestoreError::NotFound)?;
     let state = data.board_state(id).unwrap_or(&[]).to_vec();
-    let when = crate::errors::rfc3339(data.header.created + 9 * 3600 * 1000);
+    let when = crate::logging::rfc3339(data.header.created + 9 * 3600 * 1000);
     let when = when.get(..16).unwrap_or(&when).replace('T', " ");
     match boards::get(store, id)? {
         Some(cur) if !cur.deleted => {
@@ -909,7 +909,7 @@ impl Backups {
                 let me = self.clone();
                 match tokio::task::spawn_blocking(move || me.create("auto", None)).await {
                     Ok(Ok(_)) => {}
-                    // ERROR にしておけばエラー監視の通知(Slack・Sentry)に載る。
+                    // 失敗はログの ERROR に出す。
                     Ok(Err(e)) => tracing::error!("定期バックアップに失敗しました: {e}"),
                     Err(e) => tracing::error!("定期バックアップが止まりました: {e}"),
                 }
@@ -993,7 +993,7 @@ async fn download(
         .ok_or_else(not_found)?;
     let name = format!(
         "graboard-{}.grabak.gz",
-        crate::errors::rfc3339(id / 1000)
+        crate::logging::rfc3339(id / 1000)
             .get(..19)
             .unwrap_or("backup")
             .replace([':', 'T'], "-")

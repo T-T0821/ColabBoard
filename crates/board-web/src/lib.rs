@@ -10,8 +10,6 @@ mod app;
 #[cfg(target_arch = "wasm32")]
 mod developer;
 #[cfg(target_arch = "wasm32")]
-mod error_report;
-#[cfg(target_arch = "wasm32")]
 mod hint;
 #[cfg(target_arch = "wasm32")]
 mod home;
@@ -50,8 +48,8 @@ use wasm_bindgen::prelude::*;
 #[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(start)]
 pub fn start() {
-    // パニックをコンソールに出し、サーバーのエラー監視にも知らせる。
-    error_report::install();
+    // パニックをコンソールに出す。
+    console_error_panic_hook::set_once();
     let _ = console_log::init_with_level(log::Level::Info);
     if let Some(w) = web_sys::window()
         && let Some(d) = w.document()

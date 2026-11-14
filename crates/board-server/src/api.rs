@@ -917,3 +917,12 @@ async fn restore_version(
     });
     Ok(Json(backup.unwrap_or(target)))
 }
+
+/// サーバー管理者か確かめる。
+pub(crate) fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<UserRecord, Error> {
+    let user = require_user(state, headers)?;
+    if !state.config.is_admin(&user.login) {
+        return Err(Error::forbidden());
+    }
+    Ok(user)
+}

@@ -2096,16 +2096,12 @@ body[data-role="commenter"] .mind-panel { display: none !important; }
 .home-card a.button.sso:hover { filter: brightness(1.06); }
 .home-card p.or { text-align: center; margin: 14px 0 -6px; font-size: 12px; }
 
-/* ---- 運用(エラー監視・バックアップ。サーバー管理者だけ) ---- */
+/* ---- 運用(バックアップ。サーバー管理者だけ) ---- */
 .ops-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(10, 12, 20, 0.42); display: flex; align-items: flex-start; justify-content: center; padding: 6vh 16px 16px; overflow: auto; }
 .ops-dialog { width: min(920px, 100%); background: var(--panel-solid); color: var(--text); border-radius: var(--r-lg); box-shadow: var(--shadow-lg); padding: 16px 18px 18px; display: flex; flex-direction: column; gap: 12px; }
 .ops-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .ops-head h2 { margin: 0; font-size: 17px; }
 .ops-head .spacer, .ops-toolbar .spacer, .ops-pick .spacer { flex: 1; }
-.ops-tabs { display: flex; gap: 4px; background: var(--surface-2); border-radius: 10px; padding: 3px; }
-.ops-tabs button { height: 28px; border: none; background: transparent; color: var(--muted); border-radius: 8px; padding: 0 12px; font-weight: 600; }
-.ops-tabs button[aria-selected="true"] { background: var(--panel-solid); color: var(--text); box-shadow: var(--shadow-sm); }
-.ops-tabs .count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 999px; background: var(--danger); color: #fff; font-size: 11px; line-height: 18px; text-align: center; }
 .ops-notice { margin: 0; padding: 8px 12px; border-radius: 10px; font-size: 13px; background: var(--success-soft); color: var(--success-text); }
 .ops-notice[data-ok="false"] { background: var(--danger-soft); color: var(--danger-text); }
 .ops-body { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
@@ -2113,24 +2109,6 @@ body[data-role="commenter"] .mind-panel { display: none !important; }
 .ops-toolbar label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
 .ops-body .small { font-size: 12px; }
 .ops-body code { font-size: 12px; background: var(--surface-2); padding: 1px 5px; border-radius: 5px; }
-.ops-errors { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.ops-errors .empty { padding: 24px 0; text-align: center; }
-.ops-error { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-.ops-error[data-resolved="true"] { opacity: 0.65; }
-.ops-error-head { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 12px; border: none; border-radius: 0; background: transparent; color: inherit; text-align: left; height: auto; }
-.ops-error-head:hover { background: var(--surface-hover); }
-.ops-error-head .msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
-.ops-error-head .times { font-weight: 600; font-size: 12px; white-space: nowrap; }
-.badge[data-source="server"] { background: var(--danger-soft); color: var(--danger-text); }
-.badge[data-source="client"] { background: var(--warning-soft); color: #9a5b00; }
-:root[data-theme="dark"] .badge[data-source="client"] { color: var(--warning); }
-.ops-error-detail { border-top: 1px solid var(--border); padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 8px; }
-.ops-error-detail dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 0; font-size: 12.5px; }
-.ops-error-detail dt { color: var(--muted); }
-.ops-error-detail dd { margin: 0; overflow-wrap: anywhere; }
-.ops-error-detail dd a { color: var(--accent); }
-.ops-error-detail pre { margin: 0; max-height: 280px; overflow: auto; background: var(--surface-2); border-radius: 8px; padding: 10px; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.ops-error-detail .actions { display: flex; gap: 8px; }
 button.quiet.danger { background: transparent; color: var(--danger-text); }
 button.quiet.danger:hover { background: var(--danger-soft); }
 .ops-body a.button { display: inline-flex; align-items: center; height: 28px; padding: 0 10px; border: 1px solid var(--border); border-radius: 8px; color: inherit; text-decoration: none; font-size: 12.5px; }

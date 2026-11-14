@@ -45,10 +45,7 @@
 //! - `DUE_REMIND_HOURS`(既定 `24`): コメントの期限の何時間前に知らせるか。
 //! - `NOTIFY_UTC_OFFSET`(既定 `+09:00`): 通知メールに書く時刻のタイムゾーン。
 //! - `RUST_LOG`(既定 `info`)
-//! - `LOG_FORMAT`(既定 `text`): `gcp` で Cloud Logging の構造化ログ(ERROR は Error Reporting に載る)、
-//!   `json` で一般的な JSON。
-//! - `SENTRY_DSN`・`SENTRY_ENVIRONMENT`: エラーを Sentry に送る。`ERROR_SLACK_WEBHOOK`: 新しいエラーを Slack に知らせる。
-//!   詳しくは [`board_server::errors`]。
+//! - `LOG_FORMAT`(既定 `text`): `json` で 1 行 1 件の JSON。
 //! - `BACKUP_LOCATION`・`BACKUP_INTERVAL_HOURS`(既定 24)・`BACKUP_KEEP`(既定 14): 定期バックアップ。
 //!   詳しくは [`board_server::backup`]。
 //!
@@ -65,7 +62,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use board_server::backup::{BackupConfig, Backups};
-use board_server::errors::{LogFormat, MonitorConfig};
+use board_server::logging::LogFormat;
 use board_server::{Config, Hub, Store, has_embedded_client, router, spawn_flusher};
 
 fn port() -> u16 {
@@ -98,9 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     if command.as_deref() == Some("healthcheck") {
         std::process::exit(if healthcheck() { 0 } else { 1 });
     }
-    let monitor_config = MonitorConfig::from_env();
-    board_server::errors::init_logging(monitor_config.log_format.unwrap_or(LogFormat::Text));
-    board_server::errors::install_panic_hook();
+    board_server::logging::init_logging(LogFormat::from_env());
     match command.as_deref() {
         Some("backup") => return offline_backup(),
         Some("restore") => return offline_restore(),
@@ -158,15 +153,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     store.set_locations(locations);
     let hub = Arc::new(Hub::new(Arc::new(store)));
     let flusher = spawn_flusher(hub.clone());
-    let monitor = board_server::errors::global();
-    if monitor_config.sentry.is_some() {
-        tracing::info!("エラー監視: Sentry に送ります");
-    }
-    if monitor_config.slack_webhook.is_some() {
-        tracing::info!("エラー監視: 新しいエラーを Slack に知らせます");
-    }
-    let monitor_task =
-        board_server::errors::spawn(monitor.clone(), hub.store().clone(), monitor_config);
     let data_path = (!data_dir.is_empty()).then(|| PathBuf::from(&data_dir));
     let backups = BackupConfig::from_env(data_path.as_deref(), |k| {
         std::env::var(k).ok().filter(|v| !v.is_empty())
@@ -233,7 +219,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         limits: board_server::guard::Limits::from_env(flag("COOKIE_SECURE", false)),
         local_ai: board_server::local_ai::LocalAiConfig::from_env(),
         p2p: flag("P2P_ENABLED", true),
-        monitor: monitor.clone(),
         backups,
         notifier,
     };
@@ -272,18 +257,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     flusher.abort();
     pruner.abort();
-    monitor_task.abort();
     due_checker.abort();
     if let Some(t) = backup_task {
         t.abort();
     }
-    // 終了前に未保存の変更とエラーの記録を書き出す。
-    let store = hub.store().clone();
-    tokio::task::spawn_blocking(move || {
-        hub.flush();
-        let _ = monitor.flush(&store);
-    })
-    .await?;
+    // 終了前に未保存の変更を書き出す。
+    tokio::task::spawn_blocking(move || hub.flush()).await?;
     tracing::info!("停止しました");
     Ok(())
 }
@@ -383,7 +362,7 @@ fn offline_restore() -> CliResult {
         return Err(format!("{what} というファイルはありません").into());
     };
     let data = board_server::backup::parse(&bytes)?;
-    let created = board_server::errors::rfc3339(data.header.created);
+    let created = board_server::logging::rfc3339(data.header.created);
     let boards = data.boards().iter().filter(|b| !b.deleted).count();
     let db = dir.join("boards.redb");
     println!(

@@ -702,7 +702,7 @@ impl Home {
             },
             team_panel = self.render_team_panel(me),
             admin = if me.admin {
-                r#"<button type="button" class="quiet" data-action="ops" data-id="errors">運用</button><button type="button" class="quiet" data-action="audit" data-id="">全体の操作ログ</button><button type="button" class="quiet" data-action="reports" data-id="">通報</button>"#
+                r#"<button type="button" class="quiet" data-action="ops" data-id="backups">運用</button><button type="button" class="quiet" data-action="audit" data-id="">全体の操作ログ</button><button type="button" class="quiet" data-action="reports" data-id="">通報</button>"#
             } else {
                 ""
             },
@@ -1583,7 +1583,7 @@ fn install(home: &Shared) -> Result<(), String> {
             "ops" => {
                 crate::ops::open(
                     crate::ops::Tab::parse(id.as_deref().unwrap_or(""))
-                        .unwrap_or(crate::ops::Tab::Errors),
+                        .unwrap_or(crate::ops::Tab::Backups),
                 );
             }
             "audit-more" => {
