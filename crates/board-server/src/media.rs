@@ -150,7 +150,6 @@ pub async fn upload(
             format!("動画は {} MB までです", MAX_MEDIA_BYTES / 1024 / 1024),
         ));
     }
-    crate::billing::check_media(&state, &id, body.len())?;
     let store = state.store().clone();
     let board = id.clone();
     let login = login.map(String::from);

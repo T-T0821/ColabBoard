@@ -6,10 +6,9 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use board_core::api::{
-    AuditEvent, BoardInfo, HandleReport, Login, MatchKind, Me, NewBoard, NewTeam, RenameFolder,
-    Report, ReportStatus, Role, SearchHit, SetBoardTeam, SetLabels, SetTeamMember, SetTeamP2p,
-    SetTeamStorage, Signup, SsoStatus, StorageLocation, Team, TeamInfo, TeamRole, TeamSso,
-    UserTemplate,
+    AuditEvent, BoardInfo, Login, MatchKind, Me, NewBoard, NewTeam, RenameFolder, Role, SearchHit,
+    SetBoardTeam, SetLabels, SetTeamMember, SetTeamP2p, Signup, SsoStatus, Team, TeamInfo,
+    TeamRole, TeamSso, UserTemplate,
 };
 use board_core::templates::{Category, Template};
 use wasm_bindgen::JsCast;
@@ -58,18 +57,8 @@ struct Home {
     audit: Option<AuditView>,
     /// サーバーが受け付けるログイン方法。
     sso: SsoStatus,
-    /// 選べるデータの保存場所(先頭はこのサーバー)。
-    locations: Vec<StorageLocation>,
-    /// 保存場所を移している最中か。
-    moving: bool,
     /// 開いているテンプレートギャラリー(自作テンプレートの一覧。`None` は閉じている)。
     gallery: Option<Option<Vec<UserTemplate>>>,
-    /// 料金プラン(使わないサーバーなら `None`)。
-    billing: Option<board_core::api::Billing>,
-    /// プランのパネルを開いているか。
-    plan_open: bool,
-    /// 決済の画面から戻ったときの知らせ。
-    notice: Option<&'static str>,
     /// 検索欄の文字。
     query: String,
     /// 検索結果(検索していなければ `None`)。
@@ -82,25 +71,6 @@ struct Home {
     renaming_folder: bool,
     /// 検索欄に最初のフォーカスを当てたか。
     search_focused: std::cell::Cell<bool>,
-    /// 開いている通報の一覧。
-    reports: Option<ReportsView>,
-}
-
-/// 通報の一覧の表示。
-struct ReportsView {
-    /// チームの通報ならその ID。`None` は全体(サーバー管理者)。
-    team: Option<String>,
-    list: Vec<Report>,
-    loaded: bool,
-}
-
-impl ReportsView {
-    fn query(&self) -> String {
-        match &self.team {
-            Some(t) => format!("?team={}", http::encode(t)),
-            None => String::new(),
-        }
-    }
 }
 
 /// 「最近見たボード」に出す数。
@@ -198,17 +168,6 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         .and_then(|t| crate::ops::Tab::parse(&t));
     // SSO から戻ってきたときの失敗の理由。
     let sso_error = params.as_ref().and_then(|p| p.get("sso_error"));
-    // 決済の画面から戻ってきたとき。知らせを出して、URL からは消す(読み直しで二度出さない)。
-    let notice = params
-        .as_ref()
-        .and_then(|p| p.get("billing"))
-        .and_then(|b| crate::billing::notice_for(&b));
-    if notice.is_some()
-        && let Ok(history) = window.history()
-    {
-        let path = window.location().pathname().unwrap_or_else(|_| "/".into());
-        let _ = history.replace_state_with_url(&JsValue::NULL, "", Some(&path));
-    }
     let sso = if me.is_none() {
         http::get::<SsoStatus>("/sso").await.unwrap_or(SsoStatus {
             password_login: true,
@@ -238,19 +197,13 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         confirm_delete_team: false,
         audit: None,
         sso,
-        locations: Vec::new(),
-        moving: false,
         gallery: None,
-        billing: None,
-        plan_open: notice.is_some(),
-        notice,
         query: String::new(),
         hits: None,
         search_seq: 0,
         editing: None,
         renaming_folder: false,
         search_focused: std::cell::Cell::new(false),
-        reports: None,
     }));
     install(&home)?;
     if home.borrow().me.is_some() {
@@ -690,11 +643,8 @@ impl Home {
     <h1>グラボード</h1>
     <span class="me">{name} <span class="muted">@{login}</span></span>
     {admin}
-    {plan}
     <button type="button" class="quiet" data-action="logout">ログアウト</button>
   </header>
-  {notice}
-  {plan_panel}
   {search}
   {tabs}
   {folders}
@@ -708,7 +658,6 @@ impl Home {
   {gallery}
   {team_panel}
   {audit}
-  {reports}
   <ul class="boards">{rows}</ul>
 </div>"#,
             name = escape(&me.name),
@@ -716,19 +665,6 @@ impl Home {
             busy = if self.busy { "disabled" } else { "" },
             err = self.error_html(),
             tabs = self.render_tabs(),
-            plan = self
-                .billing
-                .as_ref()
-                .map(|b| crate::billing::header_button(b, self.plan_open))
-                .unwrap_or_default(),
-            plan_panel = match &self.billing {
-                Some(b) if self.plan_open => crate::billing::panel(b, self.busy),
-                _ => String::new(),
-            },
-            notice = self
-                .notice
-                .map(|n| format!(r#"<p class="plan-notice" role="status">{n}</p>"#))
-                .unwrap_or_default(),
             folders = self.render_folders(),
             searching = if self.hits.is_some() { " hidden" } else { "" },
             recent = self.render_recent(),
@@ -738,12 +674,11 @@ impl Home {
             },
             team_panel = self.render_team_panel(me),
             admin = if me.admin {
-                r#"<button type="button" class="quiet" data-action="ops" data-id="errors">運用</button><button type="button" class="quiet" data-action="audit" data-id="">全体の操作ログ</button><button type="button" class="quiet" data-action="reports" data-id="">通報</button>"#
+                r#"<button type="button" class="quiet" data-action="ops" data-id="backups">運用</button><button type="button" class="quiet" data-action="audit" data-id="">全体の操作ログ</button>"#
             } else {
                 ""
             },
             audit = self.render_audit(),
-            reports = self.render_reports(),
             gallery_open = self.gallery.is_some(),
             gallery = self.render_gallery(me),
         )
@@ -910,76 +845,6 @@ impl Home {
         )
     }
 
-    fn render_reports(&self) -> String {
-        let Some(view) = &self.reports else {
-            return String::new();
-        };
-        let mut rows = String::new();
-        for r in &view.list {
-            let status = match r.status {
-                ReportStatus::Open => r#"<span class="badge report-open">未対応</span>"#,
-                ReportStatus::Resolved => {
-                    r#"<span class="badge" data-role="editor">対応済み</span>"#
-                }
-                ReportStatus::Dismissed => r#"<span class="badge">問題なし</span>"#,
-            };
-            let evidence = match &r.evidence {
-                Some(e) => format!(
-                    r#"<details><summary>添えられたボードの文字</summary><pre class="evidence">{}</pre></details>"#,
-                    escape(e)
-                ),
-                None => String::new(),
-            };
-            let suspend = if r.suspended {
-                format!(
-                    r#"<button type="button" data-action="report-handle" data-id="{id}" data-status="resolved" data-suspend="false">利用停止を解除</button>"#,
-                    id = r.id
-                )
-            } else {
-                format!(
-                    r#"<button type="button" class="danger" data-action="report-handle" data-id="{id}" data-status="resolved" data-suspend="true">利用停止にする</button>"#,
-                    id = r.id
-                )
-            };
-            rows.push_str(&format!(
-                r#"<li class="report"><div class="report-head">{status}<strong translate="no">{title}</strong><span class="muted small">{when}</span>{suspended}</div>
-<p><strong>{reason}</strong>{comment}</p>
-<p class="muted small">通報: {who} · ボード ID <code>{board}</code></p>
-{evidence}
-<div class="row actions">{suspend}<button type="button" class="quiet" data-action="report-handle" data-id="{id}" data-status="dismissed">問題なし</button><button type="button" class="quiet" data-action="report-handle" data-id="{id}" data-status="resolved">対応済みにする</button></div></li>"#,
-                id = r.id,
-                title = escape(&r.board_title),
-                when = escape(&datetime(r.at)),
-                suspended = if r.suspended { r#" <span class="badge report-open">利用停止中</span>"# } else { "" },
-                reason = escape(board_core::api::report_reason_label(&r.reason)),
-                comment = if r.comment.is_empty() { String::new() } else { format!(": {}", escape(&r.comment)) },
-                who = r.reporter.as_deref().map(|l| format!("@{}", escape(l))).unwrap_or_else(|| "共有リンクから開いた人".into()),
-                board = escape(&r.board),
-            ));
-        }
-        if rows.is_empty() {
-            rows = if view.loaded {
-                r#"<li class="muted">通報はありません。</li>"#.into()
-            } else {
-                r#"<li class="muted">読み込み中…</li>"#.into()
-            };
-        }
-        let title = match &view.team {
-            Some(t) => match self.teams.iter().find(|x| &x.id == t) {
-                Some(team) => format!("「{}」への通報", escape(&team.name)),
-                None => "チームへの通報".into(),
-            },
-            None => "全体の通報".into(),
-        };
-        format!(
-            r#"<section class="audit-panel reports-panel">
-  <header><h2>{title}</h2><span class="spacer"></span><button type="button" class="quiet" data-action="close-reports">閉じる</button></header>
-  <p class="muted small">利用停止にすると、そのボードは誰も開けなくなり、つないでいる人も切断されます(内容は消えません)。</p>
-  <ul class="reports">{rows}</ul>
-</section>"#
-        )
-    }
-
     fn current_team(&self) -> Option<&TeamInfo> {
         let id = self.filter.team()?;
         self.teams.iter().find(|t| t.id == id)
@@ -1109,47 +974,6 @@ impl Home {
                 escape(&team.sso_domains.join(", "))
             )
         };
-        // データの保存場所(用意されていれば)。
-        let storage = if self.locations.len() > 1 {
-            let current = team.storage.as_deref().unwrap_or("local");
-            let label = self
-                .locations
-                .iter()
-                .find(|l| l.id == current)
-                .map(|l| format!("{}({})", l.label, l.description))
-                .unwrap_or_else(|| current.to_string());
-            if owner {
-                let opts: String = self
-                    .locations
-                    .iter()
-                    .map(|l| {
-                        format!(
-                            r#"<option value="{id}"{sel}>{label}({desc})</option>"#,
-                            id = escape(&l.id),
-                            sel = if l.id == current { " selected" } else { "" },
-                            label = escape(&l.label),
-                            desc = escape(&l.description),
-                        )
-                    })
-                    .collect();
-                format!(
-                    r#"<form data-form="team-storage" class="inline"><span class="muted small nowrap">データの保存場所</span><select name="location" aria-label="データの保存場所" translate="no">{opts}</select><button type="submit" {busy}>{btn}</button></form>"#,
-                    busy = if self.moving { "disabled" } else { "" },
-                    btn = if self.moving {
-                        "移しています…"
-                    } else {
-                        "移す"
-                    },
-                )
-            } else {
-                format!(
-                    r#"<p class="muted small">データの保存場所: <span translate="no">{}</span></p>"#,
-                    escape(&label)
-                )
-            }
-        } else {
-            String::new()
-        };
         // サーバーを通さない直接接続(P2P)。中身がサーバーを通らないので、管理者が止められる。
         let p2p = if admin {
             format!(
@@ -1175,7 +999,7 @@ impl Home {
             r#"<section class="team-panel">
   <header><h2 translate="no">{name}</h2><span class="badge" data-role="{rs}">{rl}</span><span class="muted">{n} 人</span>{team_hint}<span class="spacer"></span>{log}{danger}</header>
   <ul class="team-members">{members}</ul>
-  {add}{mv}{storage}{p2p}{sso}
+  {add}{mv}{p2p}{sso}
 </section>"#,
             team_hint = crate::hint::html(
                 "チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。"
@@ -1186,7 +1010,7 @@ impl Home {
             n = team.members.len(),
             log = if admin {
                 format!(
-                    r#"<button type="button" class="quiet" data-action="audit" data-id="{id}">操作ログ</button><button type="button" class="quiet" data-action="reports" data-id="{id}">通報</button>"#,
+                    r#"<button type="button" class="quiet" data-action="audit" data-id="{id}">操作ログ</button>"#,
                     id = escape(&team.id)
                 )
             } else {
@@ -1220,19 +1044,7 @@ async fn reload(home: Shared) {
         }
         _ => None,
     };
-    let locations = if detail.is_some() && home.borrow().locations.is_empty() {
-        http::get::<Vec<StorageLocation>>("/storage")
-            .await
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
-    let billing = crate::billing::load().await;
     let mut h = home.borrow_mut();
-    h.billing = billing;
-    if !locations.is_empty() {
-        h.locations = locations;
-    }
     if selected.is_some() && detail.is_none() {
         h.filter = Filter::All;
     }
@@ -1337,10 +1149,6 @@ fn install(home: &Shared) -> Result<(), String> {
                         Err(e) => {
                             let mut hm = h.borrow_mut();
                             hm.busy = false;
-                            // プランの上限なら、プランのパネルも開いて見せる。
-                            if matches!(e, HttpError::Status(402, _)) && hm.billing.is_some() {
-                                hm.plan_open = true;
-                            }
                             hm.error = Some(e.message());
                             hm.render();
                         }
@@ -1402,32 +1210,6 @@ fn install(home: &Shared) -> Result<(), String> {
                         .map(|_| ()),
                         None => Ok(()),
                     };
-                    after_team_call(&h, res).await;
-                }
-                "team-storage" => {
-                    let location = form
-                        .query_selector("[name=location]")
-                        .ok()
-                        .flatten()
-                        .and_then(|e| e.dyn_into::<web_sys::HtmlSelectElement>().ok())
-                        .map(|s| s.value());
-                    let team = h.borrow().filter.team().map(str::to_string);
-                    {
-                        let mut hm = h.borrow_mut();
-                        hm.moving = true;
-                        hm.render();
-                    }
-                    let res = match team {
-                        Some(t) => http::send::<_, Team>(
-                            "PUT",
-                            &format!("/teams/{}/storage", http::encode(&t)),
-                            &SetTeamStorage { location },
-                        )
-                        .await
-                        .map(|_| ()),
-                        None => Ok(()),
-                    };
-                    h.borrow_mut().moving = false;
                     after_team_call(&h, res).await;
                 }
                 "move-board" => {
@@ -1508,35 +1290,6 @@ fn install(home: &Shared) -> Result<(), String> {
                 hm.error = None;
                 hm.render();
             }
-            "plan" => {
-                let mut hm = h.borrow_mut();
-                hm.plan_open = !hm.plan_open;
-                hm.notice = None;
-                hm.render();
-            }
-            "plan-upgrade" | "plan-manage" => {
-                let kind = if action == "plan-upgrade" {
-                    "checkout"
-                } else {
-                    "portal"
-                };
-                let h = h.clone();
-                h.borrow_mut().busy = true;
-                h.borrow().render();
-                wasm_bindgen_futures::spawn_local(async move {
-                    match crate::billing::start(kind).await {
-                        Ok(url) => {
-                            let _ = h.borrow().window.location().set_href(&url);
-                        }
-                        Err(e) => {
-                            let mut hm = h.borrow_mut();
-                            hm.busy = false;
-                            hm.error = Some(e.message());
-                            hm.render();
-                        }
-                    }
-                });
-            }
             "anonymous" => {
                 let room = random_room();
                 navigate(&h.borrow().window, &board_url(&room, None));
@@ -1591,7 +1344,6 @@ fn install(home: &Shared) -> Result<(), String> {
             }
             "audit" => {
                 let team = id.filter(|t| !t.is_empty());
-                h.borrow_mut().reports = None;
                 h.borrow_mut().audit = Some(AuditView {
                     team,
                     events: Vec::new(),
@@ -1599,62 +1351,10 @@ fn install(home: &Shared) -> Result<(), String> {
                 });
                 wasm_bindgen_futures::spawn_local(load_audit(h.clone(), false));
             }
-            "reports" => {
-                let team = id.filter(|t| !t.is_empty());
-                {
-                    let mut hm = h.borrow_mut();
-                    hm.audit = None;
-                    hm.reports = Some(ReportsView {
-                        team,
-                        list: Vec::new(),
-                        loaded: false,
-                    });
-                    hm.render();
-                }
-                wasm_bindgen_futures::spawn_local(load_reports(h.clone()));
-            }
-            "close-reports" => {
-                let mut hm = h.borrow_mut();
-                hm.reports = None;
-                hm.render();
-            }
-            "report-handle" => {
-                let Some(rid) = id.and_then(|i| i.parse::<u64>().ok()) else {
-                    return;
-                };
-                let status = match el.get_attribute("data-status").as_deref() {
-                    Some("dismissed") => ReportStatus::Dismissed,
-                    Some("open") => ReportStatus::Open,
-                    _ => ReportStatus::Resolved,
-                };
-                let suspend = el.get_attribute("data-suspend").map(|v| v == "true");
-                let q = h
-                    .borrow()
-                    .reports
-                    .as_ref()
-                    .map(|v| v.query())
-                    .unwrap_or_default();
-                let h = h.clone();
-                wasm_bindgen_futures::spawn_local(async move {
-                    let res = http::send::<_, Report>(
-                        "PUT",
-                        &format!("/reports/{rid}{q}"),
-                        &HandleReport { status, suspend },
-                    )
-                    .await;
-                    if let Err(e) = res {
-                        let mut hm = h.borrow_mut();
-                        hm.error = Some(e.message());
-                        hm.render();
-                        return;
-                    }
-                    load_reports(h).await;
-                });
-            }
             "ops" => {
                 crate::ops::open(
                     crate::ops::Tab::parse(id.as_deref().unwrap_or(""))
-                        .unwrap_or(crate::ops::Tab::Errors),
+                        .unwrap_or(crate::ops::Tab::Backups),
                 );
             }
             "audit-more" => {
@@ -2069,28 +1769,6 @@ fn label_chips(b: &BoardInfo) -> String {
         ));
     }
     html
-}
-
-/// 通報の一覧を読む。
-async fn load_reports(h: Shared) {
-    let Some(q) = h.borrow().reports.as_ref().map(|v| v.query()) else {
-        return;
-    };
-    let res = http::get::<Vec<Report>>(&format!("/reports{q}")).await;
-    let mut hm = h.borrow_mut();
-    match res {
-        Ok(list) => {
-            if let Some(v) = hm.reports.as_mut() {
-                v.list = list;
-                v.loaded = true;
-            }
-        }
-        Err(e) => {
-            hm.reports = None;
-            hm.error = Some(e.message());
-        }
-    }
-    hm.render();
 }
 
 /// 操作ログを読む。`more` なら今ある分より古いものを足す。

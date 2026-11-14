@@ -353,7 +353,6 @@ async fn plan(
         prompt.push_str("\n\n");
         prompt.push_str(&c.prompt());
     }
-    crate::billing::charge_ai(state, headers, room).map_err(AiError::Api)?;
     let out = ai.call(PLAN_SYSTEM, prompt, plan_schema()).await?;
     let raw: Plan = serde_json::from_value(out)
         .map_err(|e| AiError::Upstream(format!("進行案の形式が違います: {e}")))?;
@@ -414,7 +413,6 @@ async fn check(
         prompt.push_str("\n\n");
         prompt.push_str(&c.prompt());
     }
-    crate::billing::charge_ai(state, headers, room).map_err(AiError::Api)?;
     let out = ai.call(CHECK_SYSTEM, prompt, check_schema()).await?;
     let mut c: Check = serde_json::from_value(out)
         .map_err(|e| AiError::Upstream(format!("助言の形式が違います: {e}")))?;

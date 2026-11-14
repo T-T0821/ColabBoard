@@ -50,10 +50,6 @@ pub fn routes() -> Router<Arc<AppState>> {
         )
         .route("/boards/{id}/slack/test", post(slack::send_test))
         .route(
-            "/boards/{id}/meeting-link",
-            get(crate::meeting_link::get_meeting).put(crate::meeting_link::set_meeting),
-        )
-        .route(
             "/boards/{id}/comments",
             get(list_comments).post(post_comment),
         )
@@ -183,16 +179,6 @@ pub fn board_access(
         return Err(Error::not_found());
     }
     let meta = boards::get(state.store(), id)?;
-    // 通報を受けて管理者が利用停止にしたボードは、誰も開けない。
-    if meta
-        .as_ref()
-        .is_some_and(|m| m.suspended.is_some() && !m.deleted)
-    {
-        return Err(Error::new(
-            StatusCode::FORBIDDEN,
-            "このボードは管理者により利用停止されています",
-        ));
-    }
     let role = boards::role_for(
         state.store(),
         meta.as_ref(),
@@ -379,7 +365,6 @@ async fn create_board(
             format!("持てるボードは {max} 個までです。使わないボードを削除してください"),
         ));
     }
-    crate::billing::check_new_board(&state, &user.login)?;
     if let Some(team) = &req.team {
         crate::teams::member_team(state.store(), team, &user.login)?;
     }
@@ -465,8 +450,6 @@ async fn delete_board(
 ) -> ApiResult<StatusCode> {
     let user = require_user(&state, &headers)?;
     let mut meta = owned_board(&state, &id, &user, None, Role::Owner)?;
-    // チームの保存場所に置いた中身は、チームから外す前に消す。
-    state.store().purge_location_data(&id)?;
     audit::record(
         &state,
         &headers,
@@ -481,7 +464,6 @@ async fn delete_board(
     meta.link = None;
     meta.embed = None;
     meta.slack = None;
-    meta.meeting_link = None;
     if let Some(team) = meta.team.take() {
         boards::detach(state.store(), &team, &id)?;
     }
@@ -530,13 +512,6 @@ async fn set_member(
                 return Err(Error::bad_request(format!(
                     "「{login}」というユーザーはいません"
                 )));
-            }
-            if !meta.members.contains_key(&login) {
-                crate::billing::check_new_member(
-                    &state,
-                    meta.owner.as_deref(),
-                    meta.members.len(),
-                )?;
             }
             meta.members.insert(login.clone(), role.min(Role::Editor));
             boards::remember(state.store(), &login, &id, None)?;
@@ -924,4 +899,13 @@ async fn restore_version(
         slack::version_text(cfg, hook, m, who, &label, true)
     });
     Ok(Json(backup.unwrap_or(target)))
+}
+
+/// サーバー管理者か確かめる。
+pub(crate) fn require_admin(state: &AppState, headers: &HeaderMap) -> Result<UserRecord, Error> {
+    let user = require_user(state, headers)?;
+    if !state.config.is_admin(&user.login) {
+        return Err(Error::forbidden());
+    }
+    Ok(user)
 }

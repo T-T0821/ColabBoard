@@ -253,7 +253,6 @@ pub async fn recognize(
     if !ai.try_acquire(&room) {
         return Err(AiError::Busy);
     }
-    crate::billing::charge_ai(&state, &headers, &room).map_err(AiError::Api)?;
     let png = render_png(&strokes);
     let content = json!([
         {

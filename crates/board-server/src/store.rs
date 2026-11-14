@@ -26,29 +26,19 @@
 //! | `user_templates` | (ログイン名, テンプレート ID) | なし(自分のテンプレートの索引) |
 //! | `team_templates` | (チーム ID, テンプレート ID) | なし(チームに公開されたテンプレートの索引) |
 //! | `audit` | (`*` か `team:{id}`, 記録 ID) | [`AuditEvent`](board_core::api::AuditEvent)(JSON) |
-//! | `reports` | (`*` か `team:{id}`, 通報 ID) | [`Report`](board_core::api::Report)(JSON) |
-//! | `errors` | エラーのまとまりの ID | [`ErrorGroup`](board_core::api::ops::ErrorGroup)(JSON) |
 //! | `due_comments` | (ボード ID, コメント ID) | 期限(UNIX ミリ秒、JSON)。期限の知らせを送る前のスレッドの索引 |
 //! | `notify_settings` | ログイン名 | [`NotifyRecord`](crate::notify::NotifyRecord)(JSON) |
 //! | `notify_verify` | 確認トークン | [`VerifyRecord`](crate::notify::VerifyRecord)(JSON) |
 //! | `push_subs` | (ログイン名, 送り先 URL のハッシュ) | [`PushRecord`](crate::notify::PushRecord)(JSON) |
 //! | `server_keys` | 名前(`vapid`) | サーバーが作った鍵(JSON) |
-//! | `billing` | ログイン名 | [`BillingRecord`](crate::billing::BillingRecord)(JSON) |
-//! | `billing_customers` | Stripe の顧客 ID | ログイン名(JSON) |
-//! | `billing_events` | Stripe のイベント ID | 受け取った時刻(JSON。同じ通知を二度処理しないため) |
-//! | `usage` | `{ログイン名}\n{年-月}` | その月に AI 機能を呼んだ回数(JSON) |
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
 
 use redb::backends::InMemoryBackend;
 use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
+use serde::Serialize;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-
-use crate::storage::{self, Location};
 
 const ROOMS: TableDefinition<&str, &[u8]> = TableDefinition::new("rooms");
 pub(crate) const USERS: TableDefinition<&str, &[u8]> = TableDefinition::new("users");
@@ -85,8 +75,6 @@ pub(crate) const TEAM_BOARDS: TableDefinition<(&str, &str), &[u8]> =
 pub(crate) const SSO_IDENTITIES: TableDefinition<&str, &[u8]> =
     TableDefinition::new("sso_identities");
 pub(crate) const AUDIT: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("audit");
-pub(crate) const REPORTS: TableDefinition<(&str, u64), &[u8]> = TableDefinition::new("reports");
-pub(crate) const ERRORS: TableDefinition<&str, &[u8]> = TableDefinition::new("errors");
 pub(crate) const TEMPLATES: TableDefinition<&str, &[u8]> = TableDefinition::new("templates");
 pub(crate) const TEMPLATE_DATA: TableDefinition<&str, &[u8]> =
     TableDefinition::new("template_data");
@@ -103,12 +91,6 @@ pub(crate) const NOTIFY_VERIFY: TableDefinition<&str, &[u8]> =
 pub(crate) const PUSH_SUBS: TableDefinition<(&str, &str), &[u8]> =
     TableDefinition::new("push_subs");
 pub(crate) const SERVER_KEYS: TableDefinition<&str, &[u8]> = TableDefinition::new("server_keys");
-pub(crate) const BILLING: TableDefinition<&str, &[u8]> = TableDefinition::new("billing");
-pub(crate) const BILLING_CUSTOMERS: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("billing_customers");
-pub(crate) const BILLING_EVENTS: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("billing_events");
-pub(crate) const USAGE: TableDefinition<&str, &[u8]> = TableDefinition::new("usage");
 
 /// 時刻順に並ぶ一意な ID(UNIX ミリ秒 × 1000 + 連番)。再起動しても時刻が進んでいれば重ならない。
 pub fn next_id() -> u64 {
@@ -129,21 +111,6 @@ pub type StoreError = Box<dyn std::error::Error + Send + Sync>;
 pub struct Store {
     db: Database,
     persistent: bool,
-    /// 管理者が用意した保存場所(チームが選べる)。
-    locations: RwLock<HashMap<String, Arc<Location>>>,
-}
-
-/// 保存場所を引くための最小限の形(boards・teams モジュールの型に頼らない)。
-#[derive(Deserialize)]
-struct TeamOf {
-    #[serde(default)]
-    team: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct StorageOf {
-    #[serde(default)]
-    storage: Option<String>,
 }
 
 impl Store {
@@ -187,9 +154,7 @@ impl Store {
         txn.open_table(USER_TEAMS)?;
         txn.open_table(TEAM_BOARDS)?;
         txn.open_table(AUDIT)?;
-        txn.open_table(REPORTS)?;
         txn.open_table(SSO_IDENTITIES)?;
-        txn.open_table(ERRORS)?;
         txn.open_table(TEMPLATES)?;
         txn.open_table(TEMPLATE_DATA)?;
         txn.open_table(USER_TEMPLATES)?;
@@ -199,16 +164,8 @@ impl Store {
         txn.open_table(NOTIFY_VERIFY)?;
         txn.open_table(PUSH_SUBS)?;
         txn.open_table(SERVER_KEYS)?;
-        txn.open_table(BILLING)?;
-        txn.open_table(BILLING_CUSTOMERS)?;
-        txn.open_table(BILLING_EVENTS)?;
-        txn.open_table(USAGE)?;
         txn.commit()?;
-        Ok(Self {
-            db,
-            persistent,
-            locations: RwLock::new(HashMap::new()),
-        })
+        Ok(Self { db, persistent })
     }
 
     /// redb そのもの(バックアップで全テーブルを読み書きする)。
@@ -221,174 +178,33 @@ impl Store {
         self.persistent
     }
 
-    // ---- 保存場所 ----
+    // ---- ボードの中身 ----
 
-    pub fn set_locations(&self, locations: Vec<Location>) {
-        let mut map = self.locations.write().unwrap_or_else(|e| e.into_inner());
-        map.clear();
-        for l in locations {
-            map.insert(l.id.clone(), Arc::new(l));
-        }
-    }
-
-    /// 用意された保存場所(ID 順)。
-    pub fn locations(&self) -> Vec<Arc<Location>> {
-        let map = self.locations.read().unwrap_or_else(|e| e.into_inner());
-        let mut v: Vec<_> = map.values().cloned().collect();
-        v.sort_by(|a, b| a.id.cmp(&b.id));
-        v
-    }
-
-    pub fn location(&self, id: &str) -> Option<Arc<Location>> {
-        let map = self.locations.read().unwrap_or_else(|e| e.into_inner());
-        map.get(id).cloned()
-    }
-
-    /// ボードの中身の置き場所。このサーバーなら `None`。
-    pub fn location_of(&self, room: &str) -> Result<Option<Arc<Location>>, StoreError> {
-        if self
-            .locations
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_empty()
-        {
-            return Ok(None);
-        }
-        let Some(TeamOf { team: Some(team) }) = self.get_json::<TeamOf>(BOARDS, room)? else {
-            return Ok(None);
-        };
-        let Some(StorageOf { storage: Some(id) }) = self.get_json::<StorageOf>(TEAMS, &team)?
-        else {
-            return Ok(None);
-        };
-        match self.location(&id) {
-            Some(l) => Ok(Some(l)),
-            // 設定から消えた保存場所に置いたままのボードは、黙ってこのサーバーに書かない。
-            None => Err(format!("保存場所「{id}」が設定されていません").into()),
-        }
-    }
-
-    /// ボードの中身を読む(チームの保存場所か、このサーバー)。
+    /// ボードの中身を読む。
     pub fn load(&self, room: &str) -> Result<Option<Vec<u8>>, StoreError> {
-        let loc = self.location_of(room)?;
-        self.load_at(loc.as_deref(), room)
-    }
-
-    pub fn save(&self, room: &str, state: &[u8]) -> Result<(), StoreError> {
-        let loc = self.location_of(room)?;
-        self.save_at(loc.as_deref(), room, state)
-    }
-
-    pub fn delete_room(&self, room: &str) -> Result<(), StoreError> {
-        if let Some(loc) = self.location_of(room)? {
-            loc.blob.delete(&storage::board_key(room))?;
-        }
-        self.delete_local_room(room)
-    }
-
-    /// 指定の場所から読む。保存場所になければ、移す前のこのサーバーの分も見る。
-    pub fn load_at(
-        &self,
-        loc: Option<&Location>,
-        room: &str,
-    ) -> Result<Option<Vec<u8>>, StoreError> {
-        if let Some(loc) = loc
-            && let Some(b) = loc.blob.get(&storage::board_key(room))?
-        {
-            return Ok(Some(b));
-        }
         self.load_local(room)
     }
 
-    pub fn save_at(
-        &self,
-        loc: Option<&Location>,
-        room: &str,
-        state: &[u8],
-    ) -> Result<(), StoreError> {
-        match loc {
-            Some(loc) => loc.blob.put(&storage::board_key(room), state),
-            None => self.save_local(room, state),
-        }
+    pub fn save(&self, room: &str, state: &[u8]) -> Result<(), StoreError> {
+        self.save_local(room, state)
     }
 
-    /// 指定の場所から消す(このサーバーなら redb から)。
-    pub fn delete_at(&self, loc: Option<&Location>, room: &str) -> Result<(), StoreError> {
-        match loc {
-            Some(loc) => loc.blob.delete(&storage::board_key(room)),
-            None => self.delete_local_room(room),
-        }
+    pub fn delete_room(&self, room: &str) -> Result<(), StoreError> {
+        self.delete_local_room(room)
     }
 
     // ---- バージョンの中身 ----
 
     pub fn version_put(&self, room: &str, id: u64, state: &[u8]) -> Result<(), StoreError> {
-        let loc = self.location_of(room)?;
-        self.version_put_at(loc.as_deref(), room, id, state)
+        self.put_seq_raw(VERSIONS, room, id, state)
     }
 
     pub fn version_get(&self, room: &str, id: u64) -> Result<Option<Vec<u8>>, StoreError> {
-        let loc = self.location_of(room)?;
-        self.version_get_at(loc.as_deref(), room, id)
-    }
-
-    pub fn version_remove(&self, room: &str, ids: &[u64]) -> Result<(), StoreError> {
-        if let Some(loc) = self.location_of(room)? {
-            for id in ids {
-                loc.blob.delete(&storage::version_key(room, *id))?;
-            }
-        }
-        self.remove_seq(VERSIONS, room, ids)
-    }
-
-    pub fn version_put_at(
-        &self,
-        loc: Option<&Location>,
-        room: &str,
-        id: u64,
-        state: &[u8],
-    ) -> Result<(), StoreError> {
-        match loc {
-            Some(loc) => loc.blob.put(&storage::version_key(room, id), state),
-            None => self.put_seq_raw(VERSIONS, room, id, state),
-        }
-    }
-
-    pub fn version_get_at(
-        &self,
-        loc: Option<&Location>,
-        room: &str,
-        id: u64,
-    ) -> Result<Option<Vec<u8>>, StoreError> {
-        if let Some(loc) = loc
-            && let Some(b) = loc.blob.get(&storage::version_key(room, id))?
-        {
-            return Ok(Some(b));
-        }
         self.get_seq_raw(VERSIONS, room, id)
     }
 
-    pub fn version_delete_at(
-        &self,
-        loc: Option<&Location>,
-        room: &str,
-        id: u64,
-    ) -> Result<(), StoreError> {
-        match loc {
-            Some(loc) => loc.blob.delete(&storage::version_key(room, id)),
-            None => self.remove_seq(VERSIONS, room, &[id]),
-        }
-    }
-
-    /// 保存場所に置いたボードの中身とバージョンを消す(ボードの削除の前に呼ぶ)。
-    pub fn purge_location_data(&self, room: &str) -> Result<(), StoreError> {
-        if let Some(loc) = self.location_of(room)? {
-            loc.blob.delete(&storage::board_key(room))?;
-            for id in self.seq_ids(VERSION_INFO, room)? {
-                loc.blob.delete(&storage::version_key(room, id))?;
-            }
-        }
-        Ok(())
+    pub fn version_remove(&self, room: &str, ids: &[u64]) -> Result<(), StoreError> {
+        self.remove_seq(VERSIONS, room, ids)
     }
 
     /// 1 つ目のキーが `a` のものの ID(ID 順)。
@@ -495,32 +311,6 @@ impl Store {
         }
         txn.commit()?;
         Ok(true)
-    }
-
-    /// 数を 1 増やす(読んで書くまでを 1 つのトランザクションで)。`max` が 0 でなく、
-    /// すでに `max` 以上なら増やさずに `None`。
-    pub(crate) fn increment(
-        &self,
-        table: TableDefinition<&str, &[u8]>,
-        key: &str,
-        max: u64,
-    ) -> Result<Option<u64>, StoreError> {
-        let txn = self.db.begin_write()?;
-        let next = {
-            let mut t = txn.open_table(table)?;
-            let current: u64 = match t.get(key)? {
-                Some(v) => serde_json::from_slice(v.value())?,
-                None => 0,
-            };
-            if max > 0 && current >= max {
-                return Ok(None);
-            }
-            let next = current + 1;
-            t.insert(key, serde_json::to_vec(&next)?.as_slice())?;
-            next
-        };
-        txn.commit()?;
-        Ok(Some(next))
     }
 
     /// 表の件数。

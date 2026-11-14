@@ -11,8 +11,6 @@
 | [単一バイナリ](#2-単一バイナリ) | Docker を使わないとき。ファイル 1 つをコピーして動かす |
 | [ソースから](#3-ソースからビルド済みクライアントを別に置く) | 開発中、またはクライアントを自分で差し替えるとき |
 
-Google Cloud に置く場合は、Terraform で VM・HTTPS・バックアップ・監視までまとめて作れます([deploy/gcp](../deploy/gcp/README.md))。
-
 ## 1. Docker / Docker Compose
 
 ```sh
@@ -211,7 +209,7 @@ volumes:
 - [ ] 直接接続(P2P)を使わせないなら `P2P_ENABLED=0`(チームごとならチームの設定で止める)
 - [ ] 知らない人に使わせないなら `ANONYMOUS_BOARDS=0`(URL を知っていれば誰でも編集できるボードを作らせない)と `MAX_USERS` を設定した
 - [ ] バックアップを別の場所に置いている(`BACKUP_LOCATION`。下の「バックアップと復元」)
-- [ ] `ADMIN_LOGINS` を設定し、エラーの通知先(`SENTRY_DSN` か `ERROR_SLACK_WEBHOOK`、GCP なら `LOG_FORMAT=gcp`)を決めた
+- [ ] `ADMIN_LOGINS` を設定し、サーバーのログ(ERROR)を見る方法を決めた(`LOG_FORMAT=json` でログ基盤に送るなど)
 - [ ] AI 機能を使うなら、`ANTHROPIC_API_KEY` をサーバーの環境変数だけに置いた(ブラウザには渡らない)
 - [ ] 大勢で使うなら、プロキシ側でも接続数・帯域の制限をかけた(サーバーを複数台にする場合は特に)
 
@@ -242,46 +240,18 @@ volumes:
 | `DUE_REMIND_HOURS` | `24` | コメントの期限の何時間前に知らせるか |
 | `NOTIFY_UTC_OFFSET` | `+09:00` | 通知メールに書く時刻のタイムゾーン |
 | `RUST_LOG` | `info` | ログの詳しさ |
-| `LOG_FORMAT` | `text` | `gcp` で Cloud Logging の構造化ログ、`json` で 1 行 1 件の JSON([エラー監視](#エラー監視)) |
-| `SENTRY_DSN` / `SENTRY_ENVIRONMENT` | なし | エラーを Sentry(または互換のサービス)へ送る |
-| `ERROR_SLACK_WEBHOOK` | なし | 新しい種類のエラーを Slack の Incoming Webhook に知らせる |
+| `LOG_FORMAT` | `text` | `json` で 1 行 1 件の JSON(Datadog・Loki などに送るとき) |
 | `BACKUP_LOCATION` | `DATA_DIR/backups` | 定期バックアップの置き場所(`file:///…` か `s3://…`。[バックアップと復元](#バックアップと復元)) |
 | `BACKUP_INTERVAL_HOURS` / `BACKUP_KEEP` | `24` / `14` | バックアップの間隔(`0` で定期を止める)と、残す数(定期・手動それぞれ) |
 | `BACKUP_ACCESS_KEY_ID` / `BACKUP_SECRET_ACCESS_KEY` | なし | `s3://` の置き場所の認証情報(なければ `AWS_…`) |
 
-## エラー監視
-
-サーバーのエラーと、利用者のブラウザで起きたエラーを 1 か所に集めます。設定しなくても動き、
-`ADMIN_LOGINS` のサーバー管理者はボード一覧の「運用」→「エラー」で一覧を見られます。
-
-- **集めるもの**: サーバーのログの ERROR(保存の失敗など)とパニック(スタックトレース付き)、
-  ブラウザの JavaScript のエラー・処理されなかった Promise の失敗・wasm のパニック(`POST /api/errors` に自動で送る)
-- **まとめ方**: メッセージと場所が同じものは 1 つにまとめ、回数・最初と最後の時刻・最新の 1 件の詳細
-  (スタック、ページ、ブラウザ、ログイン中の人、ボード、版)を残す。数字や ID の違いは同じものとみなす
-- **解決済み**: 直したら「解決済みにする」。また起きると未解決に戻り、通知も飛ぶ
-- ブラウザからの受け付けは、同じサイトのページからだけ、1 つの IP から 1 分に 30 件まで、1 件 16 KB まで。共有リンクの鍵は URL から外して送る
-
-外への知らせ(どれも任意):
-
-```sh
-SENTRY_DSN=https://<公開鍵>@o123.ingest.sentry.io/456   # 起きたエラーを Sentry へ(ブラウザのものもサーバー経由で)。1 分に 60 件まで
-SENTRY_ENVIRONMENT=production
-ERROR_SLACK_WEBHOOK=https://hooks.slack.com/services/…  # 新しい種類のエラー(と再発)だけ。1 時間に 20 件まで
-PUBLIC_URL=https://board.example.com/                     # Slack のメッセージに運用の画面へのリンクを付ける
-```
-
-**Google Cloud で動かすとき** は `LOG_FORMAT=gcp` にすると、ログが Cloud Logging の構造化ログ(`severity`・`sourceLocation` 付きの JSON)になり、
-ERROR は Error Reporting の形(`@type: …ReportedErrorEvent`)で出るので、コンテナのログを送るだけで Error Reporting に載ります(通知は Error Reporting の設定で)。
-Datadog・Loki などに送るなら `LOG_FORMAT=json` です。
-
 ## バックアップと復元
 
-サーバーは全データ(アカウント・ボード・コメント・バージョン履歴・動画メモ・チーム・操作ログ・集めたエラー、
-チームの保存場所に置いたボードの中身も)を 1 つのファイル(`.grabak.gz`)にまとめて、定期的に残します。
+サーバーは全データ(アカウント・ボード・コメント・バージョン履歴・動画メモ・チーム・操作ログ)を 1 つのファイル(`.grabak.gz`)にまとめて、定期的に残します。
 
 - **既定**: 24 時間ごと、定期と手動それぞれ 14 個まで、置き場所は `DATA_DIR/backups`。
   同じディスクなので、誤って消したボードは戻せますが、ディスクの故障には別の場所が必要です
-- **別の場所に置く**(おすすめ): `BACKUP_LOCATION` に、保存場所(`STORAGE_LOCATIONS`)と同じ書き方で指定します
+- **別の場所に置く**(おすすめ): `BACKUP_LOCATION` に、S3 互換ストレージ(`s3://`)かディレクトリ(`file://`)を指定します
 
 ```sh
 # Google Cloud Storage(バケットの「相互運用性」で HMAC キーを作る)
@@ -296,7 +266,7 @@ BACKUP_LOCATION=file:///mnt/backup/graboard
 バケット側でもバージョニングや保持ポリシーを付けておくと、置き場所ごと消える事故にも備えられます。
 
 **取る**: 定期のほか、運用の画面「バックアップ」→「今すぐバックアップ」、またはサーバーを止めて `board-server backup`。
-一覧からファイルをダウンロードできます(サーバー管理者だけ)。失敗するとログに ERROR が出るので、エラー監視の通知にも載ります。
+一覧からファイルをダウンロードできます(サーバー管理者だけ)。失敗するとログに ERROR が出ます。
 
 **ボードを 1 つ戻す**: 運用の画面で戻したい時点の「ボードを戻す…」を押し、ボードを選んで「戻す」。
 
@@ -314,8 +284,6 @@ docker compose stop
 docker compose run --rm colabboard restore <ID> --yes
 docker compose start
 ```
-
-チームの保存場所に置いていたボードの中身は、同じ `STORAGE_LOCATIONS` が設定されていればそこへ、なければこのサーバーに戻します。
 
 ## 更新
 ## メール・プッシュ通知
