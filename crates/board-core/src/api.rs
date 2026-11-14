@@ -56,8 +56,6 @@
 //! | `DELETE` | `/api/teams/{tid}` | チームを消す(オーナーのみ。ボードは作った人の個人ボードに戻る) |
 //! | `PUT` | `/api/teams/{tid}/members` | メンバーの追加・変更・削除([`SetTeamMember`] → [`Team`]) |
 //! | `PUT` | `/api/teams/{tid}/sso` | SSO 自動参加ドメインの設定([`TeamSso`] → [`Team`]、サーバー管理者のみ) |
-//! | `GET` | `/api/storage` | 選べるデータの保存場所([`StorageLocation`] の配列、要ログイン) |
-//! | `PUT` | `/api/teams/{tid}/storage` | チームのボードの保存場所を変え、中身を移す([`SetTeamStorage`] → [`Team`]、チームのオーナーのみ) |
 //! | `PUT` | `/api/teams/{tid}/p2p` | チームのボードで直接接続(P2P)を許すか([`SetTeamP2p`] → [`Team`]、チームの管理者以上) |
 //! | `GET` | `/api/boards/{id}/p2p?key=` | このボードで直接接続を使えるか([`P2pPolicy`]、閲覧者以上) |
 //! | `POST` | `/api/boards/{id}/p2p/events?key=` | 直接接続を使った記録([`P2pEvent`] の配列。中身は送らない。操作ログに残る) |
@@ -435,29 +433,9 @@ pub struct Team {
     /// SSO でログインした人のメールがこのドメインなら、自動でメンバーにする。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sso_domains: Vec<String>,
-    /// チームのボードの中身を置く場所の ID([`StorageLocation`])。`None` はこのサーバー。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub storage: Option<String>,
     /// チームのボードでサーバーを通さない直接接続(P2P)を止めているか。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub p2p_disabled: bool,
-}
-
-/// サーバーの管理者が用意したデータの保存場所。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StorageLocation {
-    /// `local` はこのサーバー。
-    pub id: String,
-    pub label: String,
-    /// 種類と所在(`S3 互換(ap-northeast-1)` など)。
-    pub description: String,
-}
-
-/// チームの保存場所を変える。`location` が `None` か `local` ならこのサーバーに戻す。
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct SetTeamStorage {
-    #[serde(default)]
-    pub location: Option<String>,
 }
 
 /// SSO 自動参加ドメインの設定。
@@ -747,7 +725,6 @@ impl AuditEvent {
             "team.delete" => "チーム削除",
             "team.member" => "チームのメンバー変更",
             "team.settings" => "チームの設定変更",
-            "team.storage" => "保存場所の変更",
             "team.p2p" => "直接接続(P2P)の設定変更",
             "p2p.invite" => "直接接続の招待",
             "p2p.join" => "直接接続で参加",

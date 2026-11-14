@@ -12,7 +12,7 @@ use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::routing::{get, put};
 use board_core::api::{
-    NewTeam, SetTeamMember, SetTeamStorage, StorageLocation, Team, TeamInfo, TeamRole, TeamSso,
+    NewTeam, SetTeamMember, Team, TeamInfo, TeamRole, TeamSso,
 };
 use serde::{Deserialize, Serialize};
 
@@ -34,9 +34,6 @@ pub struct TeamRecord {
     /// SSO 自動参加ドメイン(サーバー管理者が設定する)。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sso_domains: Vec<String>,
-    /// ボードの中身を置く場所([`crate::storage`])。`None` はこのサーバー。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub storage: Option<String>,
     /// チームのボードで直接接続(P2P)を止めているか([`crate::p2p`])。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub p2p_disabled: bool,
@@ -51,7 +48,6 @@ impl TeamRecord {
             members: self.members.clone(),
             created: self.created,
             sso_domains: self.sso_domains.clone(),
-            storage: self.storage.clone(),
             p2p_disabled: self.p2p_disabled,
         }
     }
@@ -133,7 +129,6 @@ pub fn create(store: &Store, owner: &str, name: &str) -> Result<TeamRecord, Stor
             created: now_ms(),
             members: BTreeMap::from([(owner.to_string(), TeamRole::Owner)]),
             sso_domains: Vec::new(),
-            storage: None,
             p2p_disabled: false,
         };
         if store.insert_new_json(TEAMS, &team.id, &team)? {
@@ -239,8 +234,6 @@ pub fn routes() -> Router<Arc<AppState>> {
         )
         .route("/teams/{tid}/members", put(set_member))
         .route("/teams/{tid}/sso", put(set_sso))
-        .route("/teams/{tid}/storage", put(set_storage))
-        .route("/storage", get(list_locations))
 }
 
 fn team_not_found() -> Error {
@@ -341,10 +334,6 @@ async fn delete_team(
     if role != TeamRole::Owner {
         return Err(Error::forbidden());
     }
-    // ほかの場所に置いた中身は、個人ボードに戻る前にこのサーバーへ移す。
-    if team.storage.is_some() {
-        migrate(&state, &tid, None).await?;
-    }
     audit::record(
         &state,
         &headers,
@@ -430,134 +419,6 @@ async fn set_sso(
         .get(&user.login)
         .copied()
         .unwrap_or(TeamRole::Member);
-    Ok(Json(team.view(role)))
-}
-
-/// 選べる保存場所。先頭は「このサーバー」。
-pub fn location_list(store: &Store) -> Vec<StorageLocation> {
-    let mut out = vec![StorageLocation {
-        id: "local".into(),
-        label: "このサーバー".into(),
-        description: "グラボードのサーバーのディスク".into(),
-    }];
-    out.extend(store.locations().iter().map(|l| StorageLocation {
-        id: l.id.clone(),
-        label: l.label.clone(),
-        description: l.description.clone(),
-    }));
-    out
-}
-
-async fn list_locations(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> Result<Json<Vec<StorageLocation>>, Error> {
-    require_user(&state, &headers)?;
-    Ok(Json(location_list(state.store())))
-}
-
-/// チームのボードの中身を `to` へ移し、チームの保存場所を切り替える。
-///
-/// 1. すべてのボード(とバージョン)を新しい場所へ写す
-/// 2. チームの設定を切り替える(以後の保存は新しい場所へ)
-/// 3. メモリ上の変更を書き出す(編集中のボードの最新の状態が新しい場所に入る)
-/// 4. 古い場所から消す
-pub async fn migrate(state: &AppState, tid: &str, to: Option<String>) -> Result<usize, Error> {
-    let store = state.store().clone();
-    let hub = state.hub.clone();
-    let tid = tid.to_string();
-    let result = tokio::task::spawn_blocking(move || -> Result<usize, StoreError> {
-        let mut team = get_team(&store, &tid)?.ok_or("チームが見つかりません")?;
-        let from = match &team.storage {
-            Some(id) => Some(
-                store
-                    .location(id)
-                    .ok_or_else(|| format!("保存場所「{id}」が設定されていません"))?,
-            ),
-            None => None,
-        };
-        let dest = match &to {
-            Some(id) => Some(
-                store
-                    .location(id)
-                    .ok_or_else(|| format!("保存場所「{id}」はありません"))?,
-            ),
-            None => None,
-        };
-        if team.storage == to {
-            return Ok(0);
-        }
-        // 今の変更を古い場所に書き出してから写す。
-        hub.flush();
-        let ids = boards::team_board_ids(&store, &tid)?;
-        for id in &ids {
-            if let Some(b) = store.load_at(from.as_deref(), id)? {
-                store.save_at(dest.as_deref(), id, &b)?;
-            }
-            for vid in store.seq_ids(crate::store::VERSION_INFO, id)? {
-                if let Some(v) = store.version_get_at(from.as_deref(), id, vid)? {
-                    store.version_put_at(dest.as_deref(), id, vid, &v)?;
-                }
-            }
-        }
-        team.storage = to.clone();
-        put_team(&store, &team)?;
-        hub.flush();
-        for id in &ids {
-            store.delete_at(from.as_deref(), id)?;
-            for vid in store.seq_ids(crate::store::VERSION_INFO, id)? {
-                store.version_delete_at(from.as_deref(), id, vid)?;
-            }
-        }
-        Ok(ids.len())
-    })
-    .await
-    .map_err(|e| StoreError::from(e.to_string()))?;
-    result.map_err(|e| {
-        tracing::error!("保存場所の移動に失敗: {e}");
-        Error::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("保存場所を移せませんでした: {e}"),
-        )
-    })
-}
-
-/// チームのボードの保存場所を変える(チームのオーナーのみ)。
-async fn set_storage(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Path(tid): Path<String>,
-    Json(req): Json<SetTeamStorage>,
-) -> Result<Json<Team>, Error> {
-    let user = require_user(&state, &headers)?;
-    let (team, role) = member_team(state.store(), &tid, &user.login)?;
-    if role != TeamRole::Owner {
-        return Err(Error::forbidden());
-    }
-    let to = req.location.filter(|l| l != "local");
-    if let Some(id) = &to
-        && state.store().location(id).is_none()
-    {
-        return Err(Error::bad_request(format!("保存場所「{id}」はありません")));
-    }
-    let from = team.storage.clone();
-    let moved = migrate(&state, &tid, to.clone()).await?;
-    if from != to {
-        tracing::info!(team = %tid, ?from, ?to, boards = moved, "保存場所を変更");
-        audit::record(
-            &state,
-            &headers,
-            Entry::new("team.storage")
-                .actor(&user.login)
-                .team(Some(&tid))
-                .detail(format!(
-                    "{} → {}(ボード {moved} 枚)",
-                    from.as_deref().unwrap_or("local"),
-                    to.as_deref().unwrap_or("local")
-                )),
-        );
-    }
-    let (team, role) = member_team(state.store(), &tid, &user.login)?;
     Ok(Json(team.view(role)))
 }
 

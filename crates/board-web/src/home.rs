@@ -8,7 +8,7 @@ use std::rc::Rc;
 use board_core::api::{
     AuditEvent, BoardInfo, Login, MatchKind, Me, NewBoard, NewTeam, RenameFolder,
     Role, SearchHit, SetBoardTeam, SetLabels, SetTeamMember, SetTeamP2p,
-    SetTeamStorage, Signup, SsoStatus, StorageLocation, Team, TeamInfo, TeamRole, TeamSso,
+    Signup, SsoStatus, Team, TeamInfo, TeamRole, TeamSso,
     UserTemplate,
 };
 use board_core::templates::{Category, Template};
@@ -58,10 +58,6 @@ struct Home {
     audit: Option<AuditView>,
     /// サーバーが受け付けるログイン方法。
     sso: SsoStatus,
-    /// 選べるデータの保存場所(先頭はこのサーバー)。
-    locations: Vec<StorageLocation>,
-    /// 保存場所を移している最中か。
-    moving: bool,
     /// 開いているテンプレートギャラリー(自作テンプレートの一覧。`None` は閉じている)。
     gallery: Option<Option<Vec<UserTemplate>>>,
     /// 検索欄の文字。
@@ -202,8 +198,6 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         confirm_delete_team: false,
         audit: None,
         sso,
-        locations: Vec::new(),
-        moving: false,
         gallery: None,
         query: String::new(),
         hits: None,
@@ -981,47 +975,6 @@ impl Home {
                 escape(&team.sso_domains.join(", "))
             )
         };
-        // データの保存場所(用意されていれば)。
-        let storage = if self.locations.len() > 1 {
-            let current = team.storage.as_deref().unwrap_or("local");
-            let label = self
-                .locations
-                .iter()
-                .find(|l| l.id == current)
-                .map(|l| format!("{}({})", l.label, l.description))
-                .unwrap_or_else(|| current.to_string());
-            if owner {
-                let opts: String = self
-                    .locations
-                    .iter()
-                    .map(|l| {
-                        format!(
-                            r#"<option value="{id}"{sel}>{label}({desc})</option>"#,
-                            id = escape(&l.id),
-                            sel = if l.id == current { " selected" } else { "" },
-                            label = escape(&l.label),
-                            desc = escape(&l.description),
-                        )
-                    })
-                    .collect();
-                format!(
-                    r#"<form data-form="team-storage" class="inline"><span class="muted small nowrap">データの保存場所</span><select name="location" aria-label="データの保存場所" translate="no">{opts}</select><button type="submit" {busy}>{btn}</button></form>"#,
-                    busy = if self.moving { "disabled" } else { "" },
-                    btn = if self.moving {
-                        "移しています…"
-                    } else {
-                        "移す"
-                    },
-                )
-            } else {
-                format!(
-                    r#"<p class="muted small">データの保存場所: <span translate="no">{}</span></p>"#,
-                    escape(&label)
-                )
-            }
-        } else {
-            String::new()
-        };
         // サーバーを通さない直接接続(P2P)。中身がサーバーを通らないので、管理者が止められる。
         let p2p = if admin {
             format!(
@@ -1047,7 +1000,7 @@ impl Home {
             r#"<section class="team-panel">
   <header><h2 translate="no">{name}</h2><span class="badge" data-role="{rs}">{rl}</span><span class="muted">{n} 人</span>{team_hint}<span class="spacer"></span>{log}{danger}</header>
   <ul class="team-members">{members}</ul>
-  {add}{mv}{storage}{p2p}{sso}
+  {add}{mv}{p2p}{sso}
 </section>"#,
             team_hint = crate::hint::html(
                 "チームのボードはメンバー全員が開けます(既定は編集可)。管理者はチームのボードをすべて管理できます。"
@@ -1092,17 +1045,7 @@ async fn reload(home: Shared) {
         }
         _ => None,
     };
-    let locations = if detail.is_some() && home.borrow().locations.is_empty() {
-        http::get::<Vec<StorageLocation>>("/storage")
-            .await
-            .unwrap_or_default()
-    } else {
-        Vec::new()
-    };
     let mut h = home.borrow_mut();
-    if !locations.is_empty() {
-        h.locations = locations;
-    }
     if selected.is_some() && detail.is_none() {
         h.filter = Filter::All;
     }
@@ -1268,32 +1211,6 @@ fn install(home: &Shared) -> Result<(), String> {
                         .map(|_| ()),
                         None => Ok(()),
                     };
-                    after_team_call(&h, res).await;
-                }
-                "team-storage" => {
-                    let location = form
-                        .query_selector("[name=location]")
-                        .ok()
-                        .flatten()
-                        .and_then(|e| e.dyn_into::<web_sys::HtmlSelectElement>().ok())
-                        .map(|s| s.value());
-                    let team = h.borrow().filter.team().map(str::to_string);
-                    {
-                        let mut hm = h.borrow_mut();
-                        hm.moving = true;
-                        hm.render();
-                    }
-                    let res = match team {
-                        Some(t) => http::send::<_, Team>(
-                            "PUT",
-                            &format!("/teams/{}/storage", http::encode(&t)),
-                            &SetTeamStorage { location },
-                        )
-                        .await
-                        .map(|_| ()),
-                        None => Ok(()),
-                    };
-                    h.borrow_mut().moving = false;
                     after_team_call(&h, res).await;
                 }
                 "move-board" => {

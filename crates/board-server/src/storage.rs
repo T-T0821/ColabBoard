@@ -1,25 +1,11 @@
-//! データの保存場所。
+//! バックアップの置き場所(S3 互換ストレージ・ディレクトリ)。
 //!
-//! 既定ではボードの中身はこのサーバーの redb に保存する。サーバーの管理者が保存場所を
-//! 用意しておくと、チームのオーナーがチームのボードの保存先を選べる(データの所在地の要件に合わせる)。
-//!
-//! 保存場所は環境変数 `STORAGE_LOCATIONS` に `;` 区切りで書く。
-//!
-//! ```text
-//! STORAGE_LOCATIONS="tokyo=s3://graboard-tokyo/boards?region=ap-northeast-1&label=東京(AWS);
-//!                    eu=s3://graboard-eu?endpoint=https://s3.eu-central-003.backblazeb2.com&region=eu-central-003&label=EU;
-//!                    nas=file:///mnt/nas/graboard?label=社内 NAS"
-//! STORAGE_TOKYO_ACCESS_KEY_ID=…  STORAGE_TOKYO_SECRET_ACCESS_KEY=…
-//! ```
+//! `BACKUP_LOCATION` の URL をここで読む([`crate::backup`])。
 //!
 //! - `s3://バケット/接頭辞`: S3 互換ストレージ(AWS S3・Cloudflare R2・MinIO・Backblaze B2・Wasabi など)。
 //!   `endpoint` を省くと AWS(`https://s3.{region}.amazonaws.com`)。`style=virtual` で仮想ホスト形式。
-//!   認証情報は `STORAGE_{ID}_ACCESS_KEY_ID` / `STORAGE_{ID}_SECRET_ACCESS_KEY`
-//!   (なければ `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`)。署名は AWS Signature V4。
+//!   署名は AWS Signature V4。
 //! - `file:///パス`: サーバーから見えるディレクトリ(別ディスクや NAS のマウント先)。
-//!
-//! 保存場所に置くのはボードの中身(yrs の状態)とバージョン履歴の中身。
-//! ボード名・メンバー・コメント・操作ログなどの管理情報はこのサーバーに残る。
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -395,7 +381,7 @@ fn amz_now() -> String {
 
 // ---- 設定 ----
 
-/// `STORAGE_LOCATIONS` を読む。`env` は環境変数を引く関数(テストで差し替える)。
+/// `id=URL;…` の形の置き場所の一覧を読む(`BACKUP_LOCATION` は `backup=URL` として渡す)。`env` は環境変数を引く関数(テストで差し替える)。
 pub fn parse_locations(
     spec: &str,
     env: impl Fn(&str) -> Option<String>,

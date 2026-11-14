@@ -35,8 +35,6 @@
 //! - `OIDC_ISSUER`・`OIDC_CLIENT_ID`・`OIDC_CLIENT_SECRET`・`OIDC_REDIRECT_URL`: そろえると
 //!   OpenID Connect の SSO が有効になる。`OIDC_NAME`(ボタンの名前)・`OIDC_SCOPES`・
 //!   `OIDC_ALLOWED_DOMAINS`(ログインできるメールのドメイン、`,` 区切り)も設定できる。
-//! - `STORAGE_LOCATIONS`: チームが選べるデータの保存場所(S3 互換・ディレクトリ)。書き方は
-//!   [`board_server::storage`] を参照。
 //! - `PASSWORD_LOGIN`(既定 `1`): `0` でパスワードのログインとアカウント作成を止める(SSO のみ)。
 //! - `SMTP_URL`・`MAIL_FROM`: そろえるとメンション・期限などをメールでも知らせる
 //!   (例 `SMTP_URL=smtps://user:pass@smtp.example.com`、`MAIL_FROM=グラボード <noreply@example.com>`)。
@@ -143,14 +141,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         None
     };
 
-    let locations = board_server::storage::parse_locations(
-        &std::env::var("STORAGE_LOCATIONS").unwrap_or_default(),
-        |k| std::env::var(k).ok().filter(|v| !v.is_empty()),
-    )?;
-    for l in &locations {
-        tracing::info!("保存場所: {}({}、{})", l.id, l.label, l.description);
-    }
-    store.set_locations(locations);
     let hub = Arc::new(Hub::new(Arc::new(store)));
     let flusher = spawn_flusher(hub.clone());
     let data_path = (!data_dir.is_empty()).then(|| PathBuf::from(&data_dir));
@@ -300,13 +290,6 @@ fn data_dir_for_cli() -> Result<PathBuf, String> {
     Ok(PathBuf::from(dir))
 }
 
-fn storage_locations() -> Result<Vec<board_server::storage::Location>, String> {
-    board_server::storage::parse_locations(
-        &std::env::var("STORAGE_LOCATIONS").unwrap_or_default(),
-        |k| std::env::var(k).ok().filter(|v| !v.is_empty()),
-    )
-}
-
 fn backup_config(dir: &std::path::Path) -> Result<BackupConfig, String> {
     BackupConfig::from_env(Some(dir), |k| {
         std::env::var(k).ok().filter(|v| !v.is_empty())
@@ -328,7 +311,6 @@ fn open_offline(path: &std::path::Path) -> Result<Store, String> {
 fn offline_backup() -> CliResult {
     let dir = data_dir_for_cli()?;
     let store = open_offline(&dir.join("boards.redb"))?;
-    store.set_locations(storage_locations()?);
     let backups = Backups::new(backup_config(&dir)?, Arc::new(Hub::new(Arc::new(store))));
     let info = backups.create("manual", None)?;
     println!(
@@ -387,14 +369,7 @@ fn offline_restore() -> CliResult {
     let _ = std::fs::remove_file(&tmp);
     {
         let store = Store::open(&tmp)?;
-        store.set_locations(storage_locations()?);
-        let stats = board_server::backup::restore_all(&store, &data)?;
-        if stats.blobs_kept_local > 0 {
-            println!(
-                "保存場所が設定されていないので、{} 件の中身をこのサーバーに置きました(STORAGE_LOCATIONS を確かめてください)",
-                stats.blobs_kept_local
-            );
-        }
+        board_server::backup::restore_all(&store, &data)?;
     }
     if db.exists() {
         let aside = dir.join(format!(
