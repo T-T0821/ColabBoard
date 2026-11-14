@@ -183,16 +183,6 @@ pub fn board_access(
         return Err(Error::not_found());
     }
     let meta = boards::get(state.store(), id)?;
-    // 通報を受けて管理者が利用停止にしたボードは、誰も開けない。
-    if meta
-        .as_ref()
-        .is_some_and(|m| m.suspended.is_some() && !m.deleted)
-    {
-        return Err(Error::new(
-            StatusCode::FORBIDDEN,
-            "このボードは管理者により利用停止されています",
-        ));
-    }
     let role = boards::role_for(
         state.store(),
         meta.as_ref(),

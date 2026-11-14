@@ -56,16 +56,6 @@ pub struct BoardMeta {
     /// チームのメンバーに与える権限(省略時は編集可)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_access: Option<Role>,
-    /// 管理者が利用停止にした(通報への対応)。誰も開けなくなる。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub suspended: Option<Suspension>,
-}
-
-/// 利用停止の記録。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Suspension {
-    pub by: String,
-    pub at: u64,
 }
 
 impl BoardMeta {
@@ -250,7 +240,6 @@ pub fn create(
             deleted: false,
             team: team.map(str::to_string),
             team_access: None,
-            suspended: None,
         };
         // ID がぶつかるのはまずないが、ぶつかったら作り直す。既存の(情報のない)ルームとも避ける。
         if store.load(&meta.id)?.is_some() {
@@ -522,7 +511,6 @@ mod tests {
             deleted: false,
             team: None,
             team_access: None,
-            suspended: None,
         }
     }
 

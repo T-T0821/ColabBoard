@@ -307,10 +307,6 @@ pub async fn run() -> Result<(), String> {
                 session::show_denied(&document, me.is_some(), false);
                 return Ok(());
             }
-            Access::Suspended => {
-                session::show_suspended(&document);
-                return Ok(());
-            }
             Access::Granted(i) => {
                 info = Some(i);
                 me = session::fetch_me().await;
@@ -717,12 +713,6 @@ impl App {
                 }
                 let logged_in = chrome.borrow().me.is_some();
                 session::show_denied(&self.document, logged_in, true);
-            }
-            Access::Suspended => {
-                if let Some(net) = self.net.as_mut() {
-                    net.disable();
-                }
-                session::show_suspended(&self.document);
             }
             Access::Unavailable => {}
         }

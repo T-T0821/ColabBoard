@@ -182,84 +182,6 @@ pub struct BoardInfo {
     pub labels: BoardLabels,
 }
 
-/// 通報の理由。
-pub const REPORT_REASONS: &[(&str, &str)] = &[
-    ("illegal", "違法な内容"),
-    ("leak", "情報の持ち出し・漏えい"),
-    ("harassment", "嫌がらせ・差別"),
-    ("spam", "スパム・詐欺"),
-    ("other", "その他"),
-];
-
-/// 通報の理由の表示名(知らないものはそのまま)。
-pub fn report_reason_label(id: &str) -> &str {
-    REPORT_REASONS
-        .iter()
-        .find(|(k, _)| *k == id)
-        .map_or(id, |(_, v)| v)
-}
-
-/// ボードを通報する。
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct NewReport {
-    /// [`REPORT_REASONS`] のどれか。
-    pub reason: String,
-    #[serde(default)]
-    pub comment: String,
-    /// 通報した人が自分の判断で添えた、ボードの文字。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub evidence: Option<String>,
-}
-
-/// 通報の対応状況。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ReportStatus {
-    #[default]
-    Open,
-    /// 対応した(利用停止など)。
-    Resolved,
-    /// 問題なしとした。
-    Dismissed,
-}
-
-/// 届いた通報。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Report {
-    pub id: u64,
-    pub at: u64,
-    pub board: String,
-    pub board_title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team: Option<String>,
-    /// 通報した人のログイン名(共有リンクから匿名で開いた人は `None`)。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reporter: Option<String>,
-    pub reason: String,
-    #[serde(default)]
-    pub comment: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub evidence: Option<String>,
-    #[serde(default)]
-    pub status: ReportStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub handled_by: Option<String>,
-    #[serde(default)]
-    pub handled_at: u64,
-    /// 今そのボードが利用停止中か(一覧を返すときに埋める)。
-    #[serde(default)]
-    pub suspended: bool,
-}
-
-/// 通報に対応する(サーバー管理者か、チームのボードならチームの管理者)。
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HandleReport {
-    pub status: ReportStatus,
-    /// ボードを利用停止にする(`Some(false)` で解除)。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub suspend: Option<bool>,
-}
-
 /// ボードに自分で付ける整理の印。ほかの人には見えない。
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BoardLabels {
@@ -834,10 +756,6 @@ impl AuditEvent {
             "p2p.report" => "直接接続の相手を通報",
             "token.create" => "API トークン作成",
             "token.revoke" => "API トークン失効",
-            "board.report" => "ボードの通報",
-            "board.suspend" => "ボードの利用停止",
-            "board.unsuspend" => "ボードの利用停止を解除",
-            "report.handle" => "通報への対応",
             "server.settings" => "サーバーの設定変更",
             "template.create" => "テンプレート作成",
             "template.update" => "テンプレートの変更",

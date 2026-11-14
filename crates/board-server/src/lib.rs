@@ -40,7 +40,6 @@ pub mod oidc;
 pub mod p2p;
 pub mod plugins;
 pub mod public;
-pub mod reports;
 pub mod rest;
 pub mod room;
 pub mod search;
@@ -257,7 +256,6 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
                 .merge(audit::routes())
                 .merge(backup::routes())
                 .merge(oidc::routes())
-                .merge(reports::routes())
                 .merge(notify::routes())
                 .merge(search::routes()),
         )

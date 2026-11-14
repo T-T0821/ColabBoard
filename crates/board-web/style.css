@@ -962,15 +962,6 @@ body[data-role="commenter"] .diagram-panel,
 body[data-role="viewer"] .format-bar,
 body[data-role="commenter"] .format-bar { display: none !important; }
 
-/* ---- 通報の一覧(管理者) ---- */
-.badge.report-open { background: var(--danger-soft); color: var(--danger-text); }
-.reports { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.reports .report { border: 1px solid var(--border); border-radius: var(--r-md, 10px); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }
-.reports .report p { margin: 0; }
-.reports .report-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.reports .evidence { white-space: pre-wrap; max-height: 200px; overflow: auto; background: var(--surface-2); padding: 8px; border-radius: 6px; font-size: 12px; margin: 6px 0 0; }
-.reports .actions { gap: 6px; flex-wrap: wrap; }
-
 /* ---- 共有パネル ---- */
 .share-panel {
   top: 60px;
