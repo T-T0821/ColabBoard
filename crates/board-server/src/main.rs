@@ -23,8 +23,6 @@
 //!   設定しなければ、プラグインが宣言し実行する人が許可した公開の HTTPS の先ならどこでも。
 //! - `PLUGIN_NETWORK_INSECURE`(既定 `0`): `1` で http:// と内部のアドレスへの接続も許す(開発用。本番では使わない)。
 //! - `PLUGIN_STORAGE`(既定 `1`): `0` でプラグインの保存領域を使えなくする。
-//! - `GITHUB_TOKEN` / `GITHUB_API_URL`: 課題カードで GitHub を引くとき(トークンなしでも公開リポジトリは読める)。
-//! - `JIRA_BASE_URL` / `JIRA_EMAIL` / `JIRA_API_TOKEN`: 課題カードで Jira を引くとき。
 //! - `ICE_SERVERS`: 音声通話で使う STUN / TURN サーバー(`RTCIceServer` の JSON 配列)。
 //!   既定は Google の公開 STUN。社内ネットワーク越しにつなぐなら TURN を足す。
 //! - `ADMIN_LOGINS`: サーバー管理者のログイン名(`,` 区切り)。全体の操作ログを見られる。
@@ -185,7 +183,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }),
         slack: board_server::slack::SlackConfig::from_env(),
         plugins: board_server::plugins::PluginConfig::from_env(),
-        issues: board_server::issues::IssuesConfig::from_env(),
         github: board_server::github::GithubConfig::from_env(),
         embed_origins: std::env::var("EMBED_ALLOWED_ORIGINS")
             .ok()
@@ -220,9 +217,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .and_then(|d| d.parse().ok())
         .unwrap_or(365);
     let pruner = board_server::audit::spawn_pruner(hub.store().clone(), retention_days);
-    if let Some(j) = &config.issues.jira {
-        tracing::info!("Jira 連携: {}", j.base_url);
-    }
     if config.ai.is_none() {
         tracing::info!(
             "AI 機能: 無効(ANTHROPIC_API_KEY を設定すると付箋の要約・グループ分けと図の生成が使えます)"

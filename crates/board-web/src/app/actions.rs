@@ -286,10 +286,7 @@ pub fn install_clipboard(app: &Rc<RefCell<App>>) -> Result<(), String> {
             else {
                 return;
             };
-            if super::issues::paste(&app, &text) {
-                // GitHub・Jira の課題の URL はカードにする。
-                e.prevent_default();
-            } else if app.borrow_mut().paste_text(&text, None) {
+            if app.borrow_mut().paste_text(&text, None) {
                 e.prevent_default();
             } else if app.borrow_mut().insert_diagram_text(&text) {
                 // Mermaid / PlantUML は図にする。

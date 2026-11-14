@@ -20,7 +20,7 @@ pub struct LocalServer {
     background: Vec<JoinHandle<()>>,
 }
 
-/// 内蔵サーバーの設定。環境変数(Slack・課題カードなど)はサーバー版と同じく読む。
+/// 内蔵サーバーの設定。環境変数(Slack など)はサーバー版と同じく読む。
 fn config(ai_key: Option<&str>) -> Config {
     let ai = match ai_key {
         Some(key) => Some(board_server::ai::AiConfig {
@@ -45,7 +45,6 @@ fn config(ai_key: Option<&str>) -> Config {
         ai: ai.map(|c| Arc::new(board_server::ai::Ai::new(c))),
         slack: board_server::slack::SlackConfig::from_env(),
         plugins: board_server::plugins::PluginConfig::from_env(),
-        issues: board_server::issues::IssuesConfig::from_env(),
         embed_origins: "'self'".into(),
         admins: Vec::new(),
         trust_proxy: false,

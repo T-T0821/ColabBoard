@@ -28,7 +28,6 @@ mod format_bar;
 mod history;
 mod imports;
 mod ink_ui;
-mod issues;
 mod local_ai_ui;
 mod media;
 mod meeting_ui;
@@ -506,7 +505,6 @@ pub async fn run() -> Result<(), String> {
     }
     search_ui::install(&app)?;
     a11y::install(&app)?;
-    issues::install(&app)?;
     p2p_ui::install(&app, &document)?;
     start_loop(app);
     Ok(())

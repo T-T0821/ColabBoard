@@ -6,7 +6,7 @@
 //! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
 //! - `/api/admin/backups...`: 定期バックアップ・復元([`backup`])。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])・会議の進行役([`ai_meeting`])、Slack 通知([`slack`])、メール・プッシュ通知([`notify`])、会議・カレンダーの紐づけ([`meeting_link`])、GitHub・Jira の課題カード([`issues`])、自作テンプレートのギャラリー([`templates`])、ボードの GitHub での管理([`github`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])・会議の進行役([`ai_meeting`])、Slack 通知([`slack`])、メール・プッシュ通知([`notify`])、自作テンプレートのギャラリー([`templates`])、ボードの GitHub での管理([`github`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -29,7 +29,6 @@ mod embedded;
 pub mod logging;
 pub mod github;
 pub mod guard;
-pub mod issues;
 pub mod local_ai;
 pub mod media;
 pub mod notify;
@@ -91,8 +90,6 @@ pub struct Config {
     pub slack: slack::SlackConfig,
     /// WASM プラグイン。
     pub plugins: plugins::PluginConfig,
-    /// GitHub・Jira の課題カード。
-    pub issues: issues::IssuesConfig,
     /// ボードを GitHub のリポジトリで管理する。
     pub github: github::GithubConfig,
     /// 音声通話の ICE サーバー(`RTCIceServer` の配列)。`GET /api/rtc` で配る。
@@ -156,7 +153,6 @@ impl Default for Config {
             ai: None,
             slack: slack::SlackConfig::default(),
             plugins: plugins::PluginConfig::default(),
-            issues: issues::IssuesConfig::default(),
             github: github::GithubConfig::default(),
             ice_servers: default_ice_servers(),
             embed_origins: "*".into(),
@@ -217,7 +213,6 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
             post(ai_meeting::facilitate),
         )
         .route("/api/ai/status", get(ai_diagram::status))
-        .route("/api/boards/{id}/issues", post(issues::lookup))
         .route(
             "/api/boards/{id}/github",
             get(github::get_link)
