@@ -64,12 +64,6 @@ struct Home {
     moving: bool,
     /// 開いているテンプレートギャラリー(自作テンプレートの一覧。`None` は閉じている)。
     gallery: Option<Option<Vec<UserTemplate>>>,
-    /// 料金プラン(使わないサーバーなら `None`)。
-    billing: Option<board_core::api::Billing>,
-    /// プランのパネルを開いているか。
-    plan_open: bool,
-    /// 決済の画面から戻ったときの知らせ。
-    notice: Option<&'static str>,
     /// 検索欄の文字。
     query: String,
     /// 検索結果(検索していなければ `None`)。
@@ -198,17 +192,6 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         .and_then(|t| crate::ops::Tab::parse(&t));
     // SSO から戻ってきたときの失敗の理由。
     let sso_error = params.as_ref().and_then(|p| p.get("sso_error"));
-    // 決済の画面から戻ってきたとき。知らせを出して、URL からは消す(読み直しで二度出さない)。
-    let notice = params
-        .as_ref()
-        .and_then(|p| p.get("billing"))
-        .and_then(|b| crate::billing::notice_for(&b));
-    if notice.is_some()
-        && let Ok(history) = window.history()
-    {
-        let path = window.location().pathname().unwrap_or_else(|_| "/".into());
-        let _ = history.replace_state_with_url(&JsValue::NULL, "", Some(&path));
-    }
     let sso = if me.is_none() {
         http::get::<SsoStatus>("/sso").await.unwrap_or(SsoStatus {
             password_login: true,
@@ -241,9 +224,6 @@ pub async fn run(window: &Window, document: &Document) -> Result<Outcome, String
         locations: Vec::new(),
         moving: false,
         gallery: None,
-        billing: None,
-        plan_open: notice.is_some(),
-        notice,
         query: String::new(),
         hits: None,
         search_seq: 0,
@@ -690,11 +670,8 @@ impl Home {
     <h1>グラボード</h1>
     <span class="me">{name} <span class="muted">@{login}</span></span>
     {admin}
-    {plan}
     <button type="button" class="quiet" data-action="logout">ログアウト</button>
   </header>
-  {notice}
-  {plan_panel}
   {search}
   {tabs}
   {folders}
@@ -716,19 +693,6 @@ impl Home {
             busy = if self.busy { "disabled" } else { "" },
             err = self.error_html(),
             tabs = self.render_tabs(),
-            plan = self
-                .billing
-                .as_ref()
-                .map(|b| crate::billing::header_button(b, self.plan_open))
-                .unwrap_or_default(),
-            plan_panel = match &self.billing {
-                Some(b) if self.plan_open => crate::billing::panel(b, self.busy),
-                _ => String::new(),
-            },
-            notice = self
-                .notice
-                .map(|n| format!(r#"<p class="plan-notice" role="status">{n}</p>"#))
-                .unwrap_or_default(),
             folders = self.render_folders(),
             searching = if self.hits.is_some() { " hidden" } else { "" },
             recent = self.render_recent(),
@@ -1227,9 +1191,7 @@ async fn reload(home: Shared) {
     } else {
         Vec::new()
     };
-    let billing = crate::billing::load().await;
     let mut h = home.borrow_mut();
-    h.billing = billing;
     if !locations.is_empty() {
         h.locations = locations;
     }
@@ -1337,10 +1299,6 @@ fn install(home: &Shared) -> Result<(), String> {
                         Err(e) => {
                             let mut hm = h.borrow_mut();
                             hm.busy = false;
-                            // プランの上限なら、プランのパネルも開いて見せる。
-                            if matches!(e, HttpError::Status(402, _)) && hm.billing.is_some() {
-                                hm.plan_open = true;
-                            }
                             hm.error = Some(e.message());
                             hm.render();
                         }
@@ -1507,35 +1465,6 @@ fn install(home: &Shared) -> Result<(), String> {
                 };
                 hm.error = None;
                 hm.render();
-            }
-            "plan" => {
-                let mut hm = h.borrow_mut();
-                hm.plan_open = !hm.plan_open;
-                hm.notice = None;
-                hm.render();
-            }
-            "plan-upgrade" | "plan-manage" => {
-                let kind = if action == "plan-upgrade" {
-                    "checkout"
-                } else {
-                    "portal"
-                };
-                let h = h.clone();
-                h.borrow_mut().busy = true;
-                h.borrow().render();
-                wasm_bindgen_futures::spawn_local(async move {
-                    match crate::billing::start(kind).await {
-                        Ok(url) => {
-                            let _ = h.borrow().window.location().set_href(&url);
-                        }
-                        Err(e) => {
-                            let mut hm = h.borrow_mut();
-                            hm.busy = false;
-                            hm.error = Some(e.message());
-                            hm.render();
-                        }
-                    }
-                });
             }
             "anonymous" => {
                 let room = random_room();

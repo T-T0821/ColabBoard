@@ -379,7 +379,6 @@ async fn create_board(
             format!("持てるボードは {max} 個までです。使わないボードを削除してください"),
         ));
     }
-    crate::billing::check_new_board(&state, &user.login)?;
     if let Some(team) = &req.team {
         crate::teams::member_team(state.store(), team, &user.login)?;
     }
@@ -530,13 +529,6 @@ async fn set_member(
                 return Err(Error::bad_request(format!(
                     "「{login}」というユーザーはいません"
                 )));
-            }
-            if !meta.members.contains_key(&login) {
-                crate::billing::check_new_member(
-                    &state,
-                    meta.owner.as_deref(),
-                    meta.members.len(),
-                )?;
             }
             meta.members.insert(login.clone(), role.min(Role::Editor));
             boards::remember(state.store(), &login, &id, None)?;

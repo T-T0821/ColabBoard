@@ -71,10 +71,6 @@
 //! | `GET` | `/api/sso/oidc/start?next=` | OpenID Connect でログインを始める(IdP へリダイレクト) |
 //! | `GET` | `/api/audit?team=&before=&limit=&action=` | 操作ログ([`AuditEvent`] の配列、新しい順。`team` 指定はチームの管理者、なしはサーバー管理者) |
 //! | `GET` | `/api/audit/export?team=&format=csv\|jsonl` | 操作ログの書き出し(CSV か JSON Lines) |
-//! | `GET` | `/api/billing` | 自分の料金プランと今月の利用状況([`Billing`]、要ログイン) |
-//! | `POST` | `/api/billing/checkout` | 有料プランの申し込みを始める([`BillingRedirect`]、Stripe Checkout の URL) |
-//! | `POST` | `/api/billing/portal` | 支払い方法の変更・解約の画面([`BillingRedirect`]、Stripe カスタマーポータルの URL) |
-//! | `POST` | `/api/billing/webhook` | Stripe からの通知(署名を確かめる) |
 //!
 //!
 //! エラー監視とバックアップ(サーバー管理者向け)は [`ops`] を参照。
@@ -836,7 +832,6 @@ impl AuditEvent {
             "p2p.connect" => "直接接続でつながった",
             "p2p.disconnect" => "直接接続の切断",
             "p2p.report" => "直接接続の相手を通報",
-            "billing.plan" => "料金プランの変更",
             "token.create" => "API トークン作成",
             "token.revoke" => "API トークン失効",
             "board.report" => "ボードの通報",
@@ -1370,84 +1365,6 @@ pub fn valid_login(s: &str) -> bool {
     (3..=32).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
-}
-
-/// 料金プラン。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PlanId {
-    #[default]
-    Free,
-    Pro,
-}
-
-impl PlanId {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            PlanId::Free => "free",
-            PlanId::Pro => "pro",
-        }
-    }
-}
-
-/// プランごとの上限。`0` は無制限。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PlanLimits {
-    /// 自分が持てるボードの数。
-    pub boards: u32,
-    /// AI 機能を呼べる回数(1 か月あたり)。
-    pub ai_per_month: u32,
-    /// 1 つのボードに招待できるメンバーの数(オーナーを除く)。
-    pub members_per_board: u32,
-    /// 1 つのボードに置ける動画メモの合計(MB)。
-    pub media_mb_per_board: u32,
-}
-
-/// 選べるプラン(料金画面の表示用)。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PlanOffer {
-    pub id: PlanId,
-    pub name: String,
-    /// 表示用の値段(`¥1,200 / 月` など)。
-    pub price: String,
-    pub limits: PlanLimits,
-}
-
-/// 今月の利用状況。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Usage {
-    pub boards: u32,
-    pub ai_this_month: u32,
-}
-
-/// 自分の料金プラン。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Billing {
-    /// `off`(このサーバーでは料金プランを使わない)・`mock`(テスト用の決済)・`stripe`。
-    pub mode: String,
-    pub plan: PlanId,
-    /// Stripe のサブスクリプションの状態(`active`・`past_due`・`canceled` など)。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
-    /// 今の請求期間の終わり(UNIX ミリ秒)。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub period_end: Option<u64>,
-    /// 期間の終わりで解約する予定か。
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub cancel_at_period_end: bool,
-    /// 支払いの管理(カスタマーポータル)を開けるか。
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub can_manage: bool,
-    pub limits: PlanLimits,
-    pub usage: Usage,
-    #[serde(default)]
-    pub plans: Vec<PlanOffer>,
-}
-
-/// 決済・ポータルの画面へ移る先。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BillingRedirect {
-    pub url: String,
 }
 
 #[cfg(test)]

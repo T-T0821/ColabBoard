@@ -187,7 +187,6 @@ pub async fn generate(
     if !ai.try_acquire(&room) {
         return Err(AiError::Busy);
     }
-    crate::billing::charge_ai(&state, &headers, &room).map_err(AiError::Api)?;
     let out = ai
         .call(SYSTEM_PROMPT, user_message(prompt, req.mode), schema())
         .await?;
