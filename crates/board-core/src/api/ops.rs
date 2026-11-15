@@ -1,11 +1,7 @@
-//! 運用の画面(サーバー管理者向け)でやり取りする型: エラー監視とバックアップ。
+//! 運用の画面(サーバー管理者向け)でやり取りする型: バックアップ。
 //!
 //! | メソッド | パス | 内容 |
 //! |----------|------|------|
-//! | `POST` | `/api/errors` | ブラウザで起きたエラーを知らせる([`ClientErrorReport`]、ログイン不要) |
-//! | `GET` | `/api/admin/errors?all=1` | 集めたエラー([`ErrorStatus`]。既定は未解決だけ) |
-//! | `PATCH` | `/api/admin/errors/{id}` | 解決済みにする・戻す([`SetErrorResolved`] → [`ErrorGroup`]) |
-//! | `DELETE` | `/api/admin/errors/{id}` | 記録を消す |
 //! | `GET` | `/api/admin/backups` | バックアップの設定と一覧([`BackupStatus`]) |
 //! | `POST` | `/api/admin/backups` | 今すぐバックアップを取る(→ [`BackupInfo`]) |
 //! | `GET` | `/api/admin/backups/{id}/download` | バックアップのファイル(`.grabak.gz`) |
@@ -17,109 +13,6 @@
 use serde::{Deserialize, Serialize};
 
 use super::VersionInfo;
-
-/// エラーが起きた場所。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ErrorSource {
-    /// サーバー(ログの ERROR とパニック)。
-    Server,
-    /// 利用者のブラウザ。
-    Client,
-}
-
-impl ErrorSource {
-    pub fn label(self) -> &'static str {
-        match self {
-            ErrorSource::Server => "サーバー",
-            ErrorSource::Client => "ブラウザ",
-        }
-    }
-}
-
-/// 同じ種類のエラーをまとめたもの。
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ErrorGroup {
-    /// メッセージと場所から作る ID(16 進 16 文字)。
-    pub id: String,
-    pub source: ErrorSource,
-    /// 代表のメッセージ(1 行目)。
-    pub message: String,
-    /// 起きた場所(サーバーはモジュールとファイル、ブラウザはスクリプトの URL)。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub location: Option<String>,
-    pub first_seen: u64,
-    pub last_seen: u64,
-    pub count: u64,
-    /// 解決済みにしたか。もう一度起きると未解決に戻る。
-    #[serde(default)]
-    pub resolved: bool,
-    /// いちばん新しい 1 件の詳細。
-    pub sample: ErrorSample,
-}
-
-/// エラー 1 件の詳細。
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct ErrorSample {
-    pub at: u64,
-    pub message: String,
-    /// スタックトレース(あれば)。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub stack: Option<String>,
-    /// 開いていたページ(ブラウザ)。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub user_agent: Option<String>,
-    /// ログインしていた人。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub login: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub board: Option<String>,
-    /// 起きたときの版。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub release: Option<String>,
-}
-
-/// ブラウザから送るエラー。
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct ClientErrorReport {
-    /// `error`・`unhandledrejection`・`panic` など。
-    #[serde(default)]
-    pub kind: String,
-    pub message: String,
-    #[serde(default)]
-    pub stack: Option<String>,
-    /// エラーの起きたスクリプト(`ファイル:行:列`)。
-    #[serde(default)]
-    pub source: Option<String>,
-    #[serde(default)]
-    pub url: Option<String>,
-    #[serde(default)]
-    pub board: Option<String>,
-    #[serde(default)]
-    pub release: Option<String>,
-}
-
-/// エラーの一覧と、外への通知の設定。
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-pub struct ErrorStatus {
-    /// 最後に起きた順。
-    pub groups: Vec<ErrorGroup>,
-    /// 未解決のまとまりの数(絞り込みに関係なく)。
-    pub open: usize,
-    /// Sentry に送っているか。
-    pub sentry: bool,
-    /// Slack に知らせているか。
-    pub slack: bool,
-    /// ログの形式(`text`・`json`・`gcp`)。
-    pub log_format: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct SetErrorResolved {
-    pub resolved: bool,
-}
 
 /// バックアップ 1 つ。
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

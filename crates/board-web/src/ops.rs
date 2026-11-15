@@ -1,15 +1,12 @@
-//! 運用の画面(サーバー管理者だけ): エラーの一覧と、バックアップ・復元。
+//! 運用の画面(サーバー管理者だけ): バックアップ・復元。
 //!
-//! ボード一覧の「運用」ボタンか `?ops=errors` / `?ops=backups` で開く。ホーム画面とは別の
+//! ボード一覧の「運用」ボタンか `?ops=backups` で開く。ホーム画面とは別の
 //! 要素(`#ops`)に描くので、ホーム画面の描き直しに巻き込まれない。
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use board_core::api::ops::{
-    BackupBoard, BackupInfo, BackupStatus, ErrorGroup, ErrorSource, ErrorStatus, RestoreResult,
-    SetErrorResolved,
-};
+use board_core::api::ops::{BackupBoard, BackupInfo, BackupStatus, RestoreResult};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{Element, HtmlElement};
@@ -18,14 +15,12 @@ use crate::http::{self, escape};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Tab {
-    Errors,
     Backups,
 }
 
 impl Tab {
     pub fn parse(s: &str) -> Option<Tab> {
         match s {
-            "errors" => Some(Tab::Errors),
             "backups" => Some(Tab::Backups),
             _ => None,
         }
@@ -35,9 +30,6 @@ impl Tab {
 struct Ops {
     el: HtmlElement,
     tab: Tab,
-    errors: Option<ErrorStatus>,
-    show_resolved: bool,
-    expanded: Option<String>,
     backups: Option<BackupStatus>,
     /// ボードを選んでいるバックアップと、その中のボード。
     picking: Option<(BackupInfo, Option<Vec<BackupBoard>>)>,
@@ -79,9 +71,6 @@ pub fn open(tab: Tab) {
     let ops: Shared = Rc::new(RefCell::new(Ops {
         el: el.clone(),
         tab,
-        errors: None,
-        show_resolved: false,
-        expanded: None,
         backups: None,
         picking: None,
         confirm: None,
@@ -102,24 +91,8 @@ fn close() {
 
 fn load(ops: Shared, tab: Tab) {
     match tab {
-        Tab::Errors => wasm_bindgen_futures::spawn_local(load_errors(ops)),
         Tab::Backups => wasm_bindgen_futures::spawn_local(load_backups(ops)),
     }
-}
-
-async fn load_errors(ops: Shared) {
-    let all = if ops.borrow().show_resolved {
-        "?all=1"
-    } else {
-        ""
-    };
-    let res = http::get::<ErrorStatus>(&format!("/admin/errors{all}")).await;
-    let mut o = ops.borrow_mut();
-    match res {
-        Ok(s) => o.errors = Some(s),
-        Err(e) => o.notice = Some((false, e.message())),
-    }
-    o.render();
 }
 
 async fn load_backups(ops: Shared) {
@@ -155,11 +128,6 @@ fn size(bytes: u64) -> String {
 
 impl Ops {
     fn render(&self) {
-        let errors_tab = match &self.errors {
-            Some(s) if s.open > 0 => format!(r#"エラー <span class="count">{}</span>"#, s.open),
-            _ => "エラー".into(),
-        };
-        let pressed = |t: Tab| if self.tab == t { "true" } else { "false" };
         let notice = match &self.notice {
             Some((ok, m)) => format!(
                 r#"<p class="ops-notice" data-ok="{ok}" role="status">{}</p>"#,
@@ -168,143 +136,19 @@ impl Ops {
             None => String::new(),
         };
         let body = match self.tab {
-            Tab::Errors => self.render_errors(),
             Tab::Backups => self.render_backups(),
         };
         self.el.set_inner_html(&format!(
             r#"<div class="ops-dialog" role="dialog" aria-modal="true" aria-label="運用">
   <header class="ops-head">
     <h2>運用</h2>
-    <nav class="ops-tabs" role="tablist">
-      <button type="button" role="tab" data-ops="tab" data-id="errors" aria-selected="{e}">{errors_tab}</button>
-      <button type="button" role="tab" data-ops="tab" data-id="backups" aria-selected="{b}">バックアップ</button>
-    </nav>
     <span class="spacer"></span>
     <button type="button" class="quiet" data-ops="close">閉じる</button>
   </header>
   {notice}
   <div class="ops-body">{body}</div>
 </div>"#,
-            e = pressed(Tab::Errors),
-            b = pressed(Tab::Backups),
         ));
-    }
-
-    fn render_errors(&self) -> String {
-        let Some(st) = &self.errors else {
-            return r#"<p class="muted">読み込み中…</p>"#.into();
-        };
-        let on_off = |b: bool| if b { "有効" } else { "なし" };
-        let mut rows = String::new();
-        for g in &st.groups {
-            rows.push_str(&self.render_group(g));
-        }
-        if rows.is_empty() {
-            rows = format!(
-                r#"<li class="empty muted">{}</li>"#,
-                if self.show_resolved {
-                    "エラーの記録はありません。"
-                } else {
-                    "未解決のエラーはありません。"
-                }
-            );
-        }
-        format!(
-            r#"<div class="ops-toolbar">
-  <label class="check"><input type="checkbox" data-ops="toggle-resolved" {checked} /> 解決済みも表示</label>
-  <span class="spacer"></span>
-  <span class="muted small"><span>Sentry:</span> <b>{sentry}</b> <span>· Slack 通知:</span> <b>{slack}</b> <span>· ログ形式:</span> <b translate="no">{fmt}</b></span>
-  <button type="button" class="quiet" data-ops="reload">更新</button>
-</div>
-<ul class="ops-errors">{rows}</ul>"#,
-            checked = if self.show_resolved { "checked" } else { "" },
-            sentry = on_off(st.sentry),
-            slack = on_off(st.slack),
-            fmt = escape(&st.log_format),
-        )
-    }
-
-    fn render_group(&self, g: &ErrorGroup) -> String {
-        let open = self.expanded.as_deref() == Some(g.id.as_str());
-        let source = match g.source {
-            ErrorSource::Server => "server",
-            ErrorSource::Client => "client",
-        };
-        let detail = if open {
-            let s = &g.sample;
-            let mut dl = String::new();
-            let mut row = |k: &str, v: String| {
-                if !v.is_empty() {
-                    dl.push_str(&format!("<dt>{k}</dt><dd>{v}</dd>"));
-                }
-            };
-            row("場所", escape(g.location.as_deref().unwrap_or("")));
-            row("最初", escape(&datetime(g.first_seen)));
-            row("最後", escape(&datetime(g.last_seen)));
-            row("版", escape(s.release.as_deref().unwrap_or("")));
-            row(
-                "利用者",
-                s.login
-                    .as_deref()
-                    .map(|l| format!("@{}", escape(l)))
-                    .unwrap_or_default(),
-            );
-            row(
-                "ボード",
-                s.board
-                    .as_deref()
-                    .map(|b| {
-                        format!(
-                            r#"<a href="?room={}" translate="no">{}</a>"#,
-                            http::encode(b),
-                            escape(b)
-                        )
-                    })
-                    .unwrap_or_default(),
-            );
-            row("ページ", escape(s.url.as_deref().unwrap_or("")));
-            row("ブラウザ", escape(s.user_agent.as_deref().unwrap_or("")));
-            let text = match &s.stack {
-                Some(st) => format!("{}\n\n{}", s.message, st),
-                None => s.message.clone(),
-            };
-            format!(
-                r#"<div class="ops-error-detail">
-  <dl>{dl}</dl>
-  <pre translate="no">{text}</pre>
-  <div class="actions">
-    <button type="button" data-ops="resolve" data-id="{id}">{resolve}</button>
-    <button type="button" class="quiet danger" data-ops="delete-error" data-id="{id}">記録を消す</button>
-  </div>
-</div>"#,
-                text = escape(&text),
-                id = escape(&g.id),
-                resolve = if g.resolved {
-                    "未解決に戻す"
-                } else {
-                    "解決済みにする"
-                },
-            )
-        } else {
-            String::new()
-        };
-        format!(
-            r#"<li class="ops-error" data-resolved="{resolved}">
-  <button type="button" class="ops-error-head" data-ops="expand" data-id="{id}" aria-expanded="{open}">
-    <span class="badge" data-source="{source}">{label}</span>
-    <span class="msg" translate="no">{msg}</span>
-    <span class="times">× {count}</span>
-    <span class="muted small">{ago}</span>
-  </button>
-  {detail}
-</li>"#,
-            resolved = g.resolved,
-            id = escape(&g.id),
-            label = g.source.label(),
-            msg = escape(&g.message),
-            count = g.count,
-            ago = escape(&crate::home::ago(g.last_seen)),
-        )
     }
 
     fn render_backups(&self) -> String {
@@ -486,67 +330,6 @@ fn install(ops: &Shared) {
 fn on_action(ops: &Shared, action: &str, id: String) {
     match action {
         "close" => close(),
-        "tab" => {
-            if let Some(tab) = Tab::parse(&id) {
-                let mut o = ops.borrow_mut();
-                o.tab = tab;
-                o.notice = None;
-                o.render();
-                drop(o);
-                load(ops.clone(), tab);
-            }
-        }
-        "reload" => wasm_bindgen_futures::spawn_local(load_errors(ops.clone())),
-        "toggle-resolved" => {
-            let mut o = ops.borrow_mut();
-            o.show_resolved = !o.show_resolved;
-            drop(o);
-            wasm_bindgen_futures::spawn_local(load_errors(ops.clone()));
-        }
-        "expand" => {
-            let mut o = ops.borrow_mut();
-            o.expanded = if o.expanded.as_deref() == Some(id.as_str()) {
-                None
-            } else {
-                Some(id)
-            };
-            o.render();
-        }
-        "resolve" => {
-            let resolved = !ops
-                .borrow()
-                .errors
-                .as_ref()
-                .and_then(|s| s.groups.iter().find(|g| g.id == id))
-                .is_some_and(|g| g.resolved);
-            let ops = ops.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let res = http::send::<_, ErrorGroup>(
-                    "PATCH",
-                    &format!("/admin/errors/{}", http::encode(&id)),
-                    &SetErrorResolved { resolved },
-                )
-                .await;
-                if let Err(e) = res {
-                    ops.borrow_mut().notice = Some((false, e.message()));
-                } else {
-                    ops.borrow_mut().expanded = None;
-                }
-                load_errors(ops).await;
-            });
-        }
-        "delete-error" => {
-            let ops = ops.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                let res =
-                    http::send_empty("DELETE", &format!("/admin/errors/{}", http::encode(&id)))
-                        .await;
-                if let Err(e) = res {
-                    ops.borrow_mut().notice = Some((false, e.message()));
-                }
-                load_errors(ops).await;
-            });
-        }
         "backup-now" => {
             {
                 let mut o = ops.borrow_mut();

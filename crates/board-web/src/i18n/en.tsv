@@ -957,23 +957,15 @@ SSO 自動参加	SSO auto-join
 カメラが見つかりません	No camera found
 カメラを他のアプリが使っています	Another app is using the camera
 カメラを使えません	Cannot use the camera
-データの保存場所	Data location
 移す	Move
-移しています…	Moving…
 このサーバー	This server
-グラボードのサーバーのディスク	Graboard server disk
 サーバーのディレクトリ	Server directory
-保存場所の変更	Data location changed
 運用	Operations
 エラー	Errors
 バックアップ	Backups
 解決済みも表示	Show resolved
 更新	Refresh
-· Slack 通知:	· Slack alerts:
-· ログ形式:	· Log format:
 有効	On
-エラーの記録はありません。	No errors recorded.
-未解決のエラーはありません。	No open errors.
 場所	Location
 最初	First seen
 最後	Last seen
@@ -982,8 +974,6 @@ SSO 自動参加	SSO auto-join
 ボード	Board
 ページ	Page
 ブラウザ	Browser
-未解決に戻す	Reopen
-解決済みにする	Mark resolved
 記録を消す	Delete record
 定期	Scheduled
 手動	Manual
@@ -1139,83 +1129,15 @@ AI が議論を整理しています…	AI is organizing the discussion…
 会議が終わったので文字起こしを止めました	The meeting ended, so transcription stopped
 文字起こしは共同編集のボードで、編集できる人だけ使えます	Transcription is available on shared boards to people who can edit
 文字起こしを全員の画面から消します。よろしいですか?	Delete the transcript for everyone?
-# 会議と予定(Zoom・Meet・Teams・カレンダー)
-会議に参加	Join meeting
-予定・参加	Schedule & join
-Zoom・Meet・Teams の会議とカレンダーの予定	Zoom, Meet and Teams meetings and calendar events
-次の会議	Next meeting
-会議の時間です	The meeting is starting
-開催中	Live
-まもなく開始	Starting soon
 終わりました	Ended
-時刻は未定	Time not set
-Zoom に参加 ↗	Join Zoom ↗
-Google Meet に参加 ↗	Join Google Meet ↗
-Microsoft Teams に参加 ↗	Join Microsoft Teams ↗
-オンライン会議 に参加 ↗	Join online meeting ↗
-会議 に参加 ↗	Join meeting ↗
-オンライン会議	Online meeting
-カレンダー	Calendar
-Google カレンダーに追加 ↗	Add to Google Calendar ↗
-.ics を保存(Outlook・Teams)	Save .ics (Outlook, Teams)
-予定の説明にボードの URL が入るので、カレンダーからボードを開けます。	The event description includes the board URL, so people can open the board from their calendar.
-カレンダーの予定を開く ↗	Open calendar event ↗
-会議の参加者に知らせる	Tell meeting participants
-招待文をコピー	Copy invitation
-Zoom・Meet・Teams の会議のチャットに貼ると、参加者がそこからボードを開けます。Teams ではチャネルやチャットの「+」から「Web サイト」タブにボードの URL を追加できます。参加者がボードを開けるよう、共有の設定も確かめてください。	Paste it into the Zoom, Meet or Teams meeting chat so participants can open the board from there. In Teams you can also add the board URL as a "Website" tab with "+" in a channel or chat. Check the sharing settings so participants can open the board.
 編集	Edit
-紐づけを外す	Unlink
 が設定	set this up
-まだ会議は紐づけられていません。編集できる人が Zoom・Meet・Teams の会議やカレンダーの予定を紐づけられます。	No meeting is linked yet. Editors can link a Zoom, Meet or Teams meeting or a calendar event.
-会議の URL	Meeting URL
-予定の名前	Event name
 例: 週次定例	e.g. Weekly sync
 終わり	End
-カレンダーの予定のリンク(任意)	Calendar event link (optional)
-Google カレンダーの予定を開き、「︙」→「予定の公開」などでリンクをコピーして貼ると、ボードから予定に戻れます。	Open the event in Google Calendar, copy its link (for example from "⋮" → "Publish event") and paste it here to get back to the event from the board.
-紐づけを外しました	Unlinked
-会議の URL か予定を入れてください	Enter a meeting URL or event details
-開始の時刻を入れると保存できます	Set a start time to save the event
-会議の URL は https:// で始まる形で入力してください	Enter a meeting URL that starts with https://
-会議の URL は Zoom・Google Meet・Microsoft Teams のものを入力してください	Enter a Zoom, Google Meet or Microsoft Teams meeting URL
-予定の URL は Google カレンダーか Outlook の予定のリンクを入力してください	Enter a Google Calendar or Outlook event link
-終わりの時刻は開始より後にしてください	The end time must be after the start time
-終わりだけでなく開始の時刻も入れてください	Enter a start time as well as an end time
-予定の長さは 24 時間までにしてください	Events can be up to 24 hours long
-会議を紐づけられるのは、ログインして作ったボードだけです	Meetings can only be linked to boards created while signed in
-プラン: 無料	Plan: Free
-プラン: プロ	Plan: Pro
-料金プラン	Plans
-今月の AI 機能	AI this month
-利用中	Current
-今のプラン	Current plan
-プロにアップグレード	Upgrade to Pro
-お支払いの管理	Manage billing
-無料	Free
 プロ	Pro
-{n} / 無制限	{n} / unlimited
 ボード {n} 個	{n} boards
-ボード 無制限	Unlimited boards
-AI 機能 月 {n} 回	AI {n} times / month
-AI 機能 無制限	Unlimited AI
 ボードのメンバー {n} 人まで	Up to {n} members per board
-ボードのメンバー 無制限	Unlimited members per board
 動画メモ {n} MB まで	Video memos up to {n} MB per board
-動画メモ 無制限	Unlimited video memos
-次の更新日: {n}年{n}月{n}日	Renews on {2}/{3}/{1}
-{n}年{n}月{n}日 に無料プランに戻ります(解約の予定)。	Returns to the Free plan on {2}/{3}/{1} (cancellation scheduled).
-お支払いを確認できていません。「お支払いの管理」から支払い方法を更新してください。	We couldn't confirm your payment. Update your payment method in "Manage billing".
-テストモードです。申し込んでも実際の請求は発生しません。	Test mode: you won't actually be charged.
-プランはボードのオーナーに付きます。メンバー数・動画メモはボードごと、AI 機能はオーナーの月ごとの回数で数えます。プランを下げても、今あるボードはそのまま残ります。	Plans belong to the board owner. Members and video memos are counted per board, AI per owner per month. Downgrading keeps your existing boards.
-お申し込みありがとうございます。プロプランになりました。	Thanks! You're now on the Pro plan.
-申し込みを取りやめました。プランは変わっていません。	Checkout canceled. Your plan hasn't changed.
-解約しました。無料プランに戻りました。	Subscription canceled. You're back on the Free plan.
-無料プランで持てるボードは {n} 個までです。ホーム画面の「プラン」からプロにすると増やせます	The Free plan allows up to {n} boards. Upgrade to Pro from "Plan" on the home screen for more.
-無料プランで 1 つのボードに招待できるのは {n} 人までです。ホーム画面の「プラン」からプロにすると増やせます	The Free plan allows up to {n} members per board. Upgrade to Pro from "Plan" on the home screen for more.
-無料プランで 1 つのボードに置ける動画メモは合計 {n} MB までです。ホーム画面の「プラン」からプロにすると増やせます	The Free plan allows up to {n} MB of video memos per board. Upgrade to Pro from "Plan" on the home screen for more.
-無料プランの AI 機能は 1 か月 {n} 回までです(今月の分を使い切りました)。ホーム画面の「プラン」からプロにすると増やせます	The Free plan includes {n} AI uses per month, and you've used them all. Upgrade to Pro from "Plan" on the home screen for more.
-このボードで AI 機能を使うにはログインしてください	Log in to use AI on this board
-料金プランの変更	Plan changed
 タグ・フォルダ	Tags & folder
 タグとフォルダを変える	Edit tags and folder
 お気に入りにする	Add to favorites
@@ -1382,35 +1304,12 @@ PDF の取り込みをやめました	Stopped importing the PDF
 ファイルを処理できません	Could not process the file
 {n} ページ目がありません	Page {n} does not exist
 PDF がまだ届いていません	The PDF has not arrived yet
-# 通報と利用停止
 理由	Reason
 その他	Other
 通報する	Report
-違法な内容	Illegal content
-情報の持ち出し・漏えい	Data exfiltration or leak
-嫌がらせ・差別	Harassment or discrimination
-スパム・詐欺	Spam or fraud
 禁止する	Disallow
-ボードの通報	Board reported
-ボードの利用停止	Board suspended
-ボードの利用停止を解除	Board suspension lifted
-通報への対応	Report handled
 サーバーの設定変更	Server settings changed
-利用停止にすると、そのボードは誰も開けなくなり、つないでいる人も切断されます(内容は消えません)。	Suspending blocks everyone from the board and disconnects current users (content is kept).
-このボードは利用停止されています	This board has been suspended
-通報を受けて、管理者がこのボードを開けないようにしました。心当たりがない場合は、サーバーやチームの管理者に問い合わせてください。	An admin blocked this board after a report. If you think this is a mistake, contact your server or team admin.
 通報	Reports
-全体の通報	All reports
-未対応	Open
-対応済み	Resolved
-問題なし	No issue
-利用停止にする	Suspend
-利用停止を解除	Lift suspension
-利用停止中	Suspended
-対応済みにする	Mark resolved
-添えられたボードの文字	Attached board text
-通報はありません。	No reports.
-共有リンクから開いた人	Someone who opened the share link
 有効	On
 無効	Off
 オンにする	Turn on

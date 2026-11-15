@@ -45,18 +45,3 @@ jobs:
         with:
           name: web-dist
           path: crates/board-web/dist
-
-  terraform:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: deploy/gcp/terraform
-    steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
-      - name: fmt
-        run: terraform fmt -check -recursive
-      - name: validate
-        run: terraform init -backend=false -input=false && terraform validate
-      - name: deploy.sh
-        run: bash -n ../deploy.sh

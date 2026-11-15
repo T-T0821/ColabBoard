@@ -46,10 +46,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 use crate::api::Error;
+use crate::api::require_admin;
 use crate::audit::{self, Entry as AuditEntry};
 use crate::auth::{UserRecord, now_ms};
 use crate::boards::{self, BoardMeta};
-use crate::errors::require_admin;
 use crate::room::Hub;
 use crate::storage::{self, Blob, DirBlob};
 use crate::store::{
@@ -218,12 +218,6 @@ impl<W: Write> Writer<W> {
         }
         self.bytes(value)
     }
-    fn blob(&mut self, location: &str, key: &str, value: &[u8]) -> std::io::Result<()> {
-        self.w.write_all(&[2])?;
-        self.str(location)?;
-        self.str(key)?;
-        self.bytes(value)
-    }
 }
 
 /// 中身の数。
@@ -262,32 +256,16 @@ pub fn dump(store: &Store) -> Result<(Vec<u8>, DumpStats), StoreError> {
         }
     }
     drop(txn);
-    // チームの保存場所に置いたボードの中身とバージョン。
     for meta in store.scan_all_json::<BoardMeta>(crate::store::BOARDS)? {
         if !meta.deleted {
             stats.boards += 1;
-        }
-        let Some(loc) = store.location_of(&meta.id).ok().flatten() else {
-            continue;
-        };
-        let key = storage::board_key(&meta.id);
-        if let Some(b) = loc.blob.get(&key)? {
-            records.blob(&loc.id, &key, &b)?;
-            stats.records += 1;
-        }
-        for vid in store.seq_ids(VERSION_INFO, &meta.id)? {
-            let key = storage::version_key(&meta.id, vid);
-            if let Some(b) = loc.blob.get(&key)? {
-                records.blob(&loc.id, &key, &b)?;
-                stats.records += 1;
-            }
         }
     }
     records.w.push(0);
     let header = Header {
         format: FORMAT,
         created: now_ms(),
-        release: crate::errors::RELEASE.into(),
+        release: crate::logging::RELEASE.into(),
         tables,
         skipped: stats.skipped.clone(),
     };
@@ -425,12 +403,10 @@ impl<'a> Reader<'a> {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RestoreAllStats {
     pub records: usize,
-    /// 保存場所が設定されていないので、このサーバーに置いた中身の数。
-    pub blobs_kept_local: usize,
 }
 
-/// バックアップを(空の)ストアに丸ごと書き込む。チームの保存場所に置いていた中身は、
-/// その保存場所が設定されていればそこへ、なければこのサーバーに戻す。
+/// バックアップを(空の)ストアに丸ごと書き込む。以前の版の「チームの保存場所」に
+/// 置いていた中身も、このサーバーに戻す。
 pub fn restore_all(store: &Store, data: &BackupData) -> Result<RestoreAllStats, StoreError> {
     let mut stats = RestoreAllStats::default();
     let txn = store.database().begin_write()?;
@@ -471,12 +447,8 @@ pub fn restore_all(store: &Store, data: &BackupData) -> Result<RestoreAllStats, 
             continue;
         };
         stats.records += 1;
-        if let Some(loc) = store.location(location) {
-            loc.blob.put(key, value)?;
-            continue;
-        }
-        stats.blobs_kept_local += 1;
-        tracing::warn!(location = %location, key = %key, "保存場所が設定されていないので、このサーバーに戻します");
+        // 以前の版の「チームの保存場所」に置いていた中身は、このサーバーに戻す。
+        tracing::info!(location = %location, key = %key, "外部の保存場所にあった中身をこのサーバーに戻します");
         put_local_blob(store, key, value)?;
     }
     Ok(stats)
@@ -490,12 +462,12 @@ fn put_local_blob(store: &Store, key: &str, value: &[u8]) -> Result<(), StoreErr
     if let Some(id) = rest.strip_suffix(".ybin")
         && !id.contains('/')
     {
-        return store.save_at(None, id, value);
+        return store.save(id, value);
     }
     if let Some((id, v)) = rest.split_once("/versions/")
         && let Some(vid) = v.strip_suffix(".ybin").and_then(|v| v.parse().ok())
     {
-        return store.version_put_at(None, id, vid, value);
+        return store.version_put(id, vid, value);
     }
     Err(format!("知らないキーです: {key}").into())
 }
@@ -574,7 +546,7 @@ pub fn restore_board(
         .filter(|m| !m.deleted)
         .ok_or(RestoreError::NotFound)?;
     let state = data.board_state(id).unwrap_or(&[]).to_vec();
-    let when = crate::errors::rfc3339(data.header.created + 9 * 3600 * 1000);
+    let when = crate::logging::rfc3339(data.header.created + 9 * 3600 * 1000);
     let when = when.get(..16).unwrap_or(&when).replace('T', " ");
     match boards::get(store, id)? {
         Some(cur) if !cur.deleted => {
@@ -909,7 +881,7 @@ impl Backups {
                 let me = self.clone();
                 match tokio::task::spawn_blocking(move || me.create("auto", None)).await {
                     Ok(Ok(_)) => {}
-                    // ERROR にしておけばエラー監視の通知(Slack・Sentry)に載る。
+                    // 失敗はログの ERROR に出す。
                     Ok(Err(e)) => tracing::error!("定期バックアップに失敗しました: {e}"),
                     Err(e) => tracing::error!("定期バックアップが止まりました: {e}"),
                 }
@@ -993,7 +965,7 @@ async fn download(
         .ok_or_else(not_found)?;
     let name = format!(
         "graboard-{}.grabak.gz",
-        crate::errors::rfc3339(id / 1000)
+        crate::logging::rfc3339(id / 1000)
             .get(..19)
             .unwrap_or("backup")
             .replace([':', 'T'], "-")

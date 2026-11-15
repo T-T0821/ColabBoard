@@ -41,9 +41,6 @@ pub struct BoardMeta {
     /// GitHub のリポジトリとのつながり。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub github: Option<crate::github::GithubHook>,
-    /// 紐づけた会議(Zoom・Meet・Teams)とカレンダーの予定。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub meeting_link: Option<board_core::meeting_link::MeetingLink>,
     /// Web に公開中か(公開ページの URL の鍵)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public: Option<PublicShare>,
@@ -56,16 +53,6 @@ pub struct BoardMeta {
     /// チームのメンバーに与える権限(省略時は編集可)。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team_access: Option<Role>,
-    /// 管理者が利用停止にした(通報への対応)。誰も開けなくなる。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub suspended: Option<Suspension>,
-}
-
-/// 利用停止の記録。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Suspension {
-    pub by: String,
-    pub at: u64,
 }
 
 impl BoardMeta {
@@ -245,12 +232,10 @@ pub fn create(
             embed: None,
             slack: None,
             github: None,
-            meeting_link: None,
             public: None,
             deleted: false,
             team: team.map(str::to_string),
             team_access: None,
-            suspended: None,
         };
         // ID がぶつかるのはまずないが、ぶつかったら作り直す。既存の(情報のない)ルームとも避ける。
         if store.load(&meta.id)?.is_some() {
@@ -517,12 +502,10 @@ mod tests {
             embed: None,
             slack: None,
             github: None,
-            meeting_link: None,
             public: None,
             deleted: false,
             team: None,
             team_access: None,
-            suspended: None,
         }
     }
 

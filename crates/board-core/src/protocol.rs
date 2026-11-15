@@ -48,8 +48,7 @@ const REFRESH: u8 = 0x10;
 pub const TOPIC_COMMENTS: u8 = 1;
 /// [`Message::Refresh`] の話題: バージョン履歴が変わった。
 pub const TOPIC_VERSIONS: u8 = 2;
-/// [`Message::Refresh`] の話題: ボードに紐づけた会議・予定が変わった。
-pub const TOPIC_MEETING_LINK: u8 = 3;
+// 3 は以前の「会議・予定の紐づけ」で使っていた(欠番)。
 
 /// 名前の最大バイト数(超えた分は切り詰める)。
 pub const MAX_NAME_BYTES: usize = 64;

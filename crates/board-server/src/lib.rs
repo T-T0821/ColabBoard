@@ -4,10 +4,9 @@
 //! - `GET /p/{board}/{slug}`: Web に公開したボードのページと OGP 画像([`public`])。
 //! - `/api/boards/{id}/media`: 動画メモの保存と配信([`media`])。
 //! - `GET /api/rtc`: 音声通話の ICE サーバー。通話の接続手順は WebSocket で中継する。
-//! - `/api/billing/...`: 料金プランと Stripe での支払い([`billing`])。
 //! - `/api/v1/...`: 外部からボードを操作する REST API([`rest`])。API トークン([`tokens`])でも呼べる。
-//! - `/api/errors`・`/api/admin/...`: エラー監視([`errors`])と定期バックアップ・復元([`backup`])。
-//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])・会議の進行役([`ai_meeting`])、Slack 通知([`slack`])、メール・プッシュ通知([`notify`])、会議・カレンダーの紐づけ([`meeting_link`])、GitHub・Jira の課題カード([`issues`])、自作テンプレートのギャラリー([`templates`])、ボードの GitHub での管理([`github`])。
+//! - `/api/admin/backups...`: 定期バックアップ・復元([`backup`])。
+//! - `/api/...`: アカウント・ボード一覧・共有設定([`api`])、AI による付箋の要約・クラスタリング([`ai`])・図の生成([`ai_diagram`])・手書きの整形([`ai_ink`])・議事録/マインドマップ/質問応答([`ai_board`])・会議の進行役([`ai_meeting`])、Slack 通知([`slack`])、メール・プッシュ通知([`notify`])、自作テンプレートのギャラリー([`templates`])、ボードの GitHub での管理([`github`])。
 //! - それ以外: 静的ファイル(ビルド済みの Web クライアント)。
 //!
 //! サーバーはルームごとに yrs ドキュメントを持ち、届いた更新を取り込んで同じルームの
@@ -23,18 +22,15 @@ pub mod api;
 pub mod audit;
 pub mod auth;
 pub mod backup;
-pub mod billing;
 pub mod boards;
 pub mod comments;
 #[cfg(feature = "embed")]
 mod embedded;
-pub mod errors;
 pub mod github;
 pub mod guard;
-pub mod issues;
 pub mod local_ai;
+pub mod logging;
 pub mod media;
-pub mod meeting_link;
 pub mod notify;
 pub mod og;
 
@@ -42,7 +38,6 @@ pub mod oidc;
 pub mod p2p;
 pub mod plugins;
 pub mod public;
-pub mod reports;
 pub mod rest;
 pub mod room;
 pub mod search;
@@ -95,14 +90,10 @@ pub struct Config {
     pub slack: slack::SlackConfig,
     /// WASM プラグイン。
     pub plugins: plugins::PluginConfig,
-    /// GitHub・Jira の課題カード。
-    pub issues: issues::IssuesConfig,
     /// ボードを GitHub のリポジトリで管理する。
     pub github: github::GithubConfig,
     /// 音声通話の ICE サーバー(`RTCIceServer` の配列)。`GET /api/rtc` で配る。
     pub ice_servers: serde_json::Value,
-    /// 会議の URL として受け付ける、Zoom・Meet・Teams 以外のドメイン(`MEETING_HOSTS`)。
-    pub meeting_hosts: Vec<String>,
     /// `?embed=1` のページを iframe で埋め込んでよいサイト(CSP の `frame-ancestors` の値)。
     /// それ以外のページは同じサイトからしか埋め込めない。
     pub embed_origins: String,
@@ -120,14 +111,10 @@ pub struct Config {
     pub local_ai: local_ai::LocalAiConfig,
     /// サーバーを通さない直接接続(P2P)を許すか。チームごとにも止められる。
     pub p2p: bool,
-    /// エラー監視(集めたエラーの置き場)。
-    pub monitor: Arc<errors::Monitor>,
     /// 定期バックアップ。`None` なら無効。
     pub backups: Option<Arc<backup::Backups>>,
     /// メール・プッシュ通知(既定はどちらも使わない)。
     pub notifier: Arc<notify::Notifier>,
-    /// 料金プランと支払い(Stripe)。既定は使わない。
-    pub billing: billing::BillingConfig,
 }
 
 impl Config {
@@ -166,10 +153,8 @@ impl Default for Config {
             ai: None,
             slack: slack::SlackConfig::default(),
             plugins: plugins::PluginConfig::default(),
-            issues: issues::IssuesConfig::default(),
             github: github::GithubConfig::default(),
             ice_servers: default_ice_servers(),
-            meeting_hosts: Vec::new(),
             embed_origins: "*".into(),
             admins: Vec::new(),
             trust_proxy: false,
@@ -178,10 +163,8 @@ impl Default for Config {
             limits: guard::Limits::default(),
             local_ai: local_ai::LocalAiConfig::default(),
             p2p: true,
-            monitor: Arc::new(errors::Monitor::new()),
             backups: None,
             notifier: Arc::new(notify::Notifier::default()),
-            billing: billing::BillingConfig::default(),
         }
     }
 }
@@ -195,8 +178,6 @@ pub struct AppState {
     /// OGP 画像の文字に使うフォント(Web クライアントと同じもの)。
     pub font: Option<ab_glyph::FontArc>,
     pub guard: Arc<guard::Guard>,
-    /// テスト決済の申し込み(`BILLING=mock` のとき)。
-    pub billing_mock: billing::MockSessions,
 }
 
 impl AppState {
@@ -216,7 +197,6 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
         og: public::OgCache::default(),
         font,
         guard,
-        billing_mock: billing::MockSessions::default(),
     });
     let app = Router::new()
         .route("/ws/{room}", get(ws_handler))
@@ -233,7 +213,6 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
             post(ai_meeting::facilitate),
         )
         .route("/api/ai/status", get(ai_diagram::status))
-        .route("/api/boards/{id}/issues", post(issues::lookup))
         .route(
             "/api/boards/{id}/github",
             get(github::get_link)
@@ -266,12 +245,9 @@ pub fn router(hub: Arc<Hub>, mut config: Config) -> Router {
                 .merge(teams::routes())
                 .merge(templates::routes())
                 .merge(audit::routes())
-                .merge(errors::routes())
                 .merge(backup::routes())
                 .merge(oidc::routes())
-                .merge(reports::routes())
                 .merge(notify::routes())
-                .merge(billing::routes())
                 .merge(search::routes()),
         )
         .layer(axum::middleware::from_fn_with_state(

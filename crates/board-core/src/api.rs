@@ -45,9 +45,6 @@
 //! | `GET` | `/api/boards/{id}/github/status?key=` | ボードとリポジトリのどちらが変わったか([`GithubStatus`]、編集者以上) |
 //! | `POST` | `/api/boards/{id}/github/sync?key=` | 同期・コミット・プルリクエスト・読み込み([`GithubSyncRequest`] → [`GithubSyncResult`]、編集者以上) |
 //! | `POST` | `/api/github/webhook` | GitHub の push を受けて、自動取り込みのボードにマージする(`GITHUB_WEBHOOK_SECRET` の署名つき) |
-//! | `POST` | `/api/boards/{id}/issues?key=` | GitHub・Jira の課題の状態を引く([`IssueQuery`] → [`IssueLookup`] の配列、編集者以上) |
-//! | `GET` | `/api/boards/{id}/meeting-link?key=` | 紐づけた会議と予定([`MeetingLink`](crate::meeting_link::MeetingLink)、閲覧者以上) |
-//! | `PUT` | `/api/boards/{id}/meeting-link?key=` | 会議と予定を紐づける・外す([`SetMeetingLink`](crate::meeting_link::SetMeetingLink) → `MeetingLink`、編集者以上・要ログイン) |
 //! | `PUT` | `/api/boards/{id}/team` | チームへ移す・チームから外す([`SetBoardTeam`] → [`BoardInfo`]、オーナーのみ) |
 //! | `GET` | `/api/teams` | 自分の入っているチーム([`TeamInfo`] の配列) |
 //! | `POST` | `/api/teams` | チームを作る([`NewTeam`] → [`Team`]、作った人がオーナー) |
@@ -56,8 +53,6 @@
 //! | `DELETE` | `/api/teams/{tid}` | チームを消す(オーナーのみ。ボードは作った人の個人ボードに戻る) |
 //! | `PUT` | `/api/teams/{tid}/members` | メンバーの追加・変更・削除([`SetTeamMember`] → [`Team`]) |
 //! | `PUT` | `/api/teams/{tid}/sso` | SSO 自動参加ドメインの設定([`TeamSso`] → [`Team`]、サーバー管理者のみ) |
-//! | `GET` | `/api/storage` | 選べるデータの保存場所([`StorageLocation`] の配列、要ログイン) |
-//! | `PUT` | `/api/teams/{tid}/storage` | チームのボードの保存場所を変え、中身を移す([`SetTeamStorage`] → [`Team`]、チームのオーナーのみ) |
 //! | `PUT` | `/api/teams/{tid}/p2p` | チームのボードで直接接続(P2P)を許すか([`SetTeamP2p`] → [`Team`]、チームの管理者以上) |
 //! | `GET` | `/api/boards/{id}/p2p?key=` | このボードで直接接続を使えるか([`P2pPolicy`]、閲覧者以上) |
 //! | `POST` | `/api/boards/{id}/p2p/events?key=` | 直接接続を使った記録([`P2pEvent`] の配列。中身は送らない。操作ログに残る) |
@@ -71,13 +66,9 @@
 //! | `GET` | `/api/sso/oidc/start?next=` | OpenID Connect でログインを始める(IdP へリダイレクト) |
 //! | `GET` | `/api/audit?team=&before=&limit=&action=` | 操作ログ([`AuditEvent`] の配列、新しい順。`team` 指定はチームの管理者、なしはサーバー管理者) |
 //! | `GET` | `/api/audit/export?team=&format=csv\|jsonl` | 操作ログの書き出し(CSV か JSON Lines) |
-//! | `GET` | `/api/billing` | 自分の料金プランと今月の利用状況([`Billing`]、要ログイン) |
-//! | `POST` | `/api/billing/checkout` | 有料プランの申し込みを始める([`BillingRedirect`]、Stripe Checkout の URL) |
-//! | `POST` | `/api/billing/portal` | 支払い方法の変更・解約の画面([`BillingRedirect`]、Stripe カスタマーポータルの URL) |
-//! | `POST` | `/api/billing/webhook` | Stripe からの通知(署名を確かめる) |
 //!
 //!
-//! エラー監視とバックアップ(サーバー管理者向け)は [`ops`] を参照。
+//! バックアップ(サーバー管理者向け)は [`ops`] を参照。
 //!
 //! 失敗したときは HTTP ステータスと [`ApiError`] を返す。
 
@@ -184,84 +175,6 @@ pub struct BoardInfo {
     /// 自分だけの整理(お気に入り・タグ・フォルダ・最後に開いた時刻)。
     #[serde(flatten, default)]
     pub labels: BoardLabels,
-}
-
-/// 通報の理由。
-pub const REPORT_REASONS: &[(&str, &str)] = &[
-    ("illegal", "違法な内容"),
-    ("leak", "情報の持ち出し・漏えい"),
-    ("harassment", "嫌がらせ・差別"),
-    ("spam", "スパム・詐欺"),
-    ("other", "その他"),
-];
-
-/// 通報の理由の表示名(知らないものはそのまま)。
-pub fn report_reason_label(id: &str) -> &str {
-    REPORT_REASONS
-        .iter()
-        .find(|(k, _)| *k == id)
-        .map_or(id, |(_, v)| v)
-}
-
-/// ボードを通報する。
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct NewReport {
-    /// [`REPORT_REASONS`] のどれか。
-    pub reason: String,
-    #[serde(default)]
-    pub comment: String,
-    /// 通報した人が自分の判断で添えた、ボードの文字。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub evidence: Option<String>,
-}
-
-/// 通報の対応状況。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ReportStatus {
-    #[default]
-    Open,
-    /// 対応した(利用停止など)。
-    Resolved,
-    /// 問題なしとした。
-    Dismissed,
-}
-
-/// 届いた通報。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Report {
-    pub id: u64,
-    pub at: u64,
-    pub board: String,
-    pub board_title: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub team: Option<String>,
-    /// 通報した人のログイン名(共有リンクから匿名で開いた人は `None`)。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reporter: Option<String>,
-    pub reason: String,
-    #[serde(default)]
-    pub comment: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub evidence: Option<String>,
-    #[serde(default)]
-    pub status: ReportStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub handled_by: Option<String>,
-    #[serde(default)]
-    pub handled_at: u64,
-    /// 今そのボードが利用停止中か(一覧を返すときに埋める)。
-    #[serde(default)]
-    pub suspended: bool,
-}
-
-/// 通報に対応する(サーバー管理者か、チームのボードならチームの管理者)。
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HandleReport {
-    pub status: ReportStatus,
-    /// ボードを利用停止にする(`Some(false)` で解除)。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub suspend: Option<bool>,
 }
 
 /// ボードに自分で付ける整理の印。ほかの人には見えない。
@@ -517,29 +430,9 @@ pub struct Team {
     /// SSO でログインした人のメールがこのドメインなら、自動でメンバーにする。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sso_domains: Vec<String>,
-    /// チームのボードの中身を置く場所の ID([`StorageLocation`])。`None` はこのサーバー。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub storage: Option<String>,
     /// チームのボードでサーバーを通さない直接接続(P2P)を止めているか。
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub p2p_disabled: bool,
-}
-
-/// サーバーの管理者が用意したデータの保存場所。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StorageLocation {
-    /// `local` はこのサーバー。
-    pub id: String,
-    pub label: String,
-    /// 種類と所在(`S3 互換(ap-northeast-1)` など)。
-    pub description: String,
-}
-
-/// チームの保存場所を変える。`location` が `None` か `local` ならこのサーバーに戻す。
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-pub struct SetTeamStorage {
-    #[serde(default)]
-    pub location: Option<String>,
 }
 
 /// SSO 自動参加ドメインの設定。
@@ -829,20 +722,14 @@ impl AuditEvent {
             "team.delete" => "チーム削除",
             "team.member" => "チームのメンバー変更",
             "team.settings" => "チームの設定変更",
-            "team.storage" => "保存場所の変更",
             "team.p2p" => "直接接続(P2P)の設定変更",
             "p2p.invite" => "直接接続の招待",
             "p2p.join" => "直接接続で参加",
             "p2p.connect" => "直接接続でつながった",
             "p2p.disconnect" => "直接接続の切断",
             "p2p.report" => "直接接続の相手を通報",
-            "billing.plan" => "料金プランの変更",
             "token.create" => "API トークン作成",
             "token.revoke" => "API トークン失効",
-            "board.report" => "ボードの通報",
-            "board.suspend" => "ボードの利用停止",
-            "board.unsuspend" => "ボードの利用停止を解除",
-            "report.handle" => "通報への対応",
             "server.settings" => "サーバーの設定変更",
             "template.create" => "テンプレート作成",
             "template.update" => "テンプレートの変更",
@@ -1271,78 +1158,6 @@ pub struct GithubSyncResult {
     pub link: GithubLink,
 }
 
-/// 課題の置き場所。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum IssueProvider {
-    Github,
-    Jira,
-}
-
-impl IssueProvider {
-    pub fn label(self) -> &'static str {
-        match self {
-            IssueProvider::Github => "GitHub",
-            IssueProvider::Jira => "Jira",
-        }
-    }
-
-    pub fn as_str(self) -> &'static str {
-        match self {
-            IssueProvider::Github => "github",
-            IssueProvider::Jira => "jira",
-        }
-    }
-}
-
-/// 課題の状態を大まかに分けたもの(カードの色に使う)。
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum IssueState {
-    /// 未着手・オープン。
-    Open,
-    /// 進行中(Jira の「進行中」カテゴリ、GitHub の下書き PR)。
-    InProgress,
-    /// 完了(クローズ・マージ・Jira の完了カテゴリ)。
-    Done,
-    /// 対応しないで閉じた。
-    Closed,
-}
-
-/// 課題 1 件の情報。
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct IssueInfo {
-    pub provider: IssueProvider,
-    /// 表示用の番号(`owner/repo#12`、`PROJ-34`)。
-    pub key: String,
-    pub title: String,
-    pub state: IssueState,
-    /// サービス上の状態の名前(`Open`、`Merged`、`進行中` など)。
-    pub status: String,
-    /// 担当者(いなければ `None`)。
-    #[serde(default)]
-    pub assignee: Option<String>,
-    /// プルリクエストか。
-    #[serde(default)]
-    pub pull: bool,
-    pub url: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct IssueQuery {
-    pub urls: Vec<String>,
-}
-
-/// 1 件分の結果。取れなければ `error`。
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct IssueLookup {
-    pub url: String,
-    #[serde(default)]
-    pub issue: Option<IssueInfo>,
-    #[serde(default)]
-    pub error: Option<String>,
-}
-
 /// 本文から `@ログイン名` を拾う(重複なし、出てきた順)。
 pub fn mentions_in(body: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -1370,84 +1185,6 @@ pub fn valid_login(s: &str) -> bool {
     (3..=32).contains(&s.len())
         && s.bytes()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
-}
-
-/// 料金プラン。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PlanId {
-    #[default]
-    Free,
-    Pro,
-}
-
-impl PlanId {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            PlanId::Free => "free",
-            PlanId::Pro => "pro",
-        }
-    }
-}
-
-/// プランごとの上限。`0` は無制限。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PlanLimits {
-    /// 自分が持てるボードの数。
-    pub boards: u32,
-    /// AI 機能を呼べる回数(1 か月あたり)。
-    pub ai_per_month: u32,
-    /// 1 つのボードに招待できるメンバーの数(オーナーを除く)。
-    pub members_per_board: u32,
-    /// 1 つのボードに置ける動画メモの合計(MB)。
-    pub media_mb_per_board: u32,
-}
-
-/// 選べるプラン(料金画面の表示用)。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct PlanOffer {
-    pub id: PlanId,
-    pub name: String,
-    /// 表示用の値段(`¥1,200 / 月` など)。
-    pub price: String,
-    pub limits: PlanLimits,
-}
-
-/// 今月の利用状況。
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Usage {
-    pub boards: u32,
-    pub ai_this_month: u32,
-}
-
-/// 自分の料金プラン。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Billing {
-    /// `off`(このサーバーでは料金プランを使わない)・`mock`(テスト用の決済)・`stripe`。
-    pub mode: String,
-    pub plan: PlanId,
-    /// Stripe のサブスクリプションの状態(`active`・`past_due`・`canceled` など)。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub status: Option<String>,
-    /// 今の請求期間の終わり(UNIX ミリ秒)。
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub period_end: Option<u64>,
-    /// 期間の終わりで解約する予定か。
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub cancel_at_period_end: bool,
-    /// 支払いの管理(カスタマーポータル)を開けるか。
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub can_manage: bool,
-    pub limits: PlanLimits,
-    pub usage: Usage,
-    #[serde(default)]
-    pub plans: Vec<PlanOffer>,
-}
-
-/// 決済・ポータルの画面へ移る先。
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct BillingRedirect {
-    pub url: String,
 }
 
 #[cfg(test)]

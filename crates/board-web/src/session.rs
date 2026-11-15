@@ -22,8 +22,6 @@ pub enum Access {
     Granted(BoardInfo),
     /// 権限がない(またはボードがない)。
     Denied,
-    /// 通報を受けて管理者が利用停止にした。
-    Suspended,
     /// API のないサーバー・つながらない。従来どおり誰でも編集できるものとして扱う。
     Unavailable,
 }
@@ -31,7 +29,6 @@ pub enum Access {
 pub async fn check_access(room: &str, key: Option<&str>) -> Access {
     match http::get::<BoardInfo>(&http::board_path(room, key, "")).await {
         Ok(info) => Access::Granted(info),
-        Err(HttpError::Status(403, m)) if m.contains("利用停止") => Access::Suspended,
         Err(HttpError::Status(403 | 404, _)) => Access::Denied,
         Err(HttpError::Status(s, m)) => {
             log::warn!("ボード情報を取得できません({s}): {m}");
@@ -81,26 +78,6 @@ pub fn show_denied(document: &Document, logged_in: bool, revoked: bool) {
             "ボードが見つからないか、ログインが必要です。"
         },
     ));
-    if let Ok(root) = root.dyn_into::<HtmlElement>() {
-        root.set_hidden(false);
-    }
-}
-
-/// 管理者が利用停止にしたボードの画面。
-pub fn show_suspended(document: &Document) {
-    let Some(root) = document.get_element_by_id("home") else {
-        return;
-    };
-    if let Some(body) = document.body() {
-        let _ = body.class_list().add_1("home-mode");
-    }
-    root.set_inner_html(
-        r#"<div class="home-card auth">
-  <h1>このボードは利用停止されています</h1>
-  <p class="muted">通報を受けて、管理者がこのボードを開けないようにしました。心当たりがない場合は、サーバーやチームの管理者に問い合わせてください。</p>
-  <p class="row"><a class="button" href="./">ボード一覧へ</a></p>
-</div>"#,
-    );
     if let Ok(root) = root.dyn_into::<HtmlElement>() {
         root.set_hidden(false);
     }

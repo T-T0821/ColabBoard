@@ -383,7 +383,7 @@ fn main() {
                     }
                 })
                 .on_new_window(move |url, _features| {
-                    // `window.open` / `target=_blank`(課題カード・共有リンクなど)は既定のブラウザで開く。
+                    // `window.open` / `target=_blank`(共有リンクなど)は既定のブラウザで開く。
                     if matches!(url.scheme(), "http" | "https" | "mailto") {
                         let _ = open_handle.opener().open_url(url.as_str(), None::<&str>);
                         tauri::webview::NewWindowResponse::Deny
