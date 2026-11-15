@@ -1,0 +1,55 @@
+name: Pages
+
+# main に入るたびに、サーバーなしで動くデモ版を GitHub Pages に公開する。
+# 初回だけ、リポジトリの Settings → Pages で Source を「GitHub Actions」にする。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 公開が重なったら、新しいほうだけ残す。
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: trunk
+      # Pages は https://<owner>.github.io/<リポジトリ名>/ で配信するので、その下を基準にする。
+      - name: trunk build
+        working-directory: crates/board-web
+        run: trunk build --release --public-url "/${{ github.event.repository.name }}/"
+      # Pages は自分で圧縮して返すので、配信用に作った .br / .gz は要らない。
+      - name: remove precompressed files
+        run: find crates/board-web/dist -name '*.br' -delete -o -name '*.gz' -delete
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: crates/board-web/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
