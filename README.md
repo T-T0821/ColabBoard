@@ -167,6 +167,8 @@ cargo run -p board-server --release
 **デスクトップアプリ**(Windows・macOS・Linux): `crates/board-desktop` を Tauri でビルドすると、サーバーを内蔵したアプリになる。この PC だけでオフラインで使うことも、チームのサーバーにつないで共同編集することもできる。ビルドと使い方は [docs/desktop.md](docs/desktop.md)。
 
 サーバーなしで試すだけなら、`cd crates/board-web && trunk serve` で開いたページがそのタブだけで動く(サーバーが見つからないと自動でオフラインになる)。
+
+**デモ版**: main に入るたびに、サーバーなしで動く版を GitHub Pages に公開する([.github/workflows/pages.yml](.github/workflows/pages.yml))。編集・端末への保存・直接つなぐ(P2P)・ブラウザ内 AI は使えるが、ログインやボード一覧、URL を開くだけの共同編集、通話、Claude を使う AI 機能など、サーバーが要る機能は使えない。フォークで公開するときは、Settings → Pages で Source を「GitHub Actions」にする。
 クライアントを編集しながら開発するときは、サーバーを起動したまま `trunk serve` を使う(`/ws` はサーバーへ中継される)。
 
 ### Dev Container で開発する
